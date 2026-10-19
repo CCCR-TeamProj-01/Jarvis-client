@@ -2,6 +2,8 @@
 
 Electron 실행 공간과 클라이언트 모듈의 원본 문서다. 서버 내부 역할은 [서버 연동](server-integration.md)을 참조한다.
 
+모듈 사이의 데이터·호출·오류·좌표·시간·자원 정리 규칙은 [클라이언트 공통 인터페이스](client-interfaces.md)를 따른다.
+
 ## 전체 아키텍처
 
 ```mermaid

@@ -4,35 +4,35 @@
       "id": "F-003",
       "title": "UI·Main 명령·상태·IPC 계약 구현",
       "description": "화면과 Main 사이의 기능 호출·중지·일시 중지·상태 조회에 사용할 TypeScript 데이터 계약과 제한된 공개 API 타입·검증 스키마를 구현한다.",
-      "status": "todo",
+      "status": "in_progress",
       "issue": 2
     },
     {
       "id": "F-004",
       "title": "센서 사용권·장치·권한 계약 구현",
       "description": "센서 소비 기능과 센서 관리자 사이에 공유할 장치·권한·사용권 데이터 타입과 요청·반납 포트를 구현한다.",
-      "status": "todo",
+      "status": "in_progress",
       "issue": 2
     },
     {
       "id": "F-005",
       "title": "손 추적 데이터·제스처·OS 입력 포트 구현",
       "description": "손 인식 Worker·GestureController·OS 입력 어댑터를 독립적으로 구현할 수 있도록 관측 데이터와 실행 포트를 코드로 정의한다.",
-      "status": "todo",
+      "status": "in_progress",
       "issue": 2
     },
     {
       "id": "F-006",
       "title": "앱 도구 요청·실행 결과 계약 구현",
       "description": "로컬 도구 실행기와 플랫폼별 앱 어댑터가 사용할 도구별 인자·실행 결과·취소·만료 타입과 입력 검증을 구현한다.",
-      "status": "todo",
+      "status": "in_progress",
       "issue": 2
     },
     {
       "id": "F-007",
       "title": "로컬 음성 캡처·완료 발화·재생 계약 구현",
       "description": "캡처·VAD·음성 세션·오디오 재생 사이의 로컬 데이터와 제어 포트를 구현하고 기존 음성 타입에서 서버 요청 메타데이터를 분리한다.",
-      "status": "todo",
+      "status": "in_progress",
       "issue": 2
     }
   ]
