@@ -27,7 +27,10 @@ pnpm build
 - `src/workers`: 영상 추론 Worker 자리
 - `src/inference`: 로컬 KWS·VAD 프로세스 어댑터 자리
 - `src/main/speech`: 음성 세션과 서버 STT·TTS 연동 자리
-- `src/shared/speech-protocol`: 발화·서버 음성 결과의 공유 타입
+- `src/shared/contracts`: UI·센서·제스처·도구·로컬 음성 데이터와 검증 스키마
+- `src/shared/ipc`: UI·Media Renderer의 제한된 공개 API 계약
 - `docs`: 기능 명세, 아키텍처, 검증 계획
 
 기능 구현 기준은 [문서 목차](docs/README.md)를 참고하세요. 클라이언트에는 STT·TTS 모델을 넣지 않으며 로컬 KWS·VAD 모델과 네이티브 실행 파일의 패키징 방식은 기술 검증 후 확정합니다.
+
+모듈 간 코드 계약과 대역 주입 방법은 [클라이언트 공통 인터페이스](docs/architecture/client-interfaces.md)를 따릅니다. 현재 공개된 Preload API는 platform 조회이며, 전체 IPC 메서드는 핸들러 구현 시 노출합니다.

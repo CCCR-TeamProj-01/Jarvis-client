@@ -13,6 +13,7 @@
 | `src/shared/contracts/tools.ts`, `src/main/tools/ports.ts` | 도구별 인자·가용 상태·실행 보고·앱 제어 포트 | F-006 |
 | `src/shared/contracts/speech.ts`, `src/shared/ipc/media-api.ts` | 로컬 PCM·완료 발화·재생 이벤트·미디어 제어 | F-007 |
 | `src/renderer/media/*/ports.ts`, `src/inference/ports.ts` | 캡처·재생·호출어·VAD 엔진의 실행 공간 내부 포트 | F-007 |
+| `src/main/speech/session/ports.ts` | 로컬 음성 세션·인식 이벤트·완료 발화 구독 포트 | F-007 |
 | `src/main/ports.ts` | Main 단조 시계, 로컬 취소·기한 옵션 | 공통 |
 
 데이터 스키마는 Zod로 정의하고 TypeScript 타입을 추론한다. 프로세스 경계에서 입력을 검증하며 알 수 없는 필드는 거부한다. Main 전용 포트는 Main에, 브라우저 실행 공간의 포트는 해당 미디어·인식 영역에 둔다. 공유 계약은 Electron·Node·플랫폼 구현을 import하지 않는다.
@@ -22,6 +23,7 @@
 ## 공통 식별자·오류·시간
 
 - `Generation`은 `sessionId`와 증가하는 `revision`으로 구성한다. 대화·제스처·센서는 독립적인 세대를 가진다. 종료·일시 중지·권한 철회 시 먼저 세대를 무효화하고 정리를 시작한다. 이전 세대의 이벤트는 적용하지 않는다.
+- 활성 대화·음성·제스처 상태는 해당 세대를 포함한다. idle·off 스냅샷은 세대를 비운다. 처리 중인 요청은 requestId를 포함하고 idle 요청은 비운다.
 - 프레임·PCM의 `sequence`는 해당 세대에서 증가한다. 같은 번호의 중복과 역순 도착은 폐기한다. 새로운 세대에서는 번호를 다시 시작할 수 있다.
 - 예상 가능한 실패는 `Result<T>`의 오류 데이터로 반환한다. 오류 코드는 권한 거부, 장치 없음, 미지원, 잘못된 인자, 대상 없음, 취소, 만료, 충돌, 일시 불가, 내부 오류를 구분한다. Error 객체·스택·인증 정보는 IPC 결과로 넘기지 않는다.
 - `Unsubscribe`는 동기 함수다. 재호출은 안전해야 하며 등록했던 리스너만 해제한다. 전체 리스너를 지우는 범용 API는 공개하지 않는다.
@@ -51,6 +53,8 @@ IPC 채널은 UI 명령·상태 조회·이벤트와 미디어 명령·이벤트
 
 장치·권한·사용 상태는 구분한다. MediaStream·MediaStreamTrack·장치 핸들은 캡처 실행 공간에 유지하며 공유 데이터에는 넣지 않는다.
 
+센서 사용 상태는 idle·starting·active·stopping·unavailable·error다. active는 권한·장치·사용권을 모두 필요로 하고, 마지막 사용권 반납 후 비동기 장치 정리 중에는 stopping으로 표현한다.
+
 ## 손 관측·제스처·입력
 
 Worker는 손 관측 결과를 만들고 Main의 GestureController가 활성 손 선택·좌표 보정·Pinch·전환·호출 판정을 한다. 활성 손은 left·right 중 설정값을 고정하며 자동 선택을 사용하면 세대 동안 선택한 handId를 유지한다. 해당 손을 잃으면 다른 손으로 즉시 전환하지 않고 중립 상태에서 다시 활성화한다.
@@ -77,6 +81,7 @@ Worker는 손 관측 결과를 만들고 Main의 GestureController가 활성 손
 로컬 오디오는 mono PCM signed 16-bit little endian과 sampleRateHz로 표현한다. 캡처 어댑터가 추론 엔진의 지원 샘플레이트에 맞춰 리샘플링한다. sampleRateHz를 서버 전송 형식으로 확정하는 것은 후속 통신 어댑터의 책임이다.
 
 - `PcmChunk`는 세대·sequence·startSample·format·audio를 담는다. 바이트 수는 16-bit 샘플에 맞아야 한다.
+- 활성 발화의 PCM은 연속된 샘플·sequence·형식을 유지한다. 대기열 초과·누락이 생기면 해당 수집을 종료하며 떨어진 구간을 이어 붙이지 않는다. 카메라의 최신 프레임 우선 정책을 PCM에 그대로 적용하지 않는다.
 - `CompletedUtterance`는 utteranceId·세대·startSample·sampleCount·format·audio를 담는다. 샘플 수와 실제 바이트 길이가 일치하고 0보다 커야 한다. 발화 길이는 sampleCount / sampleRateHz로 계산한다.
 - `AudioCapturePort`는 유효한 마이크 leaseId로 시작하고, 중지·버퍼 폐기·확정 구간 추출·PCM 구독을 제공한다. 호출어·VAD 어댑터는 세대를 유지하며 샘플 경계를 반환한다.
 - `AudioPlaybackPort`는 playbackId·세대·MIME·오디오를 받아 재생하고 started·ended·stopped·failed 이벤트를 낸다. 시작 요청 수락과 실제 재생 완료는 구분한다.
@@ -84,13 +89,15 @@ Worker는 손 관측 결과를 만들고 Main의 GestureController가 활성 손
 
 UI 제어·상태 데이터와 영상·PCM 데이터의 전달 경로를 구분한다. ImageBitmap·VideoFrame은 Media Renderer와 Worker 사이에 유지하고 Main에는 관측 결과와 필요한 발화 바이트만 전달한다. 고빈도 전송의 실제 MessagePort·Worker 배치는 미디어 구현 시 측정해 결정한다.
 
-현재 `src/shared/speech-protocol/`의 사용되지 않는 서버 메타데이터·버전 초안은 로컬 `contracts/speech.ts`로 교체한다. 이후 서버 어댑터가 로컬 발화에 인증·원격 요청 식별자를 덧붙인다. 서버 API를 이번 작업에서 고정하지 않는다.
+기존 `src/shared/speech-protocol/`의 사용되지 않는 서버 메타데이터·버전 초안은 로컬 `contracts/speech.ts`로 교체했다. 이후 서버 어댑터가 로컬 발화에 인증·원격 요청 식별자를 덧붙인다. 서버 API를 이번 작업에서 고정하지 않는다.
 
 ## 취소·정리와 대역 사용
 
 중지는 먼저 현재 세대를 무효화하고 로컬 입력 대기열을 비운 뒤 인식 중지·오디오 폐기·재생 중단·센서 사용권 반납을 수행한다. 서버 취소 응답을 기다리지 않는다. 대화 종료는 제스처를 종료하지 않으며, 전체 일시 중지는 각 기능의 독립 정리 경로를 호출한다.
 
 포트는 생성자 또는 팩토리 인자로 주입한다. 개발용 SensorPort는 고정된 장치·사용권을, PointerInputPort는 요청 기록을, AudioPlaybackPort는 시험용 재생 이벤트를 제공할 수 있다. 테스트에서 주입한 시계와 대역으로 오래된 세대·순서·시간 초과·정리 동작을 재현한다. 대역의 존재가 실제 OS·센서·서버 기능 완료를 의미하지 않는다.
+
+`tests/typecheck/ports.ts`는 센서·입력·재생 포트를 `satisfies`로 구현하는 컴파일 예제다. 장치가 없는 대역도 정상적인 오류 결과를 제공할 수 있다. 이 예제는 센서 관리자나 제스처 제어기의 런타임 구현을 대체하지 않는다.
 
 핵심 검증은 잘못된 IPC 명령·센서 조합·좌표·오디오 길이·URL 거부, 이전 세대·중복 프레임 폐기, 취소와 실제 실행 결과 분리, 로컬 데이터의 structuredClone 전달, 포트의 독립 구현 가능성이다. 타입 선언 자체를 확인하는 상수 테스트보다 실제 경계 조건을 검증한다.
 

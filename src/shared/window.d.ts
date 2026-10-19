@@ -1,8 +1,9 @@
-export {}
+import type { BootstrapUiApi } from './ipc/ui-api'
+import type { BootstrapMediaApi } from './ipc/media-api'
 
 declare global {
   interface Window {
-    jarvis: { readonly platform: string }
-    jarvisMedia: { readonly platform: string }
+    jarvis: BootstrapUiApi
+    jarvisMedia: BootstrapMediaApi
   }
 }
