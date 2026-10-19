@@ -24,4 +24,4 @@ resources/models/*
 !resources/models/.gitkeep
 
 CLAUDE.local.md
-.context/PROGRESS.md
+.context/
