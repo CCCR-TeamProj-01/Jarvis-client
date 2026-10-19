@@ -15,7 +15,7 @@
 | [서버 연동과 실행 계약](architecture/server-integration.md) | 서버 음성 처리·오디오 계약, WSS, 취소·만료·중복 실행 |
 | [데이터와 보안](architecture/data-security.md) | 저장·삭제·권한·UI 실행 경계 |
 | [배포와 검증](delivery/validation.md) | 완료 시나리오, 미확정 항목, 구현 순서, 참고 자료 |
-| [작업 현황](delivery/feature_list.json) | 진행 중인 작업의 내용·현황·설명. 모든 작업자가 갱신 |
+| [구현 현황](delivery/feature_list.json) | 코드 구현 단위의 ID·작업명·짧은 설명·상태·관련 이슈 번호 |
 | [Git 컨벤션](delivery/git-convention.md) | 브랜치·커밋·PR 작성 규칙 |
 
 서버 모듈 설명은 클라이언트 연동 계약을 이해하기 위한 내용이다. 서버 구현은 이 저장소의 범위 밖이다.
