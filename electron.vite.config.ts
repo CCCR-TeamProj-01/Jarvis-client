@@ -1,0 +1,29 @@
+import { resolve } from 'node:path'
+import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react'
+import { defineConfig } from 'electron-vite'
+
+export default defineConfig({
+  main: {},
+  preload: {
+    build: {
+      rollupOptions: {
+        input: {
+          ui: resolve(__dirname, 'src/preload/ui.ts'),
+          media: resolve(__dirname, 'src/preload/media.ts')
+        }
+      }
+    }
+  },
+  renderer: {
+    plugins: [react(), tailwindcss()],
+    build: {
+      rollupOptions: {
+        input: {
+          ui: resolve(__dirname, 'src/renderer/ui/index.html'),
+          media: resolve(__dirname, 'src/renderer/media/index.html')
+        }
+      }
+    }
+  }
+})

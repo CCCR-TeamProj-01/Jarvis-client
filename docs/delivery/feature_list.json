@@ -1,0 +1,25 @@
+{
+  "_guide": {
+    "purpose": "진행 중인 작업의 현재 내용, 현황, 설명을 기록한다. 작업을 시작·진행·완료할 때마다 갱신한다.",
+    "status_values": ["todo", "in_progress", "blocked", "done"],
+    "rules": [
+      "features 배열의 항목만 추가·수정한다. 완료된 항목도 삭제하지 않고 status를 done으로 바꾼다.",
+      "requirement_id는 docs/ 기준 문서의 요구사항 ID를 쓴다. 규칙 내용은 복제하지 않는다.",
+      "updated는 YYYY-MM-DD 형식으로 갱신한다.",
+      "검증하지 못한 항목은 verification에 실행하지 못했다고 명시한다."
+    ]
+  },
+  "features": [
+    {
+      "id": "F-001",
+      "title": "서버 STT·TTS 아키텍처 전환",
+      "requirement_id": "VOICE-02, VOICE-03",
+      "status": "done",
+      "description": "로컬 KWS·VAD를 유지하고 완료 발화 음성과 응답 오디오를 서버 STT·TTS 경계로 연결하도록 클라이언트 구조와 기준 문서를 변경했다.",
+      "current_work": "기준 문서의 음성·전송·보안·검증 계약과 클라이언트 모듈 골격·공유 타입을 갱신했다. 실제 음성 기능과 서버 API 연동은 후속 구현 대상이다.",
+      "verification": "pnpm typecheck 통과; pnpm build 통과; 요구사항 ID 49개 유지, 문서 링크·JSON 유효성 확인",
+      "notes": "서버 구현은 이 저장소 범위 밖이다. 원문 보관본은 수정하지 않았다.",
+      "updated": "2026-10-19"
+    }
+  ]
+}

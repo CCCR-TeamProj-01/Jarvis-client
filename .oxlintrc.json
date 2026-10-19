@@ -1,0 +1,52 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "import", "node", "vitest"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "env": {
+    "es2022": true
+  },
+  "ignorePatterns": ["out", "release", "node_modules", "docs/archive"],
+  "rules": {
+    "eqeqeq": "error",
+    "no-var": "error",
+    "prefer-const": "error",
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-explicit-any": "error",
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "warn",
+    "import/no-unassigned-import": "off"
+  },
+  "overrides": [
+    {
+      "files": ["src/renderer/**", "src/workers/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "electron",
+                "message": "Renderer와 Worker는 Preload API만 사용한다. 실행 경계는 docs/architecture/data-security.md를 따른다."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["node:*", "src/main/*", "**/main/**"],
+                "message": "Renderer와 Worker에서 Node·Main 모듈을 직접 가져오지 않는다."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["tests/**"],
+      "rules": {
+        "typescript/no-explicit-any": "off"
+      }
+    }
+  ]
+}
