@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
+import type {
+  AssistantReply,
+  ConversationPort,
+  TurnResult
+} from '../../src/main/conversation/ports'
+import type { SpeechNotice } from '../../src/main/speech/session/ports'
 import { SpeechSessionController } from '../../src/main/speech/session/speech-session'
 import type { SessionPolicy } from '../../src/main/speech/session/speech-session'
-import type { SpeechNotice } from '../../src/main/speech/session/ports'
-import type { RemoteSpeechPort, SpokenResponse } from '../../src/main/speech/remote-speech/ports'
+import type { RemoteSpeechPort } from '../../src/main/speech/remote-speech/ports'
 import type { ListenOutcome, VoiceInput } from '../../src/main/speech/voice-input'
 import type { AudioPlaybackPort } from '../../src/renderer/media/audio-playback/ports'
 import type { ClientError, Result } from '../../src/shared/contracts/common'
@@ -30,7 +35,7 @@ const empty = (): Result<ListenOutcome> => ({
   ok: true,
   value: { kind: 'empty', reason: 'timeout' }
 })
-const response = (over: Partial<SpokenResponse> = {}): SpokenResponse => ({
+const reply = (over: Partial<AssistantReply> = {}): AssistantReply => ({
   text: '안녕하세요',
   audio: { mimeType: 'audio/wav', bytes: new Uint8Array(10) },
   ...over
@@ -70,15 +75,31 @@ function setup(policy: Partial<SessionPolicy> = {}) {
       return entry.done.promise
     })
   }
-  const remoteCalls: string[] = []
-  const transcribe = vi.fn<RemoteSpeechPort['transcribe']>(async () => {
-    remoteCalls.push('transcribe')
-    return { ok: true, value: { status: 'transcribed', text: '크롬 열어 줘' } }
-  })
-  const respond = vi.fn<RemoteSpeechPort['respond']>(async () => {
-    remoteCalls.push('respond')
-    return { ok: true, value: response() }
-  })
+  const transcribe = vi.fn<RemoteSpeechPort['transcribe']>(async () => ({
+    ok: true,
+    value: { status: 'transcribed', text: '크롬 열어 줘' }
+  }))
+  // A conversation that answers every submission with the same reply.
+  let active = true
+  const holds = { taken: 0, released: 0 }
+  const submit = vi.fn<ConversationPort['submit']>(async (): Promise<Result<TurnResult>> => ({
+    ok: true,
+    value: { requestId: 'req-1', reply: reply() }
+  }))
+  const conversation: Pick<ConversationPort, 'start' | 'submit' | 'hold' | 'isActive'> = {
+    start: vi.fn<ConversationPort['start']>(() => ({
+      ok: true,
+      value: { conversationId: 'conv-1' }
+    })),
+    submit,
+    hold: () => {
+      holds.taken += 1
+      return () => {
+        holds.released += 1
+      }
+    },
+    isActive: () => active
+  }
   const playbackListeners = new Set<(event: PlaybackEvent) => void>()
   const played: { playbackId: string; generation: { sessionId: string; revision: number } }[] = []
   const stopped: string[] = []
@@ -103,7 +124,8 @@ function setup(policy: Partial<SessionPolicy> = {}) {
       check: () => (gateError ? { ok: false, error: gateError } : { ok: true, value: undefined })
     },
     voice,
-    remote: { transcribe, respond },
+    remote: { transcribe },
+    conversation,
     playback,
     clock: { now: () => 1000 },
     createId: () => `id-${++ids}`,
@@ -117,11 +139,7 @@ function setup(policy: Partial<SessionPolicy> = {}) {
     policy
   })
   const phases: SpeechSnapshot['phase'][] = []
-  const requestIds: (string | null)[] = []
-  controller.subscribe((snapshot, requestId) => {
-    phases.push(snapshot.phase)
-    requestIds.push(requestId)
-  })
+  controller.subscribe((snapshot) => phases.push(snapshot.phase))
   const notices: SpeechNotice[] = []
   controller.subscribeNotices((notice) => notices.push(notice))
   const emitPlayback = (
@@ -148,14 +166,17 @@ function setup(policy: Partial<SessionPolicy> = {}) {
     queue,
     listens,
     transcribe,
-    respond,
-    remoteCalls,
+    submit,
+    conversation,
+    holds,
+    endConversation: () => {
+      active = false
+    },
     playback,
     played,
     stopped,
     emitPlayback,
     phases,
-    requestIds,
     notices,
     timers,
     closeGate: (error: ClientError) => {
@@ -166,14 +187,13 @@ function setup(policy: Partial<SessionPolicy> = {}) {
   }
 }
 
-describe('a normal conversation', () => {
-  it('moves through every state in order and plays the reply', async () => {
+describe('a normal voice session', () => {
+  it('moves through every state in order, hands the words to the conversation and plays the reply', async () => {
     const t = setup()
     t.queue.push('hold', empty())
     const activated = await t.controller.activate('hotkey')
     expect(activated.ok).toBe(true)
     expect(t.phases).toEqual(['awaiting_speech'])
-    // The first listen reports speech starting, then finishing.
     t.listens[0].request.onSpeechStarted?.()
     expect(t.phases).toEqual(['awaiting_speech', 'listening'])
     t.listens[0].done.resolve(heard())
@@ -186,16 +206,36 @@ describe('a normal conversation', () => {
       'speaking'
     ])
     expect(t.transcribe).toHaveBeenCalledOnce()
-    expect(t.respond).toHaveBeenCalledOnce()
+    expect(t.submit).toHaveBeenCalledWith(
+      { text: '크롬 열어 줘', modality: 'speech' },
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    )
     t.emitPlayback('playback.started')
     t.emitPlayback('playback.ended')
     await flush()
     expect(t.phases.slice(-2)).toEqual(['awaiting_followup', 'idle'])
-    expect(t.notices.map((n) => n.type)).toEqual(['transcript', 'response'])
-    expect(t.notices[1]).toMatchObject({ spoken: true, text: '안녕하세요' })
   })
 
-  it('waits longer for the first thing said than for nothing at all, and shorter for a follow-up', async () => {
+  it('does not itself tell the user what was said or answered; the conversation does', async () => {
+    const t = setup()
+    t.queue.push(heard(), empty())
+    await t.controller.activate('ui')
+    await flush()
+    t.emitPlayback('playback.ended')
+    await flush()
+    expect(t.notices).toEqual([])
+  })
+
+  it('starts a conversation and keeps it open for as long as it listens', async () => {
+    const t = setup()
+    t.queue.push(empty())
+    await t.controller.activate('ui')
+    await flush()
+    expect(t.conversation.start).toHaveBeenCalledOnce()
+    expect(t.holds).toEqual({ taken: 1, released: 1 })
+  })
+
+  it('waits longer for the first thing said than a follow-up needs', async () => {
     const t = setup({ initialWaitMs: 1111, followupWaitMs: 2222 })
     t.queue.push(heard(), empty())
     await t.controller.activate('ui')
@@ -204,21 +244,6 @@ describe('a normal conversation', () => {
     t.emitPlayback('playback.ended')
     await flush()
     expect(t.listens[1].request.policy?.startWaitMs).toBe(2222)
-  })
-
-  it('attaches a request ID to the working states only', async () => {
-    const t = setup()
-    t.queue.push(heard(), empty())
-    await t.controller.activate('ui')
-    await flush()
-    const working = t.phases.map((p, i) => [p, t.requestIds[i]] as const)
-    expect(working.filter(([, id]) => id !== null).map(([p]) => p)).toEqual([
-      'transcribing',
-      'processing',
-      'speaking'
-    ])
-    t.emitPlayback('playback.ended')
-    await flush()
   })
 
   it('ends when nothing is said and releases everything', async () => {
@@ -231,38 +256,55 @@ describe('a normal conversation', () => {
     expect(t.transcribe).not.toHaveBeenCalled()
   })
 
-  it('ends when the server says the conversation is over', async () => {
+  it('ends when the assistant ends the conversation, after the final reply was spoken', async () => {
     const t = setup()
     t.queue.push(heard())
-    t.respond.mockResolvedValueOnce({ ok: true, value: response({ endConversation: true }) })
+    t.submit.mockResolvedValueOnce({
+      ok: true,
+      value: { requestId: 'r', reply: reply({ endConversation: true }) }
+    })
     await t.controller.activate('ui')
     await flush()
+    expect(t.phases.at(-1)).toBe('speaking')
     t.emitPlayback('playback.ended')
     await flush()
     expect(t.phases.at(-1)).toBe('idle')
     expect(t.voice.listen).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the text when the reply has no audio and does not enter the speaking state', async () => {
+  it('stops listening once the conversation is over', async () => {
     const t = setup()
     t.queue.push(heard(), empty())
-    t.respond.mockResolvedValueOnce({ ok: true, value: response({ audio: undefined }) })
+    await t.controller.activate('ui')
+    await flush()
+    t.endConversation()
+    t.emitPlayback('playback.ended')
+    await flush()
+    expect(t.phases.at(-1)).toBe('idle')
+    expect(t.voice.listen).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not enter the speaking state when the reply has no audio', async () => {
+    const t = setup()
+    t.queue.push(heard(), empty())
+    t.submit.mockResolvedValueOnce({
+      ok: true,
+      value: { requestId: 'r', reply: reply({ audio: undefined }) }
+    })
     await t.controller.activate('ui')
     await flush()
     expect(t.phases).not.toContain('speaking')
-    expect(t.notices.at(-1)).toMatchObject({ type: 'response', spoken: false })
     expect(t.played).toHaveLength(0)
   })
 
-  it('falls back to text and tells the user when playback fails', async () => {
+  it('tells the user when playback fails', async () => {
     const t = setup()
     t.queue.push(heard(), empty())
     await t.controller.activate('ui')
     await flush()
     t.emitPlayback('playback.failed')
     await flush()
-    expect(t.notices.find((n) => n.type === 'problem')).toBeDefined()
-    expect(t.notices.find((n) => n.type === 'response')).toMatchObject({ spoken: false })
+    expect(t.notices).toMatchObject([{ type: 'problem', error: { code: 'unavailable' } }])
     expect(t.phases).toContain('awaiting_followup')
   })
 
@@ -275,7 +317,7 @@ describe('a normal conversation', () => {
     })
     await t.controller.activate('ui')
     await flush()
-    expect(t.notices.find((n) => n.type === 'response')).toMatchObject({ spoken: false })
+    expect(t.notices.some((n) => n.type === 'problem')).toBe(true)
   })
 
   it('gives up on a playback that never reports an end', async () => {
@@ -313,38 +355,58 @@ describe('failures', () => {
     await flush()
     expect(t.notices.filter((n) => n.type === 'problem')).toHaveLength(2)
     expect(t.phases.at(-1)).toBe('idle')
-    expect(t.respond).not.toHaveBeenCalled()
+    expect(t.submit).not.toHaveBeenCalled()
   })
 
-  it('keeps going after a single failure and forgets it after a good turn', async () => {
+  it('reports a recognition error and continues after a single failure', async () => {
     const t = setup({ maxConsecutiveFailures: 2 })
-    t.queue.push(heard(), heard(), heard(), empty())
+    t.queue.push(heard(), heard(), empty())
     t.transcribe
       .mockResolvedValueOnce({ ok: false, error: { code: 'unavailable', message: '서버 오류' } })
       .mockResolvedValueOnce({ ok: true, value: { status: 'transcribed', text: '성공' } })
-      .mockResolvedValueOnce({ ok: false, error: { code: 'unavailable', message: '서버 오류' } })
     await t.controller.activate('ui')
     await flush()
-    t.emitPlayback('playback.ended')
     await flush()
-    await flush()
-    expect(t.voice.listen.mock.calls.length).toBeGreaterThanOrEqual(4)
+    expect(t.notices[0]).toMatchObject({ error: { code: 'unavailable' } })
+    expect(t.submit).toHaveBeenCalledOnce()
   })
 
-  it('reports a failed response and continues listening', async () => {
+  it('leaves telling the user about a failed answer to the conversation, and goes on listening', async () => {
     const t = setup()
     t.queue.push(heard(), empty())
-    t.respond.mockResolvedValueOnce({
+    t.submit.mockResolvedValueOnce({
       ok: false,
       error: { code: 'unavailable', message: '응답 실패' }
     })
     await t.controller.activate('ui')
     await flush()
-    expect(t.notices.find((n) => n.type === 'problem')).toMatchObject({
-      error: { code: 'unavailable' }
-    })
+    expect(t.notices).toEqual([])
     expect(t.phases).toContain('awaiting_followup')
     expect(t.played).toHaveLength(0)
+  })
+
+  it('stops after repeated failed answers', async () => {
+    const t = setup({ maxConsecutiveFailures: 2 })
+    t.queue.push(heard(), heard(), heard())
+    t.submit.mockResolvedValue({ ok: false, error: { code: 'unavailable', message: '응답 실패' } })
+    await t.controller.activate('ui')
+    await flush()
+    await flush()
+    expect(t.voice.listen).toHaveBeenCalledTimes(2)
+    expect(t.phases.at(-1)).toBe('idle')
+  })
+
+  it('ends quietly when its conversation was ended during the answer', async () => {
+    const t = setup()
+    t.queue.push(heard(), empty())
+    t.submit.mockImplementationOnce(async () => {
+      t.endConversation()
+      return { ok: false, error: { code: 'cancelled', message: '대화가 종료되었습니다.' } }
+    })
+    await t.controller.activate('ui')
+    await flush()
+    expect(t.phases.at(-1)).toBe('idle')
+    expect(t.voice.listen).toHaveBeenCalledTimes(1)
   })
 
   it('stops with an error when listening itself fails', async () => {
@@ -358,7 +420,7 @@ describe('failures', () => {
     expect(t.phases.at(-1)).toBe('idle')
   })
 
-  it('times out a server step instead of waiting forever', async () => {
+  it('times out recognition instead of waiting forever', async () => {
     const t = setup({ remoteTimeoutMs: 777 })
     t.queue.push(heard(), empty())
     t.transcribe.mockImplementationOnce(() => new Promise(() => undefined))
@@ -385,6 +447,17 @@ describe('starting', () => {
     expect(t.phases).toEqual([])
   })
 
+  it('does not start when the conversation cannot be started', async () => {
+    const t = setup()
+    vi.mocked(t.conversation.start).mockReturnValueOnce({
+      ok: false,
+      error: { code: 'unavailable', message: '인식이 일시 중지되어 있습니다.' }
+    })
+    expect(await t.controller.activate('hotkey')).toMatchObject({ ok: false })
+    expect(t.voice.listen).not.toHaveBeenCalled()
+    expect(t.holds.taken).toBe(0)
+  })
+
   it('returns the running session instead of starting a second one', async () => {
     const t = setup()
     t.queue.push('hold')
@@ -392,9 +465,10 @@ describe('starting', () => {
     const second = await t.controller.activate('tray')
     expect(second.ok && first.ok && second.value.sessionId === first.value.sessionId).toBe(true)
     expect(t.voice.listen).toHaveBeenCalledOnce()
+    expect(t.holds.taken).toBe(1)
   })
 
-  it('gives each conversation its own identity and moves the version forward', async () => {
+  it('gives each voice session its own identity', async () => {
     const t = setup()
     t.queue.push(empty(), 'hold')
     const first = await t.controller.activate('ui')
@@ -405,18 +479,19 @@ describe('starting', () => {
 })
 
 describe('stopping and stale results', () => {
-  it('cancels listening immediately and leaves nothing running', async () => {
+  it('cancels listening immediately, leaves the conversation alone and lets go of it', async () => {
     const t = setup()
     t.queue.push('hold')
     await t.controller.activate('ui')
     expect(await t.controller.stop()).toEqual({ ok: true, value: undefined })
     expect(t.listens[0].signal?.aborted).toBe(true)
     expect(t.phases.at(-1)).toBe('idle')
+    expect(t.holds).toEqual({ taken: 1, released: 1 })
     await flush()
     expect(t.transcribe).not.toHaveBeenCalled()
   })
 
-  it('ignores a server answer that arrives after the conversation was stopped', async () => {
+  it('ignores a recognition result that arrives after the session was stopped', async () => {
     const t = setup()
     t.queue.push(heard())
     const answer = hold<Result<{ status: 'transcribed'; text: string }>>()
@@ -427,12 +502,11 @@ describe('stopping and stale results', () => {
     await t.controller.stop()
     answer.resolve({ ok: true, value: { status: 'transcribed', text: '늦은 응답' } })
     await flush()
-    expect(t.respond).not.toHaveBeenCalled()
-    expect(t.notices).toEqual([])
+    expect(t.submit).not.toHaveBeenCalled()
     expect(t.phases.at(-1)).toBe('idle')
   })
 
-  it('does not let an old conversation touch a new one', async () => {
+  it('does not let an old session touch a new one', async () => {
     const t = setup()
     t.queue.push(heard(), 'hold')
     const answer = hold<Result<{ status: 'transcribed'; text: string }>>()
@@ -442,11 +516,28 @@ describe('stopping and stale results', () => {
     await t.controller.stop()
     await t.controller.activate('ui')
     const phasesBefore = t.phases.length
-    answer.resolve({ ok: true, value: { status: 'transcribed', text: '옛 대화' } })
+    answer.resolve({ ok: true, value: { status: 'transcribed', text: '옛 세션' } })
     await flush()
-    expect(t.respond).not.toHaveBeenCalled()
+    expect(t.submit).not.toHaveBeenCalled()
     expect(t.phases.length).toBe(phasesBefore)
     expect(t.controller.getSnapshot().phase).toBe('awaiting_speech')
+  })
+
+  it('cancels the answer it is waiting for when stopped', async () => {
+    const t = setup()
+    t.queue.push(heard())
+    let seen: AbortSignal | undefined
+    t.submit.mockImplementationOnce(
+      (_input, options) =>
+        new Promise<Result<TurnResult>>(() => {
+          seen = options?.signal
+        })
+    )
+    await t.controller.activate('ui')
+    await flush()
+    expect(t.phases.at(-1)).toBe('processing')
+    await t.controller.stop()
+    expect(seen?.aborted).toBe(true)
   })
 
   it('stops playback when stopped while speaking', async () => {
@@ -467,7 +558,7 @@ describe('stopping and stale results', () => {
     expect(t.phases).toEqual([])
   })
 
-  it('passes the session generation to each step so late results can be recognised', async () => {
+  it('passes the session identity and state version to recognition', async () => {
     const t = setup()
     t.queue.push(heard(), empty())
     await t.controller.activate('ui')

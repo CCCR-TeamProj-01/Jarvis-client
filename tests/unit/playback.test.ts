@@ -3,7 +3,10 @@ import { MediaAudioPlayback } from '../../src/main/speech/playback'
 import { DevRemoteSpeech } from '../../src/main/speech/remote-speech/dev-remote-speech'
 import { createRemoteSpeech } from '../../src/main/speech/remote-speech/create-remote-speech'
 import { createToneWav } from '../../src/main/speech/remote-speech/tone'
-import { unavailableRemoteSpeech } from '../../src/main/speech/remote-speech/unavailable-remote-speech'
+import {
+  unavailableAssistant,
+  unavailableRemoteSpeech
+} from '../../src/main/speech/remote-speech/unavailable-remote-speech'
 import { ElementAudioPlayback } from '../../src/renderer/media/audio-playback/element-playback'
 import type { AudioLike } from '../../src/renderer/media/audio-playback/element-playback'
 import type { Result } from '../../src/shared/contracts/common'
@@ -211,6 +214,7 @@ describe('server stand-in', () => {
     audio: new Uint8Array(64000)
   }
   const turn = { requestId: 'r', session: generation }
+  const context = { conversationId: 'c', requestId: 'r' }
 
   it('answers with fixed text and a short WAV tone, and ends after the configured turns', async () => {
     const server = new DevRemoteSpeech({ endAfterTurns: 2 })
@@ -218,10 +222,10 @@ describe('server stand-in', () => {
       ok: true,
       value: { status: 'transcribed', text: '(개발용 인식) 2.0초 길이의 발화' }
     })
-    const first = await server.respond(turn, '안녕')
+    const first = await server.respond(context, '안녕')
     expect(first).toMatchObject({ ok: true, value: { audio: { mimeType: 'audio/wav' } } })
     expect(first).not.toHaveProperty('value.endConversation')
-    expect(await server.respond(turn, '안녕')).toMatchObject({
+    expect(await server.respond(context, '안녕')).toMatchObject({
       ok: true,
       value: { endConversation: true }
     })
@@ -243,11 +247,11 @@ describe('server stand-in', () => {
       ok: true,
       value: { status: 'empty' }
     })
-    expect(await server.respond(turn, 'x')).toMatchObject({
+    expect(await server.respond(context, 'x')).toMatchObject({
       ok: false,
       error: { code: 'unavailable' }
     })
-    const reply = await server.respond(turn, 'x')
+    const reply = await server.respond(context, 'x')
     expect(reply).toMatchObject({ ok: true, value: { text: expect.any(String) } })
     expect(reply).not.toHaveProperty('value.audio')
   })
@@ -263,14 +267,21 @@ describe('server stand-in', () => {
   })
 
   it('is chosen only for an unpackaged app that asks for it', async () => {
-    expect(
-      createRemoteSpeech({ isPackaged: false, env: { JARVIS_DEV_SPEECH: '1' } })
-    ).toBeInstanceOf(DevRemoteSpeech)
-    expect(createRemoteSpeech({ isPackaged: false, env: {} })).toBe(unavailableRemoteSpeech)
-    expect(createRemoteSpeech({ isPackaged: true, env: { JARVIS_DEV_SPEECH: '1' } })).toBe(
-      unavailableRemoteSpeech
-    )
+    const dev = createRemoteSpeech({ isPackaged: false, env: { JARVIS_DEV_SPEECH: '1' } })
+    expect(dev.speech).toBeInstanceOf(DevRemoteSpeech)
+    expect(dev.assistant).toBe(dev.speech)
+    for (const choice of [
+      createRemoteSpeech({ isPackaged: false, env: {} }),
+      createRemoteSpeech({ isPackaged: true, env: { JARVIS_DEV_SPEECH: '1' } })
+    ]) {
+      expect(choice.speech).toBe(unavailableRemoteSpeech)
+      expect(choice.assistant).toBe(unavailableAssistant)
+    }
     expect(await unavailableRemoteSpeech.transcribe(turn, utterance)).toMatchObject({
+      ok: false,
+      error: { code: 'unavailable' }
+    })
+    expect(await unavailableAssistant.respond(context, 'x')).toMatchObject({
       ok: false,
       error: { code: 'unavailable' }
     })

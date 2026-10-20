@@ -11,18 +11,10 @@ export interface SpeechTurn {
 
 export type Transcription = { status: 'transcribed'; text: string } | { status: 'empty' }
 
-export interface SpokenResponse {
-  /** What to show, and the fallback when the audio cannot be produced or played. */
-  text: string
-  audio?: { mimeType: string; bytes: Uint8Array }
-  /** The server decided the conversation is over, so the session should not wait for a follow-up. */
-  endConversation?: boolean
-}
-
 /**
- * The server's speech service as the client sees it. Only a finished utterance is ever sent. The
- * two steps may be one exchange on the wire; they are separate here so the session can show
- * "recognising" and "working on it" honestly. Audio is neither stored nor retried by callers.
+ * The server's speech recognition as the client sees it. Only a finished utterance is ever sent,
+ * and audio is neither stored nor retried by callers. What to answer is the conversation's
+ * business (see `AssistantPort`), whether the words came from here or from the keyboard.
  */
 export interface RemoteSpeechPort {
   transcribe(
@@ -30,9 +22,4 @@ export interface RemoteSpeechPort {
     utterance: CompletedUtterance,
     options?: LocalExecutionOptions
   ): Promise<Result<Transcription>>
-  respond(
-    turn: SpeechTurn,
-    text: string,
-    options?: LocalExecutionOptions
-  ): Promise<Result<SpokenResponse>>
 }

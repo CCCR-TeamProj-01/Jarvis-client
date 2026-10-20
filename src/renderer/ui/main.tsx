@@ -93,6 +93,8 @@ function App(): React.JSX.Element {
         {phase === 'signed_in' && snapshot && (
           <ConversationPanel
             phase={snapshot.speech.phase}
+            conversationActive={snapshot.conversation.phase === 'active'}
+            working={snapshot.request.phase === 'processing'}
             paused={snapshot.recognitionPaused}
             messages={messages}
             onStart={() => {
@@ -100,6 +102,9 @@ function App(): React.JSX.Element {
             }}
             onStop={() => {
               void dispatch({ type: 'conversation.stop' })
+            }}
+            onSubmitText={(text) => {
+              void dispatch({ type: 'conversation.submit_text', text })
             }}
           />
         )}

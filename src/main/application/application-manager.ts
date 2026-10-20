@@ -15,6 +15,8 @@ import { startSensorSelfTest } from '../sensors/dev-selftest'
 import { installMediaPermissionPolicy } from '../sensors/media-permissions'
 import { createSensorGate } from '../sensors/sensor-gate'
 import type { SensorManager } from '../sensors/sensor-manager'
+import { ConversationManager } from '../conversation/conversation-manager'
+import { createRemoteSpeech } from '../speech/remote-speech/create-remote-speech'
 import { createVoiceStack } from '../speech/create-voice'
 import type { VoiceStack } from '../speech/create-voice'
 import { startSpeechSelfTest, startVoiceSelfTest } from '../speech/dev-voice-selftest'
@@ -38,6 +40,7 @@ export class ApplicationManager {
   readonly sensors: SensorManager
   readonly tools: ToolStack
   readonly voice: VoiceStack
+  readonly conversation: ConversationManager
   private readonly sensorStack: SensorStack
   private recognitionWasPaused = false
   private disposeMediaIpc: (() => void) | null = null
@@ -111,7 +114,19 @@ export class ApplicationManager {
     })
     this.sensors = this.sensorStack.sensors
     const stack = this.sensorStack
-    this.voice = createVoiceStack(stack, sensorGate)
+    const server = createRemoteSpeech({ isPackaged: app.isPackaged, env: process.env })
+    this.conversation = new ConversationManager({
+      gate: sensorGate,
+      assistant: server.assistant,
+      clock: { now: () => performance.now() },
+      createId: randomUUID,
+      schedule: (callback, delayMs) => {
+        const timer = setTimeout(callback, delayMs)
+        timer.unref()
+        return () => clearTimeout(timer)
+      }
+    })
+    this.voice = createVoiceStack(stack, sensorGate, this.conversation, server.speech)
     this.disposeMediaIpc = registerMediaIpc({
       ipc: ipcMain,
       getContents: () => stack.window.getContents(),
@@ -133,6 +148,7 @@ export class ApplicationManager {
       this.tools.restoreTracker.clear()
       // A conversation belongs to the user who started it.
       void this.voice.session.stop()
+      void this.conversation.end()
       void this.sensors.revokeAll({
         code: 'authentication_required',
         message: '로그인 상태가 변경되어 센서를 해제했습니다.'
@@ -145,7 +161,10 @@ export class ApplicationManager {
     const stopPauseWatch = this.interaction.subscribe((event) => {
       if (event.type !== 'state.changed') return
       const paused = event.snapshot.recognitionPaused
-      if (paused && !this.recognitionWasPaused) void this.voice.session.stop()
+      if (paused && !this.recognitionWasPaused) {
+        void this.voice.session.stop()
+        void this.conversation.end()
+      }
       if (paused && !this.recognitionWasPaused)
         void this.sensors.revokeAll({
           code: 'cancelled',
@@ -159,19 +178,35 @@ export class ApplicationManager {
     }
     // Commands, state and the words shown to the user all go through Main's interaction state.
     const speechSession = this.voice.session
+    const conversation = this.conversation
     this.interaction.setConversationHandlers({
+      // Starting means a conversation with the voice side attached (the call shortcut, tray, button).
       start: () => speechSession.activate('ui'),
-      stop: () => speechSession.stop()
+      submitText: (text) => conversation.submit({ text, modality: 'text' }),
+      stop: async () => {
+        await speechSession.stop()
+        return conversation.end()
+      }
     })
-    const stopSpeechState = speechSession.subscribe((snapshot, requestId) =>
-      this.interaction.setSpeechState(snapshot, requestId)
+    const stopConversationState = conversation.subscribe((snapshot) => {
+      this.interaction.setConversationState(snapshot)
+      // Without a conversation there is nothing to listen for. A reply being worked on or spoken
+      // is let finish (it may be the final one): the session ends on its own right after it.
+      const phase = speechSession.getSnapshot().phase
+      if (snapshot.phase === 'idle' && phase !== 'processing' && phase !== 'speaking')
+        void speechSession.stop()
+    })
+    const stopSpeechState = speechSession.subscribe((snapshot) =>
+      this.interaction.setSpeechState(snapshot)
     )
-    const stopNotices = speechSession.subscribeNotices((notice) =>
-      this.interaction.publishNotice(notice)
-    )
+    const stopNotices = [
+      conversation.subscribeNotices((notice) => this.interaction.publishNotice(notice)),
+      speechSession.subscribeNotices((notice) => this.interaction.publishNotice(notice))
+    ]
     this.disposeSpeechSync = () => {
+      stopConversationState()
       stopSpeechState()
-      stopNotices()
+      for (const stop of stopNotices) stop()
       this.interaction.setConversationHandlers(null)
     }
   }
@@ -185,7 +220,11 @@ export class ApplicationManager {
     if (!app.isPackaged && process.env.JARVIS_SENSOR_SELFTEST === '1')
       this.disposeSelfTest = startSensorSelfTest(this.auth, this.sensors)
     if (!app.isPackaged && process.env.JARVIS_SPEECH_SELFTEST === '1')
-      this.disposeSpeechSelfTest = startSpeechSelfTest(this.auth, this.voice.session)
+      this.disposeSpeechSelfTest = startSpeechSelfTest(
+        this.auth,
+        this.voice.session,
+        this.conversation
+      )
     if (!app.isPackaged && process.env.JARVIS_VOICE_SELFTEST)
       this.disposeVoiceSelfTest = startVoiceSelfTest(
         Math.max(1, Number.parseInt(process.env.JARVIS_VOICE_SELFTEST, 10) || 1),
@@ -257,6 +296,7 @@ export class ApplicationManager {
       () => {
         // Releases devices through the media window, then the window itself goes away.
         void this.voice.session.stop()
+        void this.conversation.end()
         this.voice.playback.dispose()
         this.voice.router.dispose()
         this.voice.vad.dispose()

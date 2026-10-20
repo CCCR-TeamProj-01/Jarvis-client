@@ -1,4 +1,5 @@
 import type { AuthPort } from '../auth/auth-manager'
+import type { ConversationPort } from '../conversation/ports'
 import type { SpeechSessionPort } from './session/ports'
 import type { VoiceInput } from './voice-input'
 
@@ -60,25 +61,25 @@ export function startVoiceSelfTest(
 export function startSpeechSelfTest(
   auth: Pick<AuthPort, 'subscribe'>,
   session: SpeechSessionPort,
+  conversation: Pick<ConversationPort, 'subscribeNotices'>,
   log: (line: string) => void = console.log
 ): () => void {
   const print = (label: string, value: unknown) =>
     log(`SPEECH_SELFTEST ${label} ${JSON.stringify(value)}`)
-  const stopState = session.subscribe((snapshot, requestId) =>
-    print('phase', {
-      phase: snapshot.phase,
-      version: snapshot.generation?.revision ?? null,
-      requestId
-    })
+  const stopState = session.subscribe((snapshot) =>
+    print('phase', { phase: snapshot.phase, version: snapshot.generation?.revision ?? null })
   )
-  const stopNotices = session.subscribeNotices((notice) => print('notice', notice))
+  const stopNotices = [
+    session.subscribeNotices((notice) => print('notice', notice)),
+    conversation.subscribeNotices((notice) => print('notice', notice))
+  ]
   const stopAuth = auth.subscribe((event) => {
     if (event.type === 'auth.state_changed' && event.snapshot.phase === 'signed_in')
       void session.activate('ui').then((result) => print('activated', result.ok))
   })
   return () => {
     stopAuth()
-    stopNotices()
+    for (const stop of stopNotices) stop()
     stopState()
   }
 }

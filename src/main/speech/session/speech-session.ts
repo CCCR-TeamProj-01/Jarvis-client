@@ -7,7 +7,8 @@ import type { AudioPlaybackPort } from '../../../renderer/media/audio-playback/p
 import type { ActivationSource } from '../../interaction/ports'
 import type { LocalExecutionOptions, MonotonicClock } from '../../ports'
 import type { SensorGate } from '../../sensors/hardware'
-import type { RemoteSpeechPort, SpokenResponse } from '../remote-speech/ports'
+import type { AssistantReply, ConversationPort } from '../../conversation/ports'
+import type { RemoteSpeechPort } from '../remote-speech/ports'
 import type { ListenOutcome, VoiceInput } from '../voice-input'
 import type { SpeechNotice, SpeechSessionPort } from './ports'
 
@@ -41,7 +42,9 @@ export const DEFAULT_SESSION_POLICY: SessionPolicy = {
 interface SpeechSessionOptions {
   gate: SensorGate
   voice: Pick<VoiceInput, 'listen'>
+  /** Speech recognition only; the answer comes from the conversation. */
   remote: RemoteSpeechPort
+  conversation: Pick<ConversationPort, 'start' | 'submit' | 'hold' | 'isActive'>
   playback: Pick<AudioPlaybackPort, 'play' | 'stop' | 'subscribe'>
   clock: MonotonicClock
   createId(): string
@@ -52,14 +55,15 @@ interface SpeechSessionOptions {
 
 type Phase = SpeechSnapshot['phase']
 
-/** One conversation. A new activation after it ended gets a new identity. */
+/** One voice session. A new activation after it ended gets a new identity. */
 interface Session {
   id: string
   /** Advances with every state change, so anything older is recognisably stale. */
   version: number
   abort: AbortController
-  requestId: string | null
   playback: { id: string; generation: Generation } | null
+  /** Keeps the conversation from timing out while this session is using it. */
+  releaseConversation: () => void
 }
 
 const failure = (code: ClientError['code'], message: string): Result<never> => ({
@@ -68,8 +72,8 @@ const failure = (code: ClientError['code'], message: string): Result<never> => (
 })
 
 /**
- * Owns the voice conversation: when to listen, what is being waited for, and when to stop.
- * Everything after the user finishes speaking happens off the microphone, so nothing a response
+ * Owns the voice side of a conversation: when to listen, what is being waited for, and when to
+ * stop. Everything after the user finishes speaking happens off the microphone, so nothing a reply
  * says can be heard as the next question. Cancelling is local and immediate; whatever a slow server
  * answers later is ignored because the session it belonged to is gone.
  */
@@ -77,9 +81,7 @@ export class SpeechSessionController implements SpeechSessionPort {
   private readonly policy: SessionPolicy
   private session: Session | null = null
   private snapshot: SpeechSnapshot = { phase: 'idle', generation: null }
-  private readonly listeners = new Set<
-    (snapshot: SpeechSnapshot, requestId: string | null) => void
-  >()
+  private readonly listeners = new Set<(snapshot: SpeechSnapshot) => void>()
   private readonly noticeListeners = new Set<(notice: SpeechNotice) => void>()
 
   constructor(private readonly options: SpeechSessionOptions) {
@@ -90,7 +92,7 @@ export class SpeechSessionController implements SpeechSessionPort {
     return structuredClone(this.snapshot)
   }
 
-  subscribe(listener: (snapshot: SpeechSnapshot, requestId: string | null) => void): Unsubscribe {
+  subscribe(listener: (snapshot: SpeechSnapshot) => void): Unsubscribe {
     this.listeners.add(listener)
     return () => {
       this.listeners.delete(listener)
@@ -108,12 +110,15 @@ export class SpeechSessionController implements SpeechSessionPort {
     if (this.session) return { ok: true, value: this.generation(this.session) }
     const gate = this.options.gate.check()
     if (!gate.ok) return gate
+    // Listening belongs to a conversation; start one if there is none.
+    const conversation = this.options.conversation.start()
+    if (!conversation.ok) return conversation
     const session: Session = {
       id: this.options.createId(),
       version: 0,
       abort: new AbortController(),
-      requestId: null,
-      playback: null
+      playback: null,
+      releaseConversation: this.options.conversation.hold()
     }
     this.session = session
     // `run` enters its first state before its first await, so the caller already sees it.
@@ -129,12 +134,12 @@ export class SpeechSessionController implements SpeechSessionPort {
   // --- the conversation ------------------------------------------------------------------------
 
   private async run(session: Session): Promise<void> {
-    const { voice, remote, policy } = { ...this.options, policy: this.policy }
+    const { voice, remote, conversation, policy } = { ...this.options, policy: this.policy }
     let failures = 0
     let first = true
     try {
-      while (this.alive(session)) {
-        this.enter(session, first ? 'awaiting_speech' : 'awaiting_followup', null)
+      while (this.alive(session) && conversation.isActive()) {
+        this.enter(session, first ? 'awaiting_speech' : 'awaiting_followup')
         let heard: Result<ListenOutcome> | null = await voice.listen(
           {
             generation: this.generation(session),
@@ -143,25 +148,24 @@ export class SpeechSessionController implements SpeechSessionPort {
               startWaitMs: first ? policy.initialWaitMs : policy.followupWaitMs
             },
             onSpeechStarted: () => {
-              if (this.alive(session)) this.enter(session, 'listening', null)
+              if (this.alive(session)) this.enter(session, 'listening')
             }
           },
           { signal: session.abort.signal }
         )
         if (!this.alive(session)) return
         if (!heard.ok) return this.problem(heard.error)
-        // Nothing said in time: the conversation is simply over.
+        // Nothing said in time: the voice session is simply over.
         if (heard.value.kind === 'empty') return
         first = false
 
-        const requestId = this.options.createId()
         let utterance: CompletedUtterance | null = heard.value.utterance
         heard = null
         // Each server step carries the version of the state it was sent from.
-        this.enter(session, 'transcribing', requestId)
-        const transcribing = { requestId, session: this.generation(session) }
+        this.enter(session, 'transcribing')
+        const turn = { requestId: this.options.createId(), session: this.generation(session) }
         const transcription = await this.withLimit(session, (execution) =>
-          remote.transcribe(transcribing, utterance!, execution)
+          remote.transcribe(turn, utterance!, execution)
         )
         // The audio has done its job; keep nothing of it.
         utterance = null
@@ -178,28 +182,27 @@ export class SpeechSessionController implements SpeechSessionPort {
           if (failures >= policy.maxConsecutiveFailures) return
           continue
         }
-        this.notice({ type: 'transcript', requestId, text: transcript.text })
 
-        this.enter(session, 'processing', requestId)
-        const processing = { requestId, session: this.generation(session) }
-        const response = await this.withLimit(session, (execution) =>
-          remote.respond(processing, transcript.text, execution)
+        // What was said goes to the conversation, which answers it (and tells the user).
+        this.enter(session, 'processing')
+        const answered = await conversation.submit(
+          { text: transcript.text, modality: 'speech' },
+          { signal: session.abort.signal }
         )
         if (!this.alive(session)) return
-        if (!response.ok) {
+        if (!answered.ok) {
+          // The conversation has already told the user why.
+          if (!conversation.isActive()) return
           failures += 1
-          this.problem(response.error)
           if (failures >= policy.maxConsecutiveFailures) return
           continue
         }
         failures = 0
-
-        const played = response.value.audio
-          ? await this.speak(session, requestId, response.value)
-          : false
+        const { reply } = answered.value
+        if (reply.audio) await this.speak(session, reply)
         if (!this.alive(session)) return
-        this.notice({ type: 'response', requestId, text: response.value.text, spoken: played })
-        if (response.value.endConversation) return
+        // The assistant ended the conversation: nothing more to wait for.
+        if (reply.endConversation || !conversation.isActive()) return
       }
     } finally {
       this.finish(session)
@@ -207,14 +210,10 @@ export class SpeechSessionController implements SpeechSessionPort {
   }
 
   /** Play the spoken reply and wait for it to really finish. Returns whether it was heard. */
-  private async speak(
-    session: Session,
-    requestId: string,
-    response: SpokenResponse
-  ): Promise<boolean> {
-    if (!response.audio) return false
+  private async speak(session: Session, reply: AssistantReply): Promise<boolean> {
+    if (!reply.audio) return false
     const { playback, schedule } = this.options
-    this.enter(session, 'speaking', requestId)
+    this.enter(session, 'speaking')
     const playbackId = this.options.createId()
     const generation = this.generation(session)
     session.playback = { id: playbackId, generation }
@@ -250,8 +249,8 @@ export class SpeechSessionController implements SpeechSessionPort {
         .play({
           playbackId,
           generation,
-          mimeType: response.audio!.mimeType,
-          audio: response.audio!.bytes
+          mimeType: reply.audio!.mimeType,
+          audio: reply.audio!.bytes
         })
         .then((accepted) => {
           if (!accepted.ok) done('failed')
@@ -315,11 +314,10 @@ export class SpeechSessionController implements SpeechSessionPort {
     return { sessionId: session.id, revision: session.version }
   }
 
-  private enter(session: Session, phase: Phase, requestId: string | null): void {
+  private enter(session: Session, phase: Phase): void {
     if (this.session !== session) return
     session.version += 1
-    session.requestId = requestId
-    this.publish({ phase, generation: this.generation(session) }, requestId)
+    this.publish({ phase, generation: this.generation(session) })
   }
 
   /** End the session now: cancel what is running, stop playback, forget the session. */
@@ -330,14 +328,15 @@ export class SpeechSessionController implements SpeechSessionPort {
     if (session.playback)
       void this.options.playback.stop(session.playback.id, session.playback.generation)
     session.playback = null
-    this.publish({ phase: 'idle', generation: null }, null)
+    session.releaseConversation()
+    this.publish({ phase: 'idle', generation: null })
   }
 
-  private publish(snapshot: SpeechSnapshot, requestId: string | null): void {
+  private publish(snapshot: SpeechSnapshot): void {
     this.snapshot = snapshot
     for (const listener of [...this.listeners]) {
       try {
-        listener(structuredClone(snapshot), requestId)
+        listener(structuredClone(snapshot))
       } catch {
         /* Observers cannot prevent state transitions or other observers. */
       }

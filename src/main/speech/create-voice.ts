@@ -3,13 +3,14 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { VoiceActivityDetectorPort } from '../../inference/ports'
+import type { ConversationPort } from '../conversation/ports'
 import type { SensorStack } from '../sensors/create-sensors'
 import type { SensorGate } from '../sensors/hardware'
 import { AudioInputRouter } from './audio-input'
 import { UtilityProcessVad } from './vad-process'
 import type { VadProcess } from './vad-process'
 import { MediaAudioPlayback } from './playback'
-import { createRemoteSpeech } from './remote-speech/create-remote-speech'
+import type { RemoteSpeechPort } from './remote-speech/ports'
 import { SpeechSessionController } from './session/speech-session'
 import { VoiceInput } from './voice-input'
 
@@ -54,7 +55,12 @@ function spawnVadProcess(): VadProcess {
   }
 }
 
-export function createVoiceStack(sensors: SensorStack, gate: SensorGate): VoiceStack {
+export function createVoiceStack(
+  sensors: SensorStack,
+  gate: SensorGate,
+  conversation: ConversationPort,
+  remote: RemoteSpeechPort
+): VoiceStack {
   const router = new AudioInputRouter({ bridge: sensors.bridge, schedule })
   const vad = new UtilityProcessVad({
     spawn: spawnVadProcess,
@@ -74,7 +80,8 @@ export function createVoiceStack(sensors: SensorStack, gate: SensorGate): VoiceS
   const session = new SpeechSessionController({
     gate,
     voice: input,
-    remote: createRemoteSpeech({ isPackaged: app.isPackaged, env: process.env }),
+    remote,
+    conversation,
     playback,
     clock: { now: () => performance.now() },
     createId: randomUUID,

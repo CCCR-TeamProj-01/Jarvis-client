@@ -1,4 +1,5 @@
 import type { Result } from '../../../shared/contracts/common'
+import type { AssistantPort } from '../../conversation/ports'
 import type { RemoteSpeechPort } from './ports'
 
 const unavailable = async (): Promise<Result<never>> => ({
@@ -10,7 +11,6 @@ const unavailable = async (): Promise<Result<never>> => ({
 })
 
 /** Default until the real server adapter exists: nothing is sent anywhere. */
-export const unavailableRemoteSpeech: RemoteSpeechPort = {
-  transcribe: unavailable,
-  respond: unavailable
-}
+export const unavailableRemoteSpeech: RemoteSpeechPort = { transcribe: unavailable }
+
+export const unavailableAssistant: AssistantPort = { respond: unavailable }

@@ -1,7 +1,8 @@
 import type { ClientError, Result } from '../../../shared/contracts/common'
 import type { CompletedUtterance } from '../../../shared/contracts/speech'
 import type { LocalExecutionOptions } from '../../ports'
-import type { RemoteSpeechPort, SpeechTurn, SpokenResponse, Transcription } from './ports'
+import type { AssistantPort, AssistantReply, TurnContext } from '../../conversation/ports'
+import type { RemoteSpeechPort, SpeechTurn, Transcription } from './ports'
 import { createToneWav } from './tone'
 
 export interface DevRemoteSpeechOptions {
@@ -19,11 +20,15 @@ export interface DevRemoteSpeechOptions {
 }
 
 /**
- * Development stand-in for the server's STT/TTS. It never leaves the process, keeps nothing and
+ * Development stand-in for the server's STT and assistant (both ports). It never leaves the process, keeps nothing and
  * answers with fixed text and a short tone. The audio it receives is only measured, not kept.
  */
-export class DevRemoteSpeech implements RemoteSpeechPort {
-  readonly calls: { step: 'transcribe' | 'respond'; turn: SpeechTurn; bytes?: number }[] = []
+export class DevRemoteSpeech implements RemoteSpeechPort, AssistantPort {
+  readonly calls: {
+    step: 'transcribe' | 'respond'
+    turn: SpeechTurn | TurnContext
+    bytes?: number
+  }[] = []
   private turns = 0
 
   constructor(private readonly options: DevRemoteSpeechOptions = {}) {}
@@ -48,10 +53,10 @@ export class DevRemoteSpeech implements RemoteSpeechPort {
   }
 
   async respond(
-    turn: SpeechTurn,
+    turn: TurnContext,
     text: string,
     execution?: LocalExecutionOptions
-  ): Promise<Result<SpokenResponse>> {
+  ): Promise<Result<AssistantReply>> {
     this.calls.push({ step: 'respond', turn })
     const early = await this.enter('respond', execution)
     if (early) return early

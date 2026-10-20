@@ -84,7 +84,8 @@ flowchart TB
 | SpeechSessionController | 대기·호출·발화·서버 STT 대기·응답·후속 발화 상태 전이와 로컬 KWS/VAD 활성화. 버퍼 연계, 타임아웃, TTS 재생 중 입력 억제, 취소·마이크 중지·권한 철회 처리 |
 | VoiceActivityDetector | 호출 후 Silero VAD로 발화 시작·끝·무음 타임아웃 판단. 완료된 발화 구간만 음성 전송 대상으로 확정 |
 | RemoteSpeechClient | 완료 발화의 인증된 업로드, 서버 STT 결과·TTS 오디오 수신, 취소·기한·세션 버전 검증. 전송 구현은 ConnectionManager를 사용 |
-| InteractionManager | 대화·요청·승인 상태, 호출 통합, 취소·만료 |
+| InteractionManager | UI에 보이는 상태(스냅샷)·명령 진입점·호출 통합 |
+| ConversationManager | 대화 식별(`conversationId`)·요청과 그 처리 상태·응답 처리·취소·유휴 종료. 입력이 음성이든 글이든 같음. 음성 세션과의 관계는 [음성 명세](../features/speech.md#대화와-음성-세션의-관계) |
 | GestureController | 좌표 변환·필터·Pinch 상태·전환·추적 손실·로컬 중지 |
 | ConnectionManager | AuthManager의 현재 인증에 연결한 WSS·HTTPS 전송, 음성 데이터 전송, 상태 보고·재연결·메시지 유효성. 인증 비밀은 Main 내부에서만 사용 |
 | CapabilityRegistry | 지원 도구, 스키마, 권한·일시 가용 상태 |

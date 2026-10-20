@@ -1,4 +1,6 @@
-import { Mic, Square } from 'lucide-react'
+import { useState } from 'react'
+import type { FormEvent } from 'react'
+import { Mic, SendHorizontal, Square } from 'lucide-react'
 import type { SpeechSnapshot } from '../../../../shared/contracts/speech'
 
 export interface ConversationMessage {
@@ -23,25 +25,53 @@ export function phaseLabel(phase: SpeechSnapshot['phase']): string {
 
 interface ConversationPanelProps {
   phase: SpeechSnapshot['phase']
+  /** A conversation exists, whether or not the voice side is listening. */
+  conversationActive: boolean
+  /** A request is being answered right now. */
+  working: boolean
   paused: boolean
   messages: ConversationMessage[]
   onStart(): void
   onStop(): void
+  onSubmitText(text: string): void
 }
 
-/** A minimal view of the voice conversation: where it is, what was said, and start/stop. */
+/** The conversation as the user sees it: status, what was said, voice start/stop and a text box. */
 export function ConversationPanel({
   phase,
+  conversationActive,
+  working,
   paused,
   messages,
   onStart,
-  onStop
+  onStop,
+  onSubmitText
 }: ConversationPanelProps) {
-  const active = phase !== 'idle'
+  const [draft, setDraft] = useState('')
+  const voiceActive = phase !== 'idle'
+  const status =
+    paused && !conversationActive
+      ? '인식이 일시 중지되어 있어요.'
+      : voiceActive
+        ? phaseLabel(phase)
+        : conversationActive
+          ? working
+            ? '답을 만들고 있어요…'
+            : '대화 중이에요. 글로 입력하거나 음성으로 이어갈 수 있어요.'
+          : phaseLabel('idle')
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    const text = draft.trim()
+    if (text.length === 0 || paused) return
+    setDraft('')
+    onSubmitText(text)
+  }
+
   return (
-    <section className="conversation" aria-label="음성 대화">
+    <section className="conversation" aria-label="대화">
       <p className="conversation-status" role="status" aria-live="polite">
-        {paused && !active ? '인식이 일시 중지되어 있어요.' : phaseLabel(phase)}
+        {status}
       </p>
       {messages.length > 0 && (
         <ul className="conversation-log">
@@ -50,7 +80,24 @@ export function ConversationPanel({
           ))}
         </ul>
       )}
-      {active ? (
+      <form className="conversation-input" onSubmit={submit}>
+        <input
+          aria-label="메시지 입력"
+          placeholder="글로 입력하세요"
+          value={draft}
+          disabled={paused}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <button
+          className="button button-secondary"
+          type="submit"
+          aria-label="보내기"
+          disabled={paused || draft.trim().length === 0}
+        >
+          <SendHorizontal aria-hidden="true" />
+        </button>
+      </form>
+      {voiceActive || conversationActive ? (
         <button className="button button-secondary" type="button" onClick={onStop}>
           <Square aria-hidden="true" />
           대화 중지
@@ -64,6 +111,12 @@ export function ConversationPanel({
         >
           <Mic aria-hidden="true" />
           대화 시작
+        </button>
+      )}
+      {conversationActive && !voiceActive && !paused && (
+        <button className="button button-ghost" type="button" onClick={onStart}>
+          <Mic aria-hidden="true" />
+          음성으로 이어가기
         </button>
       )}
     </section>

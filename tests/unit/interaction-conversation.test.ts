@@ -25,6 +25,10 @@ function setup(auth: AuthSnapshot = signedIn) {
       ok: true,
       value: { sessionId: 's', revision: 0 }
     })),
+    submitText: vi.fn<ConversationHandlers['submitText']>(async () => ({
+      ok: true,
+      value: undefined
+    })),
     stop: vi.fn<ConversationHandlers['stop']>(async () => ({ ok: true, value: undefined }))
   }
   return { manager, showWindow, events, handlers }
@@ -87,31 +91,102 @@ describe('conversation commands', () => {
   })
 })
 
-describe('speech state and notices', () => {
+describe('typed messages', () => {
+  it('sends text to the conversation for a signed-in user', async () => {
+    const { manager, handlers } = setup()
+    manager.setConversationHandlers(handlers)
+    expect(
+      await manager.dispatch({ type: 'conversation.submit_text', text: '안녕' })
+    ).toMatchObject({
+      ok: true
+    })
+    expect(handlers.submitText).toHaveBeenCalledWith('안녕')
+  })
+
+  it('does not accept text before sign-in', async () => {
+    const { manager, handlers, showWindow } = setup(signedOut)
+    manager.setConversationHandlers(handlers)
+    expect(
+      await manager.dispatch({ type: 'conversation.submit_text', text: '안녕' })
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'authentication_required' }
+    })
+    expect(handlers.submitText).not.toHaveBeenCalled()
+    expect(showWindow).toHaveBeenCalled()
+  })
+
+  it('reports a refusal and is unsupported until a conversation is connected', async () => {
+    const unconnected = setup()
+    expect(
+      await unconnected.manager.dispatch({ type: 'conversation.submit_text', text: 'x' })
+    ).toMatchObject({ ok: false, error: { code: 'unsupported' } })
+    const { manager, handlers } = setup()
+    handlers.submitText.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'conflict', message: '이전 요청을 처리하고 있어요.' }
+    })
+    manager.setConversationHandlers(handlers)
+    expect(await manager.dispatch({ type: 'conversation.submit_text', text: 'x' })).toMatchObject({
+      ok: false,
+      error: { code: 'conflict' }
+    })
+  })
+})
+
+describe('conversation and speech state', () => {
   const generation = { sessionId: 's', revision: 3 }
 
-  it('derives the conversation and request views from the speech state', () => {
+  it('takes the conversation and request views from the conversation, not from speech', () => {
     const { manager } = setup()
-    manager.setSpeechState({ phase: 'transcribing', generation }, 'req-1')
+    manager.setSpeechState({ phase: 'listening', generation })
     expect(manager.getSnapshot()).toMatchObject({
-      speech: { phase: 'transcribing' },
-      conversation: { phase: 'active', generation },
+      speech: { phase: 'listening' },
+      conversation: { phase: 'idle', generation: null },
+      request: { phase: 'idle' }
+    })
+    manager.setConversationState({
+      phase: 'active',
+      conversationId: 'conv-1',
+      version: 4,
       request: { requestId: 'req-1', phase: 'processing' }
     })
-    manager.setSpeechState({ phase: 'speaking', generation }, 'req-1')
-    expect(manager.getSnapshot().request).toEqual({ requestId: null, phase: 'idle' })
-    manager.setSpeechState({ phase: 'idle', generation: null }, null)
+    expect(manager.getSnapshot()).toMatchObject({
+      speech: { phase: 'listening' },
+      conversation: { phase: 'active', generation: { sessionId: 'conv-1', revision: 4 } },
+      request: { requestId: 'req-1', phase: 'processing' }
+    })
+    manager.setConversationState({
+      phase: 'idle',
+      conversationId: null,
+      version: 5,
+      request: { requestId: null, phase: 'idle' }
+    })
     expect(manager.getSnapshot()).toMatchObject({
       conversation: { phase: 'idle', generation: null },
       request: { phase: 'idle' }
     })
   })
 
+  it('allows a text-only conversation with no voice session', () => {
+    const { manager } = setup()
+    manager.setConversationState({
+      phase: 'active',
+      conversationId: 'conv-1',
+      version: 1,
+      request: { requestId: null, phase: 'idle' }
+    })
+    expect(manager.getSnapshot()).toMatchObject({
+      conversation: { phase: 'active' },
+      speech: { phase: 'idle', generation: null }
+    })
+  })
+
   it('turns notices into UI events without putting them in the state', () => {
     const { manager, events } = setup()
     const revision = manager.getSnapshot().revision
-    manager.publishNotice({ type: 'transcript', requestId: 'r', text: '안녕' })
-    manager.publishNotice({ type: 'response', requestId: 'r', text: '반가워요', spoken: true })
+    manager.publishNotice({ type: 'user', requestId: 'r', text: '안녕', modality: 'text' })
+    manager.publishNotice({ type: 'assistant', requestId: 'r', text: '반가워요' })
     manager.publishNotice({ type: 'problem', error: { code: 'unavailable', message: '실패' } })
     expect(events).toEqual([
       { type: 'result.available', requestId: 'r', text: '나: 안녕' },
@@ -121,9 +196,15 @@ describe('speech state and notices', () => {
     expect(manager.getSnapshot().revision).toBe(revision)
   })
 
-  it('clears the conversation when the user signs out', () => {
+  it('clears both the conversation and speech when the user signs out', () => {
     const { manager } = setup()
-    manager.setSpeechState({ phase: 'listening', generation }, null)
+    manager.setSpeechState({ phase: 'listening', generation })
+    manager.setConversationState({
+      phase: 'active',
+      conversationId: 'conv-1',
+      version: 1,
+      request: { requestId: null, phase: 'idle' }
+    })
     manager.setAuthSnapshot({ ...signedOut, generation: { ...authGeneration, revision: 9 } })
     expect(manager.getSnapshot()).toMatchObject({
       speech: { phase: 'idle' },
@@ -135,8 +216,8 @@ describe('speech state and notices', () => {
   it('ignores updates after disposal', () => {
     const { manager, events } = setup()
     manager.dispose()
-    manager.setSpeechState({ phase: 'listening', generation }, null)
-    manager.publishNotice({ type: 'transcript', requestId: 'r', text: 'x' })
+    manager.setSpeechState({ phase: 'listening', generation })
+    manager.publishNotice({ type: 'assistant', requestId: 'r', text: 'x' })
     expect(events).toEqual([])
   })
 })

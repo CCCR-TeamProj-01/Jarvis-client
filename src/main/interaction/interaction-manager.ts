@@ -14,6 +14,7 @@ import type {
 } from '../../shared/contracts/interaction'
 import type { SensorSnapshot } from '../../shared/contracts/sensors'
 import type { SpeechSnapshot } from '../../shared/contracts/speech'
+import type { ConversationNotice, ConversationSnapshot } from '../conversation/ports'
 import type { SpeechNotice } from '../speech/session/ports'
 import type { ActivationSource, InteractionPort } from './ports'
 import type { LocalExecutionOptions } from '../ports'
@@ -42,7 +43,11 @@ function idleSubsystems(): Pick<
 }
 
 export interface ConversationHandlers {
+  /** Start a conversation with the voice side attached. */
   start(): Promise<Result<unknown>>
+  /** Type something into the conversation (starting one if needed), with no voice. */
+  submitText(text: string): Promise<Result<unknown>>
+  /** End the conversation and its voice side. */
   stop(): Promise<Result<void>>
 }
 
@@ -99,6 +104,16 @@ export class InteractionManager implements InteractionPort {
         return this.accepted()
       case 'gesture.stop':
         return this.accepted()
+      case 'conversation.submit_text': {
+        if (this.snapshot.auth.phase !== 'signed_in') {
+          this.open('login')
+          return this.failure('authentication_required', '로그인이 필요합니다.')
+        }
+        if (!this.conversation)
+          return this.failure('unsupported', '아직 사용할 수 없는 기능입니다.')
+        const submitted = await this.conversation.submitText(command.text)
+        return submitted.ok ? this.accepted() : submitted
+      }
       case 'conversation.start': {
         if (this.snapshot.auth.phase !== 'signed_in') {
           this.open('login')
@@ -168,30 +183,37 @@ export class InteractionManager implements InteractionPort {
     this.conversation = handlers
   }
 
-  /** The speech session's state, from which the conversation and request views follow. */
-  setSpeechState(speech: SpeechSnapshot, requestId: string | null): void {
+  /** The voice side: listening and speaking. */
+  setSpeechState(speech: SpeechSnapshot): void {
     if (this.disposed) return
-    const working = speech.phase === 'transcribing' || speech.phase === 'processing'
+    this.update({ speech })
+  }
+
+  /** The conversation and the request in it, as the conversation manager reports them. */
+  setConversationState(conversation: ConversationSnapshot): void {
+    if (this.disposed) return
     this.update({
-      speech,
       conversation:
-        speech.phase === 'idle'
+        conversation.phase === 'idle' || conversation.conversationId === null
           ? { phase: 'idle', generation: null }
-          : { phase: 'active', generation: speech.generation },
+          : {
+              phase: 'active',
+              generation: { sessionId: conversation.conversationId, revision: conversation.version }
+            },
       request:
-        working && requestId
-          ? { requestId, phase: 'processing' }
+        conversation.request.phase === 'processing' && conversation.request.requestId
+          ? { requestId: conversation.request.requestId, phase: 'processing' }
           : { requestId: null, phase: 'idle' }
     })
   }
 
   /** Words for the user from the conversation, as events (they are not part of the state). */
-  publishNotice(notice: SpeechNotice): void {
+  publishNotice(notice: ConversationNotice | SpeechNotice): void {
     if (this.disposed) return
-    const event: UiEvent | null =
-      notice.type === 'transcript'
+    const event: UiEvent =
+      notice.type === 'user'
         ? { type: 'result.available', requestId: notice.requestId, text: `나: ${notice.text}` }
-        : notice.type === 'response'
+        : notice.type === 'assistant'
           ? {
               type: 'result.available',
               requestId: notice.requestId,

@@ -440,3 +440,12 @@ input[aria-invalid='true'] {
   line-height: 18px;
   overflow-wrap: anywhere;
 }
+
+.conversation-input {
+  display: flex;
+  gap: var(--space-2);
+}
+.conversation-input .button {
+  min-width: 44px;
+  padding: 0 var(--space-3);
+}

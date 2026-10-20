@@ -2,19 +2,23 @@ import type { ClientError, Generation, Result, Unsubscribe } from '../../../shar
 import type { SpeechSnapshot } from '../../../shared/contracts/speech'
 import type { ActivationSource } from '../../interaction/ports'
 
-/** What the user should be told. Audio never appears here. */
-export type SpeechNotice =
-  | { type: 'transcript'; requestId: string; text: string }
-  | { type: 'response'; requestId: string; text: string; spoken: boolean }
-  | { type: 'problem'; error: ClientError }
+/** Something about listening or speaking that the user should know. */
+export interface SpeechNotice {
+  type: 'problem'
+  error: ClientError
+}
 
+/**
+ * The voice side of a conversation: listening, recognising speech and speaking the reply. It
+ * attaches to a conversation (starting one if needed) and hands what was said to it; what to
+ * answer is the conversation's job.
+ */
 export interface SpeechSessionPort {
-  /** Start a conversation. Already running is not an error: the current session is returned. */
+  /** Start listening. Already running is not an error: the current session is returned. */
   activate(source: ActivationSource): Promise<Result<Generation>>
-  /** Invalidate results, cancel work and clean up locally without waiting for the server. */
+  /** Stop listening and speaking now, locally. The conversation itself is not ended. */
   stop(): Promise<Result<void>>
   getSnapshot(): SpeechSnapshot
-  /** `requestId` is set while a turn is being recognised or worked on. */
-  subscribe(listener: (snapshot: SpeechSnapshot, requestId: string | null) => void): Unsubscribe
+  subscribe(listener: (snapshot: SpeechSnapshot) => void): Unsubscribe
   subscribeNotices(listener: (notice: SpeechNotice) => void): Unsubscribe
 }

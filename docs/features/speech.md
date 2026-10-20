@@ -90,24 +90,42 @@ F-015([#16](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/16))에서 
 - 모델은 저장소에 없다. `pnpm models:fetch`가 `resources/models/`에 내려받아 해시를 검증하고, 패키징은 `resources/models/*.onnx`를 포함한다.
 - 개발용: 패키징되지 않은 앱에서 `JARVIS_FAKE_MEDIA=1`과 `JARVIS_FAKE_AUDIO_FILE=<wav>`로 파일을 마이크 입력으로 쓰고, `JARVIS_VOICE_SELFTEST=<횟수>`로 로그인 후 그 횟수만큼 `listen()`한 결과(오디오 제외)를 `VOICE_SELFTEST` 줄로 출력한다. 가짜 마이크는 사용권을 다시 열 때마다 파일을 처음부터 재생한다.
 
-## 구현 현황: 음성 세션과 응답 재생
+## 대화와 음성 세션의 관계
 
-F-016([#18](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/18))에서 VOICE-02~04의 클라이언트 쪽 흐름을 구현했다. 서버 STT·TTS는 개발용 대역이며 실제 서버 계약, 도구 요청 실행 연결, 호출어 엔진, 응답 중 끼어들기는 후속이다. 호출어 대신 단축키·트레이·화면의 `대화 시작`(`conversation.start`)으로 시작한다.
+대화(conversation)와 음성 세션(speech session)은 다른 것이다.
+
+- **대화**는 사용자와 자비스 사이의 한 흐름이다. 요청(requestId)이 이어지고 서버와는 `conversationId`로 연결되며, 입력이 음성이든 글이든 같다. 소유자는 `ConversationManager`(`src/main/conversation/`)다.
+- **음성 세션**은 그 대화에 붙는 듣기·말하기 방식이다. 마이크로 듣고, 서버 STT로 글로 바꿔 대화에 제출하고, 응답 오디오를 재생한다. 소유자는 `SpeechSessionController`(`src/main/speech/session/`)다.
+
+한 대화에서 음성 턴과 텍스트 턴이 섞일 수 있고, 음성 세션 없이 글로만 이어 가는 대화도 있다. 음성 세션이 끝나도(예: 후속 발화 대기 초과) 대화는 남을 수 있다. 반대로 대화가 끝나면(중지·로그아웃·일시 중지·서버의 종료 지시·유휴 시간 초과) 음성 세션도 끝난다. 마지막 응답을 말하는 중이면 다 말한 뒤 끝난다.
+
+| 책임 | 대화 (`ConversationManager`) | 음성 세션 (`SpeechSessionController`) |
+| --- | --- | --- |
+| 식별 | `conversationId`, 요청 ID, 상태 버전 | 음성 세션 ID, 상태 버전 |
+| 서버 | 응답 요청(`AssistantPort.respond`), 응답 시간 제한 | 음성 인식 요청(`RemoteSpeechPort.transcribe`), 인식 시간 제한 |
+| 사용자에게 | "나: …"·"자비스: …" 메시지와 응답 오류 | 듣기·재생 쪽 문제(인식 실패, 재생 실패) |
+| 상태 | `conversation`·`request` 스냅샷 | `speech` 스냅샷 |
+| 끝내는 조건 | 중지, 서버 종료 지시, 유휴 5분(음성 세션이 열려 있으면 제외) | 발화 없음, 후속 대기 초과, 연속 실패, 중지, 대화 종료 |
+
+## 구현 현황: 대화·음성 세션·응답 재생
+
+F-016([#18](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/18))과 F-017([#19](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/19))에서 VOICE-02~04와 텍스트 입력 경로를 구현했다. 서버 STT·응답은 개발용 대역이며 실제 서버 계약, 도구 요청 실행 연결, 호출어 엔진, 응답 중 끼어들기, 대화 기록 저장은 후속이다. 호출어 대신 단축키·트레이·화면의 `대화 시작`(`conversation.start`)으로 음성을 시작하고, 글은 화면의 입력창(`conversation.submit_text`)으로 보낸다.
 
 | 위치 | 책임 |
 | --- | --- |
-| `src/main/speech/session/speech-session.ts` | 상태 전이(세션 ID·상태 버전), 시간 제한, 실패 한도, 취소·정리, 늦은 결과 폐기 |
-| `src/main/speech/remote-speech/` | 서버 음성 서비스 포트(`transcribe`·`respond`), 개발용 대역, 연결 불가 기본 어댑터, 선택 규칙 |
+| `src/main/conversation/` | 대화 식별·요청 상태·응답 처리·유휴 종료, 서버 응답 포트(`AssistantPort`) |
+| `src/main/speech/session/speech-session.ts` | 음성 상태 전이(세션 ID·상태 버전), 시간 제한, 실패 한도, 취소·정리, 늦은 결과 폐기 |
+| `src/main/speech/remote-speech/` | 서버 음성 인식 포트, 개발용 대역(인식과 응답 모두), 연결 불가 기본 어댑터, 선택 규칙 |
 | `src/main/speech/playback.ts`, `src/renderer/media/audio-playback/element-playback.ts` | Main의 재생 요청·이벤트 중계와 Media Renderer의 실제 재생(started·ended·stopped·failed) |
 
 동작 기준은 다음과 같다.
 
-- 상태는 `idle → awaiting_speech → listening → transcribing → processing → speaking → awaiting_followup`로 전이하고 후속 발화는 호출어 없이 이어진다. 호출어 엔진이 생기면 `wake_detected`가 그 앞에 붙는다. 단축키로 시작하면 곧바로 `awaiting_speech`다.
+- 음성 상태는 `idle → awaiting_speech → listening → transcribing → processing → speaking → awaiting_followup`로 전이하고 후속 발화는 호출어 없이 이어진다(`processing`은 대화가 응답을 만드는 동안). 호출어 엔진이 생기면 `wake_detected`가 그 앞에 붙는다. 단축키로 시작하면 곧바로 `awaiting_speech`다.
 - 마이크 사용권은 `listen()` 동안에만 잡는다. 서버 처리와 응답 재생 중에는 마이크가 닫혀 있으므로 응답 소리가 인식 입력에 섞이지 않고, 후속 발화는 마이크를 다시 열어 받는다(재오픈 지연은 측정 후 검토).
-- 시간 제한(잠정값, 정책으로 주입): 첫 발화 대기 6초, 후속 발화 대기 8초, 서버 단계당 20초, 재생 안전 한도 60초. 아무 말도 없으면 대화를 끝낸다. 빈 인식·인식 실패·응답 실패는 안내하고 이어 가며, 연속 2회 실패하면 끝낸다.
-- 서버가 `endConversation`을 보내면 후속 대기 없이 끝낸다. 음성이 없는 응답이나 재생 실패는 텍스트로 보여 준다.
-- 중지·로그아웃·인증 세대 변경·인식 일시 중지는 듣기·서버 요청·재생을 즉시 취소하고 서버 응답을 기다리지 않는다. 취소된 세션에 늦게 도착한 인식·응답·재생 이벤트는 적용하지 않는다. 마이크 사용권이 철회되면 듣기가 끝나며 안내한다.
-- 서버 요청에는 요청 ID와 요청 시점의 세션 ID·상태 버전을 붙인다. 완료 발화 바이트는 인식 요청이 끝나면 더 보관하지 않는다.
-- UI: 현재 상태 문구, 인식된 말과 응답 텍스트(최근 6줄), `대화 시작`/`대화 중지` 버튼을 보여 준다. 오류는 기존 오류 알림으로 표시한다.
-- 개발용(패키징되지 않은 앱 한정): `JARVIS_DEV_SPEECH=1`이 서버 대역을 켜고(`JARVIS_DEV_SPEECH_TURNS`로 몇 번째 응답에서 종료할지 지정, 기본 2), `JARVIS_SPEECH_SELFTEST=1`이 로그인 직후 대화를 시작해 상태 변화와 알림을 `SPEECH_SELFTEST` 줄로 출력한다. 서버 대역은 고정 인식 문구와 짧은 효과음(WAV)으로 답하며 오디오를 저장하지 않는다.
-
+- 시간 제한(잠정값, 정책으로 주입): 첫 발화 대기 6초, 후속 발화 대기 8초, 서버 단계당 20초, 재생 안전 한도 60초, 대화 유휴 5분. 빈 인식·인식 실패·응답 실패는 안내하고 이어 가며, 음성에서 연속 2회 실패하면 음성 세션을 끝낸다.
+- 응답 텍스트는 재생을 기다리지 않고 바로 보여 준다. 음성이 없는 응답이나 재생 실패는 텍스트만 보여 준다.
+- 한 번에 하나의 요청만 처리한다. 처리 중에 온 다른 입력은 거절하고 안내한다.
+- 중지·로그아웃·인증 세대 변경·인식 일시 중지는 듣기·서버 요청·재생을 즉시 취소하고 서버 응답을 기다리지 않는다. 끝난 대화·세션에 늦게 도착한 인식·응답·재생 이벤트는 적용하지 않는다. 마이크 사용권이 철회되면 듣기가 끝나며 안내한다.
+- 서버 요청에는 요청 ID와 요청 시점의 식별자(대화 ID 또는 음성 세션 ID와 상태 버전)를 붙인다. 완료 발화 바이트는 인식 요청이 끝나면 더 보관하지 않는다.
+- UI: 현재 상태 문구, 인식된 말과 응답 텍스트(최근 6줄), 글 입력창, `대화 시작`/`음성으로 이어가기`/`대화 중지` 버튼을 보여 준다. 오류는 기존 오류 알림으로 표시한다.
+- 개발용(패키징되지 않은 앱 한정): `JARVIS_DEV_SPEECH=1`이 서버 대역을 켜고(`JARVIS_DEV_SPEECH_TURNS`로 몇 번째 응답에서 종료할지 지정, 기본 2), `JARVIS_SPEECH_SELFTEST=1`이 로그인 직후 음성 대화를 시작해 상태 변화와 알림을 `SPEECH_SELFTEST` 줄로 출력한다. 대역은 고정 인식 문구와 짧은 효과음(WAV)으로 답하며 오디오를 저장하지 않는다.
