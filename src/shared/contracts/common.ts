@@ -6,7 +6,7 @@ export const IdentifierSchema = z
   .refine((value) => value === value.trim(), 'Identifiers must not have surrounding whitespace')
 
 export const SequenceSchema = z.number().int().nonnegative()
-export const TimestampSchema = z.number().finite().nonnegative()
+export const TimestampSchema = z.number().nonnegative()
 
 export const GenerationSchema = z.strictObject({
   sessionId: IdentifierSchema,

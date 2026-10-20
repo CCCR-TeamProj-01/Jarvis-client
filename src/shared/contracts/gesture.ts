@@ -36,7 +36,7 @@ export const HAND_LANDMARK_NAMES = [
 export const HandLandmarkSchema = z.strictObject({
   x: z.number().min(0).max(1),
   y: z.number().min(0).max(1),
-  z: z.number().finite()
+  z: z.number()
 })
 export const HandObservationSchema = z.strictObject({
   handId: IdentifierSchema,
@@ -74,15 +74,15 @@ export type HandTrackingEvent = z.infer<typeof HandTrackingEventSchema>
 /** Global desktop logical coordinates; negative monitor positions are valid. */
 export const DesktopPointSchema = z.strictObject({
   displayId: IdentifierSchema,
-  x: z.number().finite(),
-  y: z.number().finite()
+  x: z.number(),
+  y: z.number()
 })
 export type DesktopPoint = z.infer<typeof DesktopPointSchema>
 
 export const DisplayBoundsSchema = z.strictObject({
   displayId: IdentifierSchema,
-  x: z.number().finite(),
-  y: z.number().finite(),
+  x: z.number(),
+  y: z.number(),
   width: z.number().positive(),
   height: z.number().positive(),
   scaleFactor: z.number().positive()
