@@ -323,11 +323,29 @@ export class ApplicationManager {
     void this.auth.start()
   }
 
+  /** The call: start a conversation with the voice side (hotkey). It does not open the window. */
   activate(source: ActivationSource): void {
     if (this.quitting) return
     // Record where the user was before Jarvis takes the foreground, so "go back" has a target.
     if (this.auth.isSignedIn()) void this.tools.restoreTracker.capture()
     void this.interaction.activateConversation(source)
+  }
+
+  /**
+   * Brings the window up: a second launch, the Dock icon, the tray icon or its menu. Opening the
+   * app is a different thing from calling it, so this never starts a conversation. Where the user
+   * was is noted first, because the window takes the foreground.
+   */
+  showWindow(): void {
+    if (this.quitting) return
+    if (!this.auth.isSignedIn()) {
+      this.window.open()
+      return
+    }
+    void this.tools.restoreTracker
+      .capture()
+      .catch(() => undefined)
+      .finally(() => this.window.open())
   }
 
   hasTray(): boolean {
@@ -422,7 +440,8 @@ export class ApplicationManager {
       this.tray.setToolTip('자비스')
       this.tray.setContextMenu(
         Menu.buildFromTemplate([
-          { label: '자비스 열기', click: () => this.activate('tray') },
+          { label: '자비스 열기', click: () => this.showWindow() },
+          { label: '대화 시작', click: () => this.activate('tray') },
           {
             label: '설정',
             click: () => {
@@ -458,7 +477,7 @@ export class ApplicationManager {
           { label: '앱 종료', click: () => app.quit() }
         ])
       )
-      this.tray.on('click', () => this.activate('tray'))
+      this.tray.on('click', () => this.showWindow())
       this.interaction.setTrayState({ status: 'ready' })
     } catch {
       if (this.tray && !this.tray.isDestroyed()) this.tray.destroy()
@@ -524,8 +543,8 @@ export function startApplication(): void {
   }
   let manager: ApplicationManager | null = null
   let quitting = false
-  app.on('second-instance', () => manager?.activate('hotkey'))
-  app.on('activate', () => manager?.activate('hotkey'))
+  app.on('second-instance', () => manager?.showWindow())
+  app.on('activate', () => manager?.showWindow())
   app.on('before-quit', () => {
     quitting = true
     manager?.dispose()

@@ -134,7 +134,16 @@ vi.mock('electron', async () => {
   }
 })
 
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, Tray } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  Menu,
+  nativeTheme,
+  Tray
+} from 'electron'
 import type { IpcMainInvokeEvent } from 'electron'
 import {
   ApplicationManager,
@@ -142,6 +151,7 @@ import {
   GESTURE_TOGGLE_SHORTCUT,
   startApplication
 } from '../../src/main/application/application-manager'
+import { authGeneration, authUser } from '../fixtures/contracts'
 import { UI_CHANNELS } from '../../src/shared/ipc/channels'
 
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve))
@@ -210,6 +220,89 @@ describe('native application lifecycle', () => {
     vi.mocked(globalShortcut.register).mock.calls[0][1]()
     expect(window.isMinimized()).toBe(false)
     expect(BrowserWindow.getAllWindows()).toEqual([window])
+  })
+
+  describe('when signed in', () => {
+    async function signedInManager() {
+      const manager = makeManager()
+      manager.start()
+      await flush()
+      vi.spyOn(manager.auth, 'isSignedIn').mockReturnValue(true)
+      vi.spyOn(manager.tools.restoreTracker, 'capture').mockResolvedValue()
+      manager.interaction.setAuthSnapshot({
+        phase: 'signed_in',
+        generation: authGeneration,
+        user: authUser
+      })
+      const window = BrowserWindow.getAllWindows()[0]
+      window.close()
+      expect(window.isVisible()).toBe(false)
+      return { manager, window, dispatch: vi.spyOn(manager.interaction, 'dispatch') }
+    }
+
+    it('opens the window from the tray icon and menu without starting a conversation', async () => {
+      const { window, dispatch } = await signedInManager()
+      const tray = vi.mocked(Tray).mock.results[0].value as Tray
+      tray.emit('click')
+      await flush()
+      expect(window.isVisible()).toBe(true)
+      window.close()
+      const menu = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0] as {
+        label?: string
+        click?: () => void
+      }[]
+      menu.find((item) => item.label === '자비스 열기')?.click?.()
+      await flush()
+      expect(window.isVisible()).toBe(true)
+      expect(dispatch).not.toHaveBeenCalledWith({ type: 'conversation.start' }, undefined)
+      expect(dispatch.mock.calls.some(([command]) => command.type === 'conversation.start')).toBe(
+        false
+      )
+    })
+
+    it('opens the window when the Dock icon is clicked or Jarvis is launched again', async () => {
+      const { manager, window, dispatch } = await signedInManager()
+      manager.showWindow()
+      await flush()
+      expect(window.isVisible()).toBe(true)
+      expect(dispatch.mock.calls.some(([command]) => command.type === 'conversation.start')).toBe(
+        false
+      )
+    })
+
+    it('notes where the user was before the window takes the foreground', async () => {
+      const { manager } = await signedInManager()
+      manager.showWindow()
+      await flush()
+      expect(manager.tools.restoreTracker.capture).toHaveBeenCalledOnce()
+    })
+
+    it('the menu offers starting a conversation separately from opening the window', async () => {
+      const { dispatch, window } = await signedInManager()
+      const menu = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0] as {
+        label?: string
+        click?: () => void
+      }[]
+      menu.find((item) => item.label === '대화 시작')?.click?.()
+      await flush()
+      expect(dispatch.mock.calls.some(([command]) => command.type === 'conversation.start')).toBe(
+        true
+      )
+      expect(window.isVisible()).toBe(false)
+    })
+
+    it('the call shortcut starts a conversation and leaves the window alone', async () => {
+      const { window, dispatch } = await signedInManager()
+      const call = vi
+        .mocked(globalShortcut.register)
+        .mock.calls.find(([accelerator]) => accelerator === DEFAULT_CALL_SHORTCUT)
+      call?.[1]()
+      await flush()
+      expect(dispatch.mock.calls.some(([command]) => command.type === 'conversation.start')).toBe(
+        true
+      )
+      expect(window.isVisible()).toBe(false)
+    })
   })
 
   it('releases its shortcut, tray and IPC handlers when explicitly quitting', async () => {
@@ -285,7 +378,7 @@ describe('native application lifecycle', () => {
     manager.dispose()
     const window = BrowserWindow.getAllWindows()[0]
     window.close()
-    manager.activate('tray')
+    manager.showWindow()
     expect(BrowserWindow.getAllWindows()).toHaveLength(0)
     expect(tray.destroy).toHaveBeenCalledOnce()
     expect(ipcMain.removeHandler).toHaveBeenCalledWith(UI_CHANNELS.snapshot)
