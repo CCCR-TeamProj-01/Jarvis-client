@@ -122,6 +122,8 @@ Worker는 손 관측 결과를 만들고 Main의 GestureController가 활성 손
 
 취소·만료 전에 시작하지 않은 작업은 not_started로 보고한다. 이미 실행한 동작은 결과를 보존한 채 취소 요청 여부를 별도로 기록한다. 결과 불명 시 unknown을 반환하며 동일 executionId로 부작용을 자동 재실행하지 않는다. 중복 방지와 실행 직전 재검증은 `ToolExecutor`가 담당한다([구현 현황](../features/app-control.md#구현-현황)).
 
+어시스턴트가 요청을 처리하는 동안의 도구 호출은 `AssistantPort.respond`에 넘기는 `AssistantTools`로 받는다. 요청마다 새로 만들어지고 요청이 끝나거나 취소되면 닫히며, 닫힌 뒤의 호출은 실행하지 않는다. 서버 메시지 필드와의 매핑은 서버 어댑터의 몫이다([연결 방식](../features/app-control.md#대화와의-연결-f-020)).
+
 ## 음성·미디어
 
 로컬 오디오는 mono PCM signed 16-bit little endian과 sampleRateHz로 표현한다. 캡처 어댑터가 추론 엔진의 지원 샘플레이트에 맞춰 리샘플링한다. sampleRateHz를 서버 전송 형식으로 확정하는 것은 후속 통신 어댑터의 책임이다.

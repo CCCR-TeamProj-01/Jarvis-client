@@ -256,7 +256,13 @@ export class InteractionManager implements InteractionPort {
               requestId: notice.requestId,
               text: `자비스: ${notice.text}`
             }
-          : { type: 'client.error', error: notice.error }
+          : notice.type === 'tool'
+            ? {
+                type: 'result.available',
+                requestId: notice.requestId,
+                text: `실행: ${notice.text}`
+              }
+            : { type: 'client.error', error: notice.error }
     this.emit(event)
   }
 
