@@ -38,7 +38,13 @@ function idleSubsystems(): Pick<
     conversation: { phase: 'idle', generation: null },
     request: { requestId: null, phase: 'idle' },
     speech: { phase: 'idle', generation: null },
-    gesture: { phase: 'off', generation: null, activeHandId: null, displayId: null },
+    gesture: {
+      phase: 'off',
+      generation: null,
+      activeHandId: null,
+      displayId: null,
+      pointing: false
+    },
     sensors: []
   }
 }

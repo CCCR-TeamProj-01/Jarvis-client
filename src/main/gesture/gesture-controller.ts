@@ -73,7 +73,13 @@ const failure = (code: ClientError['code'], message: string): Result<never> => (
   error: { code, message }
 })
 
-const OFF: GestureSnapshot = { phase: 'off', generation: null, activeHandId: null, displayId: null }
+const OFF: GestureSnapshot = {
+  phase: 'off',
+  generation: null,
+  activeHandId: null,
+  displayId: null,
+  pointing: false
+}
 
 /**
  * Turns hand observations into pointer input for one gesture session. It owns the session's
@@ -89,6 +95,7 @@ export class GestureController implements GestureControlPort {
   private snapshot: GestureSnapshot = OFF
   private readonly listeners = new Set<(snapshot: GestureSnapshot) => void>()
   private readonly problemListeners = new Set<(error: ClientError) => void>()
+  private readonly clickListeners = new Set<() => void>()
   private readonly tuning: GestureTuning
 
   constructor(private readonly options: GestureControllerOptions) {
@@ -110,6 +117,14 @@ export class GestureController implements GestureControlPort {
     this.problemListeners.add(listener)
     return () => {
       this.problemListeners.delete(listener)
+    }
+  }
+
+  /** A click was sent; for a brief confirmation on screen. */
+  subscribeClicks(listener: () => void): Unsubscribe {
+    this.clickListeners.add(listener)
+    return () => {
+      this.clickListeners.delete(listener)
     }
   }
 
@@ -283,8 +298,6 @@ export class GestureController implements GestureControlPort {
       session.lostSinceMs = null
       session.phase = 'tracking'
     }
-    this.publish(session, hand.handId)
-
     const smoothed = session.filter.filter(
       toRegionPosition(tip, this.tuning.region),
       frame.capturedAtMs
@@ -303,6 +316,7 @@ export class GestureController implements GestureControlPort {
       frame.capturedAtMs,
       session.pinch.isPinched || session.closing || closing
     )
+    this.publish(session, hand.handId)
     const transition = session.pinch.update(ratio)
     if (transition === 'started') {
       // A pinch outside the pointing pose is not a click (and the hand has to open before the
@@ -316,6 +330,7 @@ export class GestureController implements GestureControlPort {
           ? session.lastSent
           : this.pointBefore(session, frame.capturedAtMs)
       this.enqueue(session, { kind: 'click', point: target })
+      for (const listener of [...this.clickListeners]) safely(() => listener())
       session.lastSent = target
       return
     }
@@ -448,7 +463,8 @@ export class GestureController implements GestureControlPort {
       generation: session.generation,
       activeHandId:
         session.phase === 'tracking' ? (activeHandId ?? session.selector.activeHandId) : null,
-      displayId: session.display.displayId
+      displayId: session.display.displayId,
+      pointing: session.phase === 'tracking' && session.pose.isPointing
     }
     if (JSON.stringify(next) === JSON.stringify(this.snapshot)) return
     this.snapshot = next

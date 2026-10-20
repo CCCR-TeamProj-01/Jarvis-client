@@ -13,6 +13,7 @@ import { registerMediaIpc } from '../ipc/media-ipc'
 import { registerUiIpc } from '../ipc/ui-ipc'
 import { createSensorStack, isFakeMediaEnabled } from '../sensors/create-sensors'
 import type { SensorStack } from '../sensors/create-sensors'
+import { createOverlay } from '../overlay/create-overlay'
 import { createGestureController } from '../gesture/create-gesture'
 import type { GestureController } from '../gesture/gesture-controller'
 import { startHandSelfTest } from '../gesture/dev-hand-selftest'
@@ -86,6 +87,7 @@ export class ApplicationManager {
   private disposeSpeechSelfTest: (() => void) | null = null
   private disposeHandSelfTest: (() => void) | null = null
   private disposeSpeechSync: (() => void) | null = null
+  private disposeOverlay: (() => void) | null = null
   private readonly window: UiWindow
   private tray: Tray | null = null
   private shortcutRegistered = false
@@ -249,6 +251,17 @@ export class ApplicationManager {
     const stopGestureProblems = this.gesture.subscribeProblems((error) =>
       this.interaction.publishNotice({ type: 'problem', error })
     )
+    // The status overlay watches the same state; it can be switched off while developing.
+    if (app.isPackaged || process.env.JARVIS_NO_OVERLAY !== '1')
+      this.disposeOverlay = createOverlay({
+        entryUrl: entryUrl.replace(/\/ui\/index\.html$/, '/overlay/index.html'),
+        preloadPath: preloadPath.replace(/ui\.js$/, 'overlay.js'),
+        interaction: this.interaction,
+        conversation,
+        speech: speechSession,
+        gesture: this.gesture,
+        stopConversation: () => void this.interaction.dispatch({ type: 'conversation.stop' })
+      }).dispose
     const stopConversationState = conversation.subscribe((snapshot) => {
       this.interaction.setConversationState(snapshot)
       // Without a conversation there is nothing to listen for. A reply being worked on or spoken
@@ -348,6 +361,8 @@ export class ApplicationManager {
     this.disposeHandSelfTest = null
     const releaseSpeechSync = this.disposeSpeechSync
     this.disposeSpeechSync = null
+    const releaseOverlay = this.disposeOverlay
+    this.disposeOverlay = null
     const releaseShortcut = this.shortcutRegistered
     this.shortcutRegistered = false
     const releaseGestureShortcut = this.gestureShortcutRegistered
@@ -369,6 +384,7 @@ export class ApplicationManager {
       () => releaseSpeechSelfTest?.(),
       () => releaseHandSelfTest?.(),
       () => releaseSpeechSync?.(),
+      () => releaseOverlay?.(),
       () => releaseSensorSync?.(),
       () => releaseMediaIpc?.(),
       () => {

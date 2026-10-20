@@ -32,7 +32,8 @@ const tracking: GestureSnapshot = {
   phase: 'tracking',
   generation: { sessionId: 'gesture-1', revision: 1 },
   activeHandId: 'right',
-  displayId: '1'
+  displayId: '1',
+  pointing: true
 }
 
 describe('gesture commands', () => {
