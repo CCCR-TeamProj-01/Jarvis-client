@@ -53,3 +53,24 @@ F-021([#26](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/26))에서 
 - 오버레이 페이지는 표시용 값(알약 종류·문구·중단 가능 여부)만 받고 앱 상태나 인증 정보를 받지 않는다. 로그인 전에는 표시할 상태가 없어 창을 만들지 않는다.
 - 확인한 범위(macOS): 일반 바탕화면과 앱 창 위에서 표시됨, 포커스를 가져가지 않음, 투명 배경, 일시 표시가 사라지면 숨음. 전체 화면 앱·다른 데스크톱(Space) 위, 중단 버튼 위 실제 마우스 동작, Windows는 아직 확인하지 못했다.
 
+
+
+## 메인 창 구조 구현 현황
+
+F-022([#39](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/39))에서 로그인한 뒤의 메인 창을 왼쪽 메뉴가 있는 구조로 바꿨다. 시안은 디자인 캔버스 "Jarvis 화면 시안"의 1~3번이다. 인증 화면(로그인·회원가입·확인 중)은 카드 화면 그대로다.
+
+| 위치 | 책임 |
+| --- | --- |
+| `src/shared/contracts/interaction.ts` | 화면(`screen`: `login`·`signup`·`conversation`·`gesture`·`settings`와 보류된 `input`·`result`·`confirmation`), 탭 이동 명령 `screen.open`, 결과 줄의 역할(`result.available`의 `role`) |
+| `src/main/interaction/interaction-manager.ts` | 탭 상태 보관, `screen.open`·`settings.open`(트레이의 설정: 창을 열고 설정 탭) 처리 |
+| `src/renderer/ui/view-model.ts` | 탭 결정, 상태 패널·대화 상태·권한 문구, 대화 줄 정리, 단축키 표시를 계산하는 순수 함수 |
+| `src/renderer/ui/features/shell/` | 메뉴·내용·상태 패널 틀과 상태 칩·단축키 표시 |
+| `src/renderer/ui/features/{conversation,gesture,settings}/` | 각 탭의 화면 |
+
+- 보고 있는 탭은 Main의 화면 상태가 갖는다. 로그인하면 대화 탭, 로그아웃하면 인증 화면으로 간다. 탭 이동은 로그인이 필요하며 로그인 전에는 로그인 화면으로 안내한다.
+- 대화 탭: 사용자·자비스·도구 결과를 구분한 로그, 글 입력, 음성 대화 시작·`대화 중지`, 현재 단계 칩, 호출 단축키 표시, 오른쪽 상태 패널(마이크·제스처·서버, 개인정보 안내).
+- 제스처 탭: 현재 상태 카드와 시작·중지(단축키 표시), 사용 방법 3단계, 카메라 권한과 손쉬운 사용 안내.
+- 설정 탭(읽기 전용): 호출·제스처 단축키와 등록 상태, 마이크·카메라 권한과 해결 방법, 트레이 상태, 계정. 설정 저장·편집은 후속 작업이다(UI-04 일부).
+- 단축키·트레이 경고는 창 위쪽 알림으로 보인다. `앱 종료`는 메뉴 아래쪽에 있다.
+- 창 크기: 기본 1100×760, 최소 640×520. 980px 이하에서 상태 패널, 780px 이하에서 메뉴 글자를 숨긴다.
+

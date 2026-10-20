@@ -119,7 +119,14 @@ describe('public authentication state', () => {
       })
       expect(ClientSnapshotSchema.safeParse(snapshot).success).toBe(true)
       expect(ClientSnapshotSchema.safeParse({ ...snapshot, screen: 'signup' }).success).toBe(true)
-      for (const screen of ['hidden', 'status', 'input', 'result', 'confirmation', 'settings']) {
+      for (const screen of [
+        'conversation',
+        'gesture',
+        'input',
+        'result',
+        'confirmation',
+        'settings'
+      ]) {
         expect(ClientSnapshotSchema.safeParse({ ...snapshot, screen }).success).toBe(false)
       }
     }

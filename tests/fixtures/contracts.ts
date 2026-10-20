@@ -29,7 +29,7 @@ export function clientSnapshot(overrides: Partial<ClientSnapshot> = {}): ClientS
       pointing: false
     },
     sensors: [],
-    screen: 'hidden',
+    screen: 'conversation',
     connection: 'offline',
     ...overrides
   }

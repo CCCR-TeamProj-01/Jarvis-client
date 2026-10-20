@@ -86,7 +86,7 @@ export class InteractionManager implements InteractionPort {
       auth: options.auth,
       recognitionPaused: false,
       ...idleSubsystems(),
-      screen: options.auth.phase === 'signed_in' ? 'hidden' : 'login',
+      screen: options.auth.phase === 'signed_in' ? 'conversation' : 'login',
       connection: 'offline'
     })
   }
@@ -115,6 +115,22 @@ export class InteractionManager implements InteractionPort {
         if (this.snapshot.auth.phase === 'signed_in')
           return this.failure('conflict', '이미 로그인되어 있습니다.')
         this.open(command.screen)
+        return this.accepted()
+      case 'screen.open':
+        if (this.snapshot.auth.phase !== 'signed_in') {
+          this.open('login')
+          return this.failure('authentication_required', '로그인이 필요합니다.')
+        }
+        if (this.snapshot.screen !== command.screen) this.update({ screen: command.screen })
+        return this.accepted()
+      case 'settings.open':
+        // Opening settings brings the window up, as from the tray, and shows that tab.
+        if (this.snapshot.auth.phase !== 'signed_in') {
+          this.open('login')
+          return this.failure('authentication_required', '로그인이 필요합니다.')
+        }
+        if (this.snapshot.screen !== 'settings') this.update({ screen: 'settings' })
+        this.options.showWindow()
         return this.accepted()
       case 'conversation.stop':
         // Stopping never needs a sign-in, and an idle conversation is already stopped.
@@ -198,7 +214,7 @@ export class InteractionManager implements InteractionPort {
     if (JSON.stringify(previous) === JSON.stringify(auth)) return
     const authScreen = this.snapshot.screen === 'login' || this.snapshot.screen === 'signup'
     if (auth.phase === 'signed_in') {
-      this.update({ auth, screen: authScreen ? 'status' : this.snapshot.screen })
+      this.update({ auth, screen: authScreen ? 'conversation' : this.snapshot.screen })
       return
     }
     this.update({
@@ -253,21 +269,23 @@ export class InteractionManager implements InteractionPort {
   /** Words for the user from the conversation, as events (they are not part of the state). */
   publishNotice(notice: ConversationNotice | SpeechNotice | GestureNotice): void {
     if (this.disposed) return
+    const line = (
+      role: 'user' | 'assistant' | 'tool',
+      requestId: string,
+      text: string
+    ): UiEvent => ({
+      type: 'result.available',
+      requestId,
+      role,
+      text
+    })
     const event: UiEvent =
       notice.type === 'user'
-        ? { type: 'result.available', requestId: notice.requestId, text: `나: ${notice.text}` }
+        ? line('user', notice.requestId, notice.text)
         : notice.type === 'assistant'
-          ? {
-              type: 'result.available',
-              requestId: notice.requestId,
-              text: `자비스: ${notice.text}`
-            }
+          ? line('assistant', notice.requestId, notice.text)
           : notice.type === 'tool'
-            ? {
-                type: 'result.available',
-                requestId: notice.requestId,
-                text: `실행: ${notice.text}`
-              }
+            ? line('tool', notice.requestId, notice.text)
             : { type: 'client.error', error: notice.error }
     this.emit(event)
   }

@@ -1,11 +1,23 @@
 import React, { useLayoutEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { CircleAlert, CircleCheck, Info, LogOut, TriangleAlert } from 'lucide-react'
-import { CheckingPanel, SignedInPanel, SignInForm, SignUpForm } from './features/auth/auth-panels'
+import { DEFAULT_CALL_SHORTCUT, GESTURE_TOGGLE_SHORTCUT } from '../../shared/contracts/application'
+import { CheckingPanel, SignInForm, SignUpForm } from './features/auth/auth-panels'
 import { useAuth } from './features/auth/use-auth'
-import { ConversationPanel } from './features/conversation/conversation-panel'
-import { GesturePanel } from './features/gesture/gesture-panel'
+import { ConversationView } from './features/conversation/conversation-view'
+import { StatusPanel } from './features/conversation/status-panel'
+import { GestureView } from './features/gesture/gesture-view'
+import { SettingsView } from './features/settings/settings-view'
+import { AppShell } from './features/shell/app-shell'
 import { useClientSnapshot } from './use-client-snapshot'
+import {
+  acceleratorKeys,
+  activeTab,
+  conversationStatus,
+  permissionLines,
+  statusLines,
+  voiceActive
+} from './view-model'
 import './styles.css'
 
 function App(): React.JSX.Element {
@@ -21,16 +33,96 @@ function App(): React.JSX.Element {
     }
   }, [windowMaterial])
   const phase = auth.snapshot?.phase ?? null
-  const signup = snapshot?.screen === 'signup' && phase !== 'signed_in'
+  const platform = window.jarvis?.platform ?? ''
+
+  if (phase === 'signed_in' && auth.snapshot?.user && snapshot) {
+    const tab = activeTab(snapshot)
+    const permissions = permissionLines(snapshot)
+    const callKeys = acceleratorKeys(DEFAULT_CALL_SHORTCUT, platform)
+    const toggleKeys = acceleratorKeys(GESTURE_TOGGLE_SHORTCUT, platform)
+    const warnings = [
+      snapshot.application.shortcut.status === 'unavailable'
+        ? snapshot.application.shortcut.error.message
+        : null,
+      snapshot.application.tray.status === 'unavailable'
+        ? '트레이를 사용할 수 없어 창을 유지합니다. 앱 종료 버튼으로 종료할 수 있어요.'
+        : null
+    ].filter((message): message is string => message !== null)
+    const banner = (error || auth.error || auth.notice || warnings.length > 0) && (
+      <div className="banner">
+        {warnings.map((message) => (
+          <p className="notice notice-warning" role="status" key={message}>
+            <TriangleAlert aria-hidden="true" />
+            {message}
+          </p>
+        ))}
+        {(error ?? auth.error) && (
+          <p className="notice notice-error" role="alert">
+            <CircleAlert aria-hidden="true" />
+            {error ?? auth.error}
+          </p>
+        )}
+        {auth.notice && (
+          <p className="notice notice-warning" role="status">
+            <Info aria-hidden="true" />
+            {auth.notice}
+          </p>
+        )}
+      </div>
+    )
+    return (
+      <AppShell
+        tab={tab}
+        loginId={auth.snapshot.user.loginId}
+        banner={banner || undefined}
+        side={tab === 'conversation' ? <StatusPanel lines={statusLines(snapshot)} /> : undefined}
+        signingOut={auth.busy !== null}
+        onNavigate={(next) => void dispatch({ type: 'screen.open', screen: next })}
+        onSignOut={() => void auth.signOut()}
+        onQuit={() => void dispatch({ type: 'app.quit' })}
+      >
+        {tab === 'conversation' && (
+          <ConversationView
+            status={conversationStatus(snapshot)}
+            messages={messages}
+            paused={snapshot.recognitionPaused}
+            stoppable={voiceActive(snapshot) || snapshot.conversation.phase === 'active'}
+            callKeys={callKeys}
+            onSubmitText={(text) => void dispatch({ type: 'conversation.submit_text', text })}
+            onStartVoice={() => void dispatch({ type: 'conversation.start' })}
+            onStop={() => void dispatch({ type: 'conversation.stop' })}
+          />
+        )}
+        {tab === 'gesture' && (
+          <GestureView
+            gesture={snapshot.gesture}
+            paused={snapshot.recognitionPaused}
+            camera={permissions.find((line) => line.kind === 'camera')}
+            toggleKeys={toggleKeys}
+            onStart={() => void dispatch({ type: 'gesture.start' })}
+            onStop={() => void dispatch({ type: 'gesture.stop' })}
+          />
+        )}
+        {tab === 'settings' && (
+          <SettingsView
+            snapshot={snapshot}
+            loginId={auth.snapshot.user.loginId}
+            permissions={permissions}
+            callKeys={callKeys}
+            toggleKeys={toggleKeys}
+          />
+        )}
+      </AppShell>
+    )
+  }
+
+  const signup = snapshot?.screen === 'signup'
   const shortcut = snapshot?.application.shortcut
   const tray = snapshot?.application.tray
-  const accelerator = shortcut?.accelerator
-    .replace('CommandOrControl', window.jarvis?.platform === 'darwin' ? '⌘' : 'Ctrl')
-    .replace('Shift', window.jarvis?.platform === 'darwin' ? '⇧' : 'Shift')
-    .replaceAll('+', ' ')
+  const callKeys = acceleratorKeys(DEFAULT_CALL_SHORTCUT, platform).join(' ')
   const checking = phase === 'checking'
   const showForms = phase === 'signed_out' || (checking && auth.restoreFailed)
-  const heading = phase === 'signed_in' ? '자비스' : signup ? '계정 만들기' : '로그인'
+  const heading = signup ? '계정 만들기' : '로그인'
 
   function openScreen(screen: 'login' | 'signup') {
     auth.clearMessages()
@@ -50,11 +142,7 @@ function App(): React.JSX.Element {
           </div>
           <h1 id="account-heading">{heading}</h1>
           <p className="description">
-            {phase === 'signed_in'
-              ? '당신의 일상을 돕는 AI 어시스턴트'
-              : signup
-                ? '자비스와 함께할 계정을 만들어보세요.'
-                : '당신의 일상을 돕는 AI 어시스턴트'}
+            {signup ? '자비스와 함께할 계정을 만들어보세요.' : '당신의 일상을 돕는 AI 어시스턴트'}
           </p>
         </header>
         {error && (
@@ -79,48 +167,6 @@ function App(): React.JSX.Element {
             <Info aria-hidden="true" />
             앱을 준비하고 있어요.
           </p>
-        )}
-        {phase === 'signed_in' && auth.snapshot?.user && (
-          <SignedInPanel
-            user={auth.snapshot.user}
-            busy={auth.busy}
-            error={auth.error}
-            notice={auth.notice}
-            onSignOut={() => {
-              void auth.signOut()
-            }}
-          />
-        )}
-        {phase === 'signed_in' && snapshot && (
-          <ConversationPanel
-            phase={snapshot.speech.phase}
-            conversationActive={snapshot.conversation.phase === 'active'}
-            working={snapshot.request.phase === 'processing'}
-            paused={snapshot.recognitionPaused}
-            messages={messages}
-            onStart={() => {
-              void dispatch({ type: 'conversation.start' })
-            }}
-            onStop={() => {
-              void dispatch({ type: 'conversation.stop' })
-            }}
-            onSubmitText={(text) => {
-              void dispatch({ type: 'conversation.submit_text', text })
-            }}
-          />
-        )}
-        {phase === 'signed_in' && snapshot && (
-          <GesturePanel
-            phase={snapshot.gesture.phase}
-            paused={snapshot.recognitionPaused}
-            shortcut={window.jarvis?.platform === 'darwin' ? '⌘ ⇧ G' : 'Ctrl Shift G'}
-            onStart={() => {
-              void dispatch({ type: 'gesture.start' })
-            }}
-            onStop={() => {
-              void dispatch({ type: 'gesture.stop' })
-            }}
-          />
         )}
         {checking && (
           <CheckingPanel
@@ -199,7 +245,7 @@ function App(): React.JSX.Element {
             {shortcut?.status === 'registered' ? (
               <>
                 <span>호출</span>
-                <kbd aria-label={`호출 단축키 ${shortcut.accelerator}`}>{accelerator}</kbd>
+                <kbd aria-label={`호출 단축키 ${shortcut.accelerator}`}>{callKeys}</kbd>
               </>
             ) : tray?.status === 'ready' ? (
               '트레이에서 다시 열 수 있어요.'

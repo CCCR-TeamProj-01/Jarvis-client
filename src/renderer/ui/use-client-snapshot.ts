@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ClientSnapshot, UiCommand } from '../../shared/contracts/interaction'
 import type { InteractionUiApi } from '../../shared/ipc/ui-api'
+import { appendMessage } from './view-model'
+import type { Message } from './view-model'
 
 export function newestSnapshot(
   current: ClientSnapshot | null,
@@ -12,7 +14,7 @@ export function newestSnapshot(
 export function useClientSnapshot(api: InteractionUiApi | undefined) {
   const [snapshot, setSnapshot] = useState<ClientSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [messages, setMessages] = useState<{ id: number; text: string }[]>([])
+  const [messages, setMessages] = useState<Message[]>([])
   const nextMessage = useRef(0)
   const refresh = useCallback(async () => {
     if (!api) {
@@ -36,7 +38,7 @@ export function useClientSnapshot(api: InteractionUiApi | undefined) {
       else if (event.type === 'client.error') setError(event.error.message)
       else if (event.type === 'result.available') {
         const id = nextMessage.current++
-        setMessages((current) => [...current, { id, text: event.text }].slice(-6))
+        setMessages((current) => appendMessage(current, event, id))
       }
     })
     void api.getSnapshot().then((result) => {

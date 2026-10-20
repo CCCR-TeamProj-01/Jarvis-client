@@ -1,7 +1,7 @@
 import { useReducer, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { ArrowRight, CircleAlert, CircleCheck, Info, LoaderCircle, LogOut } from 'lucide-react'
-import type { AuthUser, CheckLoginIdResult, SignUpResult } from '../../../../shared/contracts/auth'
+import { ArrowRight, CircleAlert, CircleCheck, Info, LoaderCircle } from 'lucide-react'
+import type { CheckLoginIdResult, SignUpResult } from '../../../../shared/contracts/auth'
 import type { Result } from '../../../../shared/contracts/common'
 import { hasErrors, validateSignIn, validateSignUp } from './auth-form'
 import { initialLoginIdCheck, loginIdCheckReducer } from './login-id-check'
@@ -274,36 +274,5 @@ export function CheckingPanel({
       <LoaderCircle className="spin" aria-hidden="true" />
       로그인 정보를 확인하고 있어요.
     </p>
-  )
-}
-
-export function SignedInPanel({
-  user,
-  busy,
-  error,
-  notice,
-  onSignOut
-}: {
-  user: AuthUser
-  busy: AuthBusy
-  error: string | null
-  notice: string | null
-  onSignOut(): void
-}) {
-  return (
-    <div className="signed-in">
-      <p className="signed-in-name">{user.loginId}님, 안녕하세요.</p>
-      <p className="description">로그인되었어요. 사용할 수 있는 기능은 순서대로 열릴 예정이에요.</p>
-      <Messages error={error} notice={notice} />
-      <button
-        className="button button-secondary"
-        type="button"
-        disabled={busy !== null}
-        onClick={onSignOut}
-      >
-        <LogOut aria-hidden="true" />
-        로그아웃
-      </button>
-    </div>
   )
 }
