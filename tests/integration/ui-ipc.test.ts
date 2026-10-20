@@ -85,7 +85,13 @@ describe('implemented UI IPC boundary', () => {
       snapshot: manager.getSnapshot()
     })
     expect(listener.mock.calls[0]).toHaveLength(1)
-    expect(Object.keys(api).sort()).toEqual(['dispatch', 'getSnapshot', 'platform', 'subscribe'])
+    expect(Object.keys(api).sort()).toEqual([
+      'auth',
+      'dispatch',
+      'getSnapshot',
+      'platform',
+      'subscribe'
+    ])
     unsubscribe()
     dispose()
   })

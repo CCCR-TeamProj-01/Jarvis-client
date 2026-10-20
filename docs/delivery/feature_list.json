@@ -60,6 +60,13 @@
       "title": "OS별 네이티브 창 소재와 불투명 대체 구현",
       "description": "macOS Vibrancy와 Windows 11 Acrylic을 적용하고 접근성 설정·미지원 버전·적용 실패 시 불투명 배경으로 전환하며 실제 창 소재를 Main 스냅샷과 UI에 동기화한다.",
       "status": "todo"
+    },
+    {
+      "id": "F-012",
+      "title": "인증 로그인·회원가입·로그인 유지 구현(개발용 대역)",
+      "description": "AuthManager·인증 IPC·Preload auth API·safeStorage 보호 저장소·개발용 인증 대역과 로그인·회원가입 화면을 구현하고 모든 진입점에서 미로그인 접근을 차단한다. 실제 서버 어댑터는 제외한다.",
+      "status": "done",
+      "issue": 10
     }
   ]
 }

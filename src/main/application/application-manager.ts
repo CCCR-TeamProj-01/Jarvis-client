@@ -2,24 +2,35 @@ import { app, dialog, globalShortcut, ipcMain, Menu, Tray } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import type { AuthManager } from '../auth/auth-manager'
+import { createDefaultAuth } from '../auth/create-auth'
 import { InteractionManager } from '../interaction/interaction-manager'
 import type { ActivationSource } from '../interaction/ports'
+import { registerAuthIpc } from '../ipc/auth-ipc'
 import { registerUiIpc } from '../ipc/ui-ipc'
 import { createTrayIcon } from './tray-icon'
 import { UiWindow } from './ui-window'
 
 export const DEFAULT_CALL_SHORTCUT = 'CommandOrControl+Shift+Space'
 
+export interface ApplicationDependencies {
+  auth?: AuthManager
+}
+
 export class ApplicationManager {
   readonly interaction: InteractionManager
+  readonly auth: AuthManager
   private readonly window: UiWindow
   private tray: Tray | null = null
   private shortcutRegistered = false
   private disposeIpc: (() => void) | null = null
+  private disposeAuthIpc: (() => void) | null = null
+  private disposeAuthSync: (() => void) | null = null
   private quitting = false
   private started = false
 
-  constructor(entryUrl: string, preloadPath: string) {
+  constructor(entryUrl: string, preloadPath: string, dependencies: ApplicationDependencies = {}) {
+    this.auth = dependencies.auth ?? createDefaultAuth()
     this.window = new UiWindow({
       entryUrl,
       preloadPath,
@@ -37,11 +48,7 @@ export class ApplicationManager {
       }
     })
     this.interaction = new InteractionManager({
-      auth: {
-        phase: 'signed_out',
-        generation: { sessionId: randomUUID(), revision: 0 },
-        user: null
-      },
+      auth: this.auth.getSnapshot(),
       accelerator: DEFAULT_CALL_SHORTCUT,
       createId: randomUUID,
       now: () => performance.now(),
@@ -54,6 +61,16 @@ export class ApplicationManager {
       entryUrl,
       interaction: this.interaction
     })
+    this.disposeAuthIpc = registerAuthIpc({
+      ipc: ipcMain,
+      getContents: () => this.window.getContents(),
+      entryUrl,
+      auth: this.auth
+    })
+    // Main's authentication state is the source for the snapshot the UI and every entry point see.
+    this.disposeAuthSync = this.auth.onGenerationChange((snapshot) =>
+      this.interaction.setAuthSnapshot(snapshot)
+    )
   }
 
   start(): void {
@@ -62,6 +79,7 @@ export class ApplicationManager {
     this.createTray()
     this.registerShortcut()
     this.window.open()
+    void this.auth.start()
   }
 
   activate(source: ActivationSource): void {
@@ -79,6 +97,10 @@ export class ApplicationManager {
     this.tray = null
     const releaseIpc = this.disposeIpc
     this.disposeIpc = null
+    const releaseAuthIpc = this.disposeAuthIpc
+    this.disposeAuthIpc = null
+    const releaseAuthSync = this.disposeAuthSync
+    this.disposeAuthSync = null
     const releaseShortcut = this.shortcutRegistered
     this.shortcutRegistered = false
     // A failed release must not prevent remaining resources from being released.
@@ -87,6 +109,9 @@ export class ApplicationManager {
         if (releaseShortcut) globalShortcut.unregister(DEFAULT_CALL_SHORTCUT)
       },
       () => releaseIpc?.(),
+      () => releaseAuthIpc?.(),
+      () => releaseAuthSync?.(),
+      () => this.auth.dispose(),
       () => this.window.dispose(),
       () => {
         if (tray && !tray.isDestroyed()) tray.destroy()

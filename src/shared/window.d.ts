@@ -1,9 +1,9 @@
-import type { InteractionUiApi } from './ipc/ui-api'
+import type { UiApi } from './ipc/ui-api'
 import type { BootstrapMediaApi } from './ipc/media-api'
 
 declare global {
   interface Window {
-    jarvis: InteractionUiApi
+    jarvis: UiApi
     jarvisMedia: BootstrapMediaApi
   }
 }
