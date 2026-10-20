@@ -17,11 +17,12 @@
 | `src/renderer/media/*/ports.ts`, `src/inference/ports.ts` | 캡처·재생·호출어·VAD 엔진의 실행 공간 내부 포트 | F-007 |
 | `src/main/speech/session/ports.ts` | 로컬 음성 세션·인식 이벤트·완료 발화 구독 포트 | F-007 |
 | `src/main/ports.ts` | Main 단조 시계, 로컬 취소·기한 옵션 | 공통 |
+| `src/shared/contracts/application.ts` | 트레이·단축키 준비/등록/실패 상태 | F-009 |
 | `src/shared/contracts/auth.ts`, `src/shared/ipc/auth-api.ts`, `src/main/auth/ports.ts` | 인증 데이터·전용 API·서버와 보호 저장소의 Main 포트 | F-008 |
 
 데이터 스키마는 Zod로 정의하고 TypeScript 타입을 추론한다. 프로세스 경계에서 입력을 검증하며 알 수 없는 필드는 거부한다. Main 전용 포트는 Main에, 브라우저 실행 공간의 포트는 해당 미디어·인식 영역에 둔다. 공유 계약은 Electron·Node·플랫폼 구현을 import하지 않는다.
 
-이슈 #2의 구현은 타입·스키마·포트와 경계 검증을 제공한다. 센서 관리자, 인식 엔진, OS 실행기, 실제 IPC 핸들러는 다음 구현 작업에서 연결한다. 미구현 공개 메서드를 `window`에 먼저 노출하지 않으며 현재의 `platform` API는 Bootstrap 타입으로 유지한다.
+이슈 #2의 구현은 타입·스키마·포트와 경계 검증을 제공한다. F-009에서 앱 실행 기반·InteractionManager와 실제 UI IPC를 연결했다. 센서 관리자·인식 엔진·OS 실행기·인증 API 핸들러는 후속 작업이다. 미구현 공개 메서드는 `window`에 노출하지 않으며 현재 UI의 실제 타입은 `InteractionUiApi`, 미디어 API는 Bootstrap 타입이다.
 
 ## 공통 식별자·오류·시간
 
@@ -36,17 +37,25 @@
 
 ## 화면과 Main
 
-UI 명령은 대화 시작·텍스트 입력·대화 종료, 제스처 시작·종료, 인식 일시 중지·재개, 설정 열기, 확인 응답으로 구성한다. 대화 호출과 제스처 제어 시작은 별도 명령이다. UI는 실행 출처나 권한을 주장할 수 없으며 Main이 발신 창과 현재 상태를 검증한다.
+UI 명령은 인증 화면 열기·앱 종료, 대화 시작·텍스트 입력·대화 종료, 제스처 시작·종료, 인식 일시 중지·재개, 설정 열기, 확인 응답으로 구성한다. 대화 호출과 제스처 제어 시작은 별도 명령이다. UI는 실행 출처나 권한을 주장할 수 없으며 Main이 발신 창과 현재 상태를 검증한다.
 
-`UiApi`는 다음 메서드만 공개한다.
+현재 `InteractionUiApi`는 platform과 다음 메서드를 공개한다. 전체 `UiApi`의 auth 영역은 실제 인증 핸들러를 구현한 뒤 공개한다.
 
 - `dispatch(command)`: 명령 수락 결과를 반환한다. 수락은 앱 실행 성공이나 기능 시작 완료를 뜻하지 않는다.
 - `getSnapshot()`: 대화·음성·제스처·센서·화면·일시 중지 상태를 조회한다. 상태 원본은 Main이다.
 - `subscribe(listener)`: 상태 변경·결과·확인 요청·오류 이벤트를 구독하고 `Unsubscribe`를 반환한다.
 
+`ClientSnapshot.application`은 단축키의 accelerator·pending/registered/unavailable과 트레이의 pending/ready/unavailable을 담는다. 실패에는 오류 데이터가 필수다. 초기 실패를 이벤트로만 보내지 않고 스냅샷에도 유지해 늦게 연결된 화면이 안내할 수 있게 한다. UI는 구독을 먼저 연결하고 초기 스냅샷을 읽으며 낮은 revision의 응답으로 최신 이벤트를 덮어쓰지 않는다.
+
+screen은 창을 다시 열 때 표시할 논리 화면이다. 네이티브 창의 숨김·표시·최소화·포커스는 Main의 UiWindow가 관리하며, 미로그인 창을 트레이로 숨길 때도 논리 화면은 login 또는 signup으로 유지한다.
+
 확인 응답은 confirmationId와 approve·reject·dismiss 중 하나로 표현한다. 닫기는 dismiss다. 유효 대상과 기한의 검사는 Main이 수행한다. 화면에 표시하는 만료 시각은 안내용이며 Main의 실행 기한을 대체하지 않는다.
 
 IPC 채널은 UI 명령·상태 조회·이벤트와 미디어 명령·이벤트로 고정한다. Preload는 정해진 기능만 감싸고 Electron 이벤트 객체를 콜백에 넘기지 않는다. UI용과 미디어용 API는 분리한다.
+
+F-009의 UI IPC는 현재 소유 UI WebContents·최상위 프레임의 동일성과 허용된 entry URL이 모두 일치해야 수락한다. 다른 창·하위 프레임·다른 문서의 요청을 거부하며 인자 수·명령·응답·이벤트를 스키마로 검증한다. 예외의 스택·원문은 UI에 전달하지 않는다. 종료 시 소유 핸들러와 구독만 제거한다.
+
+sandbox Preload는 각 진입점을 독립 번들로 만들고 Zod를 포함한다. `electron-vite`의 preload build에 `externalizeDeps: false`, `isolatedEntries: true`를 적용해 sandbox에서 npm 패키지나 공통 청크를 require하지 않게 한다. 설정 기준은 설치된 electron-vite의 타입 선언과 실제 Electron 실행 검증이다.
 
 ### 인증 계약 확장
 

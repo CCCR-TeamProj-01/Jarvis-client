@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AuthSnapshotSchema } from './auth'
+import { ApplicationSnapshotSchema } from './application'
 import {
   ClientErrorSchema,
   GenerationSchema,
@@ -12,6 +13,7 @@ import { SensorSnapshotSchema } from './sensors'
 import { SpeechSnapshotSchema } from './speech'
 
 export const UiCommandSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('app.quit') }),
   z.strictObject({ type: z.literal('auth.open'), screen: z.enum(['login', 'signup']) }),
   z.strictObject({ type: z.literal('conversation.start') }),
   z.strictObject({
@@ -41,6 +43,7 @@ export type CommandReceipt = z.infer<typeof CommandReceiptSchema>
 export const ClientSnapshotSchema = z
   .strictObject({
     revision: SequenceSchema,
+    application: ApplicationSnapshotSchema,
     auth: AuthSnapshotSchema,
     recognitionPaused: z.boolean(),
     conversation: z

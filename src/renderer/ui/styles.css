@@ -1,1 +1,188 @@
 @import 'tailwindcss';
+
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #e5edf8;
+  background: #0b1220;
+  font-synthesis: none;
+}
+body {
+  margin: 0;
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+button:focus-visible {
+  outline: 2px solid #7dd3fc;
+  outline-offset: 3px;
+}
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 36px 24px;
+  background: radial-gradient(ellipse at top, #12273d, #0b1220 65%);
+}
+.account-card {
+  width: min(100%, 430px);
+  padding: 32px;
+  border: 1px solid #29384c;
+  border-radius: 20px;
+  background: #101b2b;
+  box-shadow: 0 20px 70px #0003;
+}
+.account-header {
+  text-align: center;
+}
+.brand-mark {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 12px;
+  background: #15384e;
+  border: 1px solid #28708c;
+  border-radius: 13px;
+  color: #7dd3fc;
+  font-size: 28px;
+  font-weight: 700;
+}
+.eyebrow {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  color: #7dd3fc;
+}
+h1 {
+  margin: 12px 0 8px;
+  font-size: 28px;
+  font-weight: 650;
+}
+.description {
+  margin: 0;
+  color: #9dafc3;
+  font-size: 14px;
+}
+.account-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 24px 0;
+  padding: 4px;
+  background: #0b1422;
+  border-radius: 10px;
+}
+.account-tabs button {
+  flex: 1;
+  border: 0;
+  padding: 9px;
+  border-radius: 7px;
+  background: transparent;
+  color: #8fa3ba;
+  font-size: 14px;
+}
+.account-tabs button[aria-pressed='true'] {
+  background: #25364b;
+  color: #edf6ff;
+}
+form label {
+  display: block;
+  margin: 16px 0 7px;
+  font-size: 13px;
+  color: #c7d5e7;
+}
+input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid #314258;
+  border-radius: 9px;
+  background: #0e1928;
+  padding: 11px 12px;
+  color: #d6e4f4;
+}
+input::placeholder {
+  color: #637790;
+}
+.input-row {
+  display: flex;
+  gap: 8px;
+}
+.secondary {
+  flex-shrink: 0;
+  padding: 0 12px;
+  border: 1px solid #314258;
+  border-radius: 9px;
+  background: #1b2a3d;
+  color: #849bb5;
+  font-size: 12px;
+}
+.primary {
+  width: 100%;
+  margin-top: 24px;
+  padding: 12px;
+  border: 0;
+  border-radius: 9px;
+  background: #23516d;
+  color: #b2d2e6;
+  font-weight: 600;
+}
+.availability-note {
+  text-align: center;
+  color: #8fa3ba;
+  font-size: 12px;
+  margin: 12px 0 0;
+}
+.notice {
+  padding: 12px;
+  margin: 16px 0;
+  border-radius: 8px;
+  background: #1b2a3d;
+  color: #b8c9dd;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.notice-error {
+  border: 1px solid #7c4351;
+  background: #362530;
+  color: #ffd1da;
+}
+.notice button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-decoration: underline;
+}
+.account-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid #26364a;
+  font-size: 11px;
+  color: #8fa3ba;
+}
+.account-footer button {
+  border: 0;
+  background: none;
+  padding: 4px;
+  color: #c0d0e2;
+  white-space: nowrap;
+}
+@media (max-width: 480px) {
+  .app-shell {
+    padding: 20px 16px;
+  }
+  .account-card {
+    padding: 24px;
+  }
+}

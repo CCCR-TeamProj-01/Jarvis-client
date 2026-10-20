@@ -7,6 +7,8 @@ export default defineConfig({
   main: {},
   preload: {
     build: {
+      externalizeDeps: false,
+      isolatedEntries: true,
       rollupOptions: {
         input: {
           ui: resolve(__dirname, 'src/preload/ui.ts'),

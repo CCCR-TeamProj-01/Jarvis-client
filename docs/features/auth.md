@@ -55,7 +55,7 @@
 
 ## 클라이언트 계약과 구조
 
-F-008에서 아래 데이터·API·Main 포트 계약을 구현했다. AuthManager·화면·실제 IPC 핸들러·서버/보호 저장소 구현은 후속 작업이다. 현재 Preload는 Bootstrap API만 노출한다.
+F-008에서 아래 데이터·API·Main 포트 계약을 구현했다. F-009에서 로그인/회원가입 화면 틀과 일반 UI IPC를 연결했다. AuthManager·입력/제출·인증 IPC 핸들러·서버/보호 저장소 구현은 후속 작업이다. 현재 Preload는 InteractionUiApi만 노출하며 auth 영역은 아직 노출하지 않는다.
 
 | 위치 | 책임 | 상태 |
 | --- | --- | --- |
@@ -63,7 +63,7 @@ F-008에서 아래 데이터·API·Main 포트 계약을 구현했다. AuthManag
 | `src/shared/ipc/auth-api.ts` | UI 전용 인증 API와 응답 스키마. 로그인·가입·중복 확인·복구 재시도·로그아웃·상태 조회·구독 | 계약 구현 |
 | `src/main/auth/ports.ts` | 인증 서버 어댑터와 보호 자격 증명 저장소의 Main 내부 포트 | 계약 구현 |
 | `src/main/auth/auth-manager.ts` | 인증 상태·세대·유지·복구·만료·로그아웃과 기능 차단 조정 | 후속 구현 |
-| `src/renderer/ui/features/auth/` | 로그인·회원가입 폼, 비밀번호 재입력 검증, 요청별 진행·오류 표시 | 후속 구현 |
+| `src/renderer/ui/features/auth/` | 로그인·회원가입 입력/제출, 비밀번호 재입력 검증, 요청별 진행·오류 표시. 현재 화면 틀은 UI main.tsx에 위치 | 후속 구현 |
 
 UI 공개 API 계약은 `UiApi.auth` 아래 `checkLoginId`, `signUp`, `signIn`, `restore`, `signOut`, `getSnapshot`, `subscribe`로 구성한다. `restore`는 통신 장애 후 Main에 보관된 자격 증명으로 복구를 재시도하며 UI에서 토큰을 받지 않는다. 실제 핸들러 구현 시 입력값은 제한된 Preload API를 거쳐 Main에 전달하고 인증 요청은 Main이 HTTPS로 수행한다. `AuthGatewayPort`는 인증 서버 작업을, `CredentialStorePort`는 자격 증명 읽기·저장·제거를 추상화한다. 토큰 형식과 자격 증명 객체는 Main 내부 계약이다.
 
