@@ -4,6 +4,7 @@ import { CircleAlert, CircleCheck, Info, LogOut, TriangleAlert } from 'lucide-re
 import { CheckingPanel, SignedInPanel, SignInForm, SignUpForm } from './features/auth/auth-panels'
 import { useAuth } from './features/auth/use-auth'
 import { ConversationPanel } from './features/conversation/conversation-panel'
+import { GesturePanel } from './features/gesture/gesture-panel'
 import { useClientSnapshot } from './use-client-snapshot'
 import './styles.css'
 
@@ -105,6 +106,19 @@ function App(): React.JSX.Element {
             }}
             onSubmitText={(text) => {
               void dispatch({ type: 'conversation.submit_text', text })
+            }}
+          />
+        )}
+        {phase === 'signed_in' && snapshot && (
+          <GesturePanel
+            phase={snapshot.gesture.phase}
+            paused={snapshot.recognitionPaused}
+            shortcut={window.jarvis?.platform === 'darwin' ? '⌘ ⇧ G' : 'Ctrl Shift G'}
+            onStart={() => {
+              void dispatch({ type: 'gesture.start' })
+            }}
+            onStop={() => {
+              void dispatch({ type: 'gesture.stop' })
             }}
           />
         )}

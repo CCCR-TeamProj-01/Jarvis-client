@@ -110,7 +110,7 @@ Worker는 손 관측 결과를 만들고 Main의 GestureController가 활성 손
 - 손 인식은 `handtracking.start`·`handtracking.stop` 명령으로 켜고 끈다. 시작 명령에는 Main이 읽은 모델 바이트와 선택적인 `maxFps`를 담으며 이미 열린 카메라 스트림이 필요하다. Media Renderer는 `hand.tracking`(관측 프레임·손실)과 `handtracking.state`(started·stopped·failed) 이벤트로 알리고, 카메라 사용권을 반납하면 추적도 함께 멈춘다([구현 현황](../features/gesture.md#구현-현황)).
 - 화면 좌표는 displayId와 전역 논리 좌표 x·y다. 왼쪽 또는 위쪽 모니터의 음수 좌표를 허용한다. GestureController가 화면 영역에 맞춰 변환하고 플랫폼 어댑터가 실제 OS 좌표로 바꾼다.
 
-`PointerInputPort`는 이동·단일 클릭·자비스가 유지한 누름 해제·세대 취소를 제공한다. 최근 작업 전환은 `AppControlPort`가 담당한다. 입력 명령은 Main에서 부여한 세대·기한을 포함한다. 이동은 최신 대기 좌표를 우선하며 클릭·전환은 한 번의 동작마다 한 번만 실행한다. 세대 취소는 대기 입력을 버리고 자비스의 누름 상태를 해제한다. 다른 프로그램이 만든 누름 상태를 임의 해제하지 않는다.
+`PointerInputPort`는 이동·단일 클릭·자비스가 유지한 누름 해제·세대 취소를 제공한다([구현 현황](../features/gesture.md#커서-제어-f-019)). 최근 작업 전환은 `AppControlPort`가 담당한다. 입력 명령은 Main에서 부여한 세대·기한을 포함한다. 이동은 최신 대기 좌표를 우선하며 클릭·전환은 한 번의 동작마다 한 번만 실행한다. 세대 취소는 대기 입력을 버리고 자비스의 누름 상태를 해제한다. 다른 프로그램이 만든 누름 상태를 임의 해제하지 않는다.
 
 ## 앱 도구와 실행 보고
 

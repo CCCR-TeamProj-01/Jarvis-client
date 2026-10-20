@@ -53,5 +53,9 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"
+  },
+  "optionalDependencies": {
+    "@nut-tree-fork/libnut-darwin": "2.7.5",
+    "@nut-tree-fork/libnut-win32": "2.7.5"
   }
 }

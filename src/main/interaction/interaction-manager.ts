@@ -14,6 +14,7 @@ import type {
 } from '../../shared/contracts/interaction'
 import type { SensorSnapshot } from '../../shared/contracts/sensors'
 import type { SpeechSnapshot } from '../../shared/contracts/speech'
+import type { GestureSnapshot } from '../../shared/contracts/gesture'
 import type { ConversationNotice, ConversationSnapshot } from '../conversation/ports'
 import type { SpeechNotice } from '../speech/session/ports'
 import type { ActivationSource, InteractionPort } from './ports'
@@ -51,10 +52,21 @@ export interface ConversationHandlers {
   stop(): Promise<Result<void>>
 }
 
+/** Something the user should be told about gesture control, which ended without being asked to. */
+export type GestureNotice = { type: 'problem'; error: ClientError }
+
+export interface GestureHandlers {
+  /** Start moving the cursor with the hand. */
+  start(): Promise<Result<unknown>>
+  /** Stop at once; this never depends on anything but the local machine. */
+  stop(): Promise<Result<void>>
+}
+
 export class InteractionManager implements InteractionPort {
   private snapshot: ClientSnapshot
   private readonly listeners = new Set<(event: UiEvent) => void>()
   private conversation: ConversationHandlers | null = null
+  private gesture: GestureHandlers | null = null
   private disposed = false
 
   constructor(private readonly options: InteractionOptions) {
@@ -103,7 +115,20 @@ export class InteractionManager implements InteractionPort {
         await this.conversation?.stop()
         return this.accepted()
       case 'gesture.stop':
+        // Stopping never needs a sign-in, and a mode that is off is already stopped.
+        await this.gesture?.stop()
         return this.accepted()
+      case 'gesture.start': {
+        if (this.snapshot.auth.phase !== 'signed_in') {
+          this.open('login')
+          return this.failure('authentication_required', '로그인이 필요합니다.')
+        }
+        if (this.snapshot.recognitionPaused)
+          return this.failure('unavailable', '인식이 일시 중지되어 있습니다.')
+        if (!this.gesture) return this.failure('unsupported', '아직 사용할 수 없는 기능입니다.')
+        const started = await this.gesture.start()
+        return started.ok ? this.accepted() : started
+      }
       case 'conversation.submit_text': {
         if (this.snapshot.auth.phase !== 'signed_in') {
           this.open('login')
@@ -183,6 +208,18 @@ export class InteractionManager implements InteractionPort {
     this.conversation = handlers
   }
 
+  /** Connect gesture control; until then the commands report themselves unsupported. */
+  setGestureHandlers(handlers: GestureHandlers | null): void {
+    this.gesture = handlers
+  }
+
+  /** The gesture mode as the controller reports it. */
+  setGestureState(gesture: GestureSnapshot): void {
+    if (this.disposed) return
+    if (JSON.stringify(this.snapshot.gesture) === JSON.stringify(gesture)) return
+    this.update({ gesture })
+  }
+
   /** The voice side: listening and speaking. */
   setSpeechState(speech: SpeechSnapshot): void {
     if (this.disposed) return
@@ -208,7 +245,7 @@ export class InteractionManager implements InteractionPort {
   }
 
   /** Words for the user from the conversation, as events (they are not part of the state). */
-  publishNotice(notice: ConversationNotice | SpeechNotice): void {
+  publishNotice(notice: ConversationNotice | SpeechNotice | GestureNotice): void {
     if (this.disposed) return
     const event: UiEvent =
       notice.type === 'user'

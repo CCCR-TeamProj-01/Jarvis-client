@@ -109,6 +109,13 @@
       "description": "열린 카메라 스트림에서 최신 프레임만 MediaPipe HandLandmarker Web Worker로 보내 21개 관절 관측(HandTrackingFrame)을 만들고, Main HandTrackingService가 gesture_control 사용권으로 추적을 시작·중지하며 철회·오류·세대 변경을 처리한다. 모델 내려받기·패키징과 개발용 가짜 영상·셀프테스트를 포함하고 좌표 보정·Pinch·OS 입력은 제외한다.",
       "status": "done",
       "issue": 21
+    },
+    {
+      "id": "F-019",
+      "title": "제스처 커서 제어: GestureController·OS 포인터 입력·시작/종료",
+      "description": "손 관측을 받아 활성 손 선택·좌표 매핑·손떨림 보정·Pinch 클릭·손실 복구를 처리하는 GestureController, libnut 기반 PointerInput(macOS·Windows)과 손쉬운 사용 권한 확인, 화면·트레이·단축키 시작/종료와 개발용 가짜 포인터를 구현한다. 최근 작업 전환과 Windows 앱 어댑터는 제외한다.",
+      "status": "in_progress",
+      "issue": 23
     }
   ]
 }
