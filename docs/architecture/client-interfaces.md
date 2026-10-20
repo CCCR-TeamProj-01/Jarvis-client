@@ -17,7 +17,7 @@
 | `src/renderer/media/*/ports.ts`, `src/inference/ports.ts` | 캡처·재생·호출어·VAD 엔진의 실행 공간 내부 포트 | F-007 |
 | `src/main/speech/session/ports.ts` | 로컬 음성 세션·인식 이벤트·완료 발화 구독 포트 | F-007 |
 | `src/main/ports.ts` | Main 단조 시계, 로컬 취소·기한 옵션 | 공통 |
-| `src/shared/contracts/application.ts` | 트레이·단축키 준비/등록/실패 상태 | F-009 |
+| `src/shared/contracts/application.ts` | 트레이·단축키 준비/등록/실패·실제 네이티브 창 소재 | F-009·F-011 |
 | `src/shared/contracts/auth.ts`, `src/shared/ipc/auth-api.ts`, `src/main/auth/ports.ts` | 인증 데이터·전용 API·서버와 보호 저장소의 Main 포트 | F-008 |
 
 데이터 스키마는 Zod로 정의하고 TypeScript 타입을 추론한다. 프로세스 경계에서 입력을 검증하며 알 수 없는 필드는 거부한다. Main 전용 포트는 Main에, 브라우저 실행 공간의 포트는 해당 미디어·인식 영역에 둔다. 공유 계약은 Electron·Node·플랫폼 구현을 import하지 않는다.
@@ -48,6 +48,10 @@ UI 명령은 인증 화면 열기·앱 종료, 대화 시작·텍스트 입력·
 `ClientSnapshot.application`은 단축키의 accelerator·pending/registered/unavailable과 트레이의 pending/ready/unavailable을 담는다. 실패에는 오류 데이터가 필수다. 초기 실패를 이벤트로만 보내지 않고 스냅샷에도 유지해 늦게 연결된 화면이 안내할 수 있게 한다. UI는 구독을 먼저 연결하고 초기 스냅샷을 읽으며 낮은 revision의 응답으로 최신 이벤트를 덮어쓰지 않는다.
 
 screen은 창을 다시 열 때 표시할 논리 화면이다. 네이티브 창의 숨김·표시·최소화·포커스는 Main의 UiWindow가 관리하며, 미로그인 창을 트레이로 숨길 때도 논리 화면은 login 또는 signup으로 유지한다.
+
+F-011에서 `application.windowMaterial` 필수 필드(`opaque`·`vibrancy`·`acrylic`)를 추가했다. Main은 지원 OS·접근성 설정·네이티브 API 적용 결과를 기준으로 이 값을 갱신하고 기존 상태 이벤트로 전달한다. Renderer는 스냅샷에 맞춰 문서의 `data-window-material`과 CSS 표면을 전환한다. 초기 스냅샷 전에는 불투명 배경을 사용한다. 기존 스냅샷 생성기·대역도 이 필드를 포함해야 한다. 외관 정보에는 새 UI 명령이나 범용 네이티브 제어 API를 추가하지 않는다.
+
+F-011은 실제 외관 문제로 검증 중이며 기본 실행의 windowMaterial은 opaque다. 네이티브 효과는 개발 환경의 명시적인 실험 플래그로만 활성화한다. 패키지 빌드는 해당 플래그를 무시한다. 활성화 여부는 Main이 결정하고 Renderer에서 우회해 네이티브 효과를 켤 수 없다.
 
 확인 응답은 confirmationId와 approve·reject·dismiss 중 하나로 표현한다. 닫기는 dismiss다. 유효 대상과 기한의 검사는 Main이 수행한다. 화면에 표시하는 만료 시각은 안내용이며 Main의 실행 기한을 대체하지 않는다.
 

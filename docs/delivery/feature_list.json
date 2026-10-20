@@ -48,6 +48,18 @@
       "description": "단일 인스턴스·백그라운드 창·트레이·호출 단축키와 Main 상태·검증된 UI IPC·인증 화면 틀을 연결하고 종료 자원을 정리한다.",
       "status": "done",
       "issue": 7
+    },
+    {
+      "id": "F-010",
+      "title": "Frosted Pearl 토큰과 인증 화면 스타일 구현",
+      "description": "밝은 반투명 디자인 토큰·번들 글꼴·Lucide 아이콘을 적용하고 로그인·회원가입 화면 틀의 레이아웃·상태 안내·키보드 포커스·작은 창 대응을 구현한다.",
+      "status": "done"
+    },
+    {
+      "id": "F-011",
+      "title": "OS별 네이티브 창 소재와 불투명 대체 구현",
+      "description": "macOS Vibrancy와 Windows 11 Acrylic을 적용하고 접근성 설정·미지원 버전·적용 실패 시 불투명 배경으로 전환하며 실제 창 소재를 Main 스냅샷과 UI에 동기화한다.",
+      "status": "todo"
     }
   ]
 }

@@ -23,6 +23,21 @@ function setup(
 }
 
 describe('Main interaction state', () => {
+  it('persists the actual native material and publishes changes without changing authentication', () => {
+    const { manager } = setup()
+    const receive = vi.fn<(event: UiEvent) => void>()
+    manager.subscribe(receive)
+    expect(manager.getSnapshot().application.windowMaterial).toBe('opaque')
+    manager.setWindowMaterial('vibrancy')
+    expect(manager.getSnapshot().application.windowMaterial).toBe('vibrancy')
+    const revision = manager.getSnapshot().revision
+    manager.setWindowMaterial('vibrancy')
+    expect(manager.getSnapshot().revision).toBe(revision)
+    expect(receive).toHaveBeenCalledOnce()
+    expect(manager.getSnapshot().auth.phase).toBe('signed_out')
+    manager.setWindowMaterial('opaque')
+    expect(receive).toHaveBeenCalledTimes(2)
+  })
   it('starts on login without enabling sensors or claiming an active feature', () => {
     const { manager } = setup()
     expect(manager.getSnapshot()).toMatchObject({

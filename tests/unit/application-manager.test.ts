@@ -16,6 +16,9 @@ vi.mock('electron', async () => {
       isDestroyed: () => this.destroyed,
       send: vi.fn<(channel: string, value: unknown) => void>()
     })
+    setBackgroundColor = vi.fn<(color: string) => void>()
+    setVibrancy = vi.fn<(type: string | null) => void>()
+    setBackgroundMaterial = vi.fn<(material: string) => void>()
     constructor(readonly options: unknown) {
       super()
       Window.windows.push(this)
@@ -84,6 +87,11 @@ vi.mock('electron', async () => {
   const Tray = vi.fn<typeof FakeTray>(FakeTray)
   return {
     app,
+    nativeTheme: Object.assign(new EventEmitter(), {
+      prefersReducedTransparency: false,
+      shouldUseHighContrastColors: false,
+      inForcedColorsMode: false
+    }),
     BrowserWindow: Window,
     Tray,
     globalShortcut: {
@@ -107,7 +115,7 @@ vi.mock('electron', async () => {
   }
 })
 
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Tray } from 'electron'
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, Tray } from 'electron'
 import type { IpcMainInvokeEvent } from 'electron'
 import {
   ApplicationManager,
@@ -128,6 +136,7 @@ beforeEach(() => {
   vi.mocked(globalShortcut.register).mockReturnValue(true)
   Object.assign(app, { isPackaged: false })
   vi.stubEnv('ELECTRON_RENDERER_URL', 'http://localhost:5173')
+  vi.stubEnv('JARVIS_NATIVE_WINDOW_EFFECTS', '')
 })
 
 afterEach(() => {
@@ -144,6 +153,16 @@ function makeManager() {
 }
 
 describe('native application lifecycle', () => {
+  it('starts with an opaque native window and leaves experimental effects disabled by default', async () => {
+    const manager = makeManager()
+    manager.start()
+    await flush()
+    expect(manager.interaction.getSnapshot().application.windowMaterial).toBe('opaque')
+    expect(BrowserWindow.getAllWindows()[0].setVibrancy).not.toHaveBeenCalled()
+    expect(BrowserWindow.getAllWindows()[0].setBackgroundMaterial).not.toHaveBeenCalled()
+    expect(nativeTheme.listenerCount('updated')).toBe(0)
+  })
+
   it('exits a second process without creating windows, IPC handlers or a tray', async () => {
     vi.mocked(app.requestSingleInstanceLock).mockReturnValue(false)
     startApplication()
@@ -183,6 +202,7 @@ describe('native application lifecycle', () => {
     expect(tray.destroy).toHaveBeenCalledOnce()
     expect(ipcMain.removeHandler).toHaveBeenCalledWith(UI_CHANNELS.command)
     expect(ipcMain.removeHandler).toHaveBeenCalledWith(UI_CHANNELS.snapshot)
+    expect(nativeTheme.listenerCount('updated')).toBe(0)
     app.emit('will-quit', {})
     expect(tray.destroy).toHaveBeenCalledOnce()
   })
@@ -281,8 +301,11 @@ describe('native application lifecycle', () => {
   it('ignores a renderer URL override in a packaged application', async () => {
     Object.assign(app, { isPackaged: true })
     vi.stubEnv('ELECTRON_RENDERER_URL', 'https://untrusted.example/')
+    vi.stubEnv('JARVIS_NATIVE_WINDOW_EFFECTS', '1')
     startApplication()
     await flush()
     expect(BrowserWindow.getAllWindows()[0].webContents.mainFrame.url).toMatch(/^file:/)
+    expect(BrowserWindow.getAllWindows()[0].setVibrancy).not.toHaveBeenCalled()
+    expect(BrowserWindow.getAllWindows()[0].setBackgroundMaterial).not.toHaveBeenCalled()
   })
 })
