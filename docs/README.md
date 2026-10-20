@@ -5,6 +5,7 @@
 | 문서 | 주요 내용과 요구사항 |
 | --- | --- |
 | [제품 범위](product/scope.md) | MVP·확장 범위, 처리 원칙, BASE·OPS·LIFE |
+| [계정 인증](features/auth.md) | AUTH-01~07, 아이디·비밀번호 로그인·회원가입·중복 확인·로그인 유지·접근 제한 |
 | [호출과 화면](features/interaction-ui.md) | CALL·UI |
 | [음성과 AI 요청](features/speech.md) | VOICE·AI, 음성 세션 상태와 앱 실행 흐름 |
 | [앱과 OS 제어](features/app-control.md) | APP |

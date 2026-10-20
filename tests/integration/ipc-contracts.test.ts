@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { resultSchema } from '../../src/shared/contracts/common'
+import { AuthEventSchema, SignInRequestSchema } from '../../src/shared/contracts/auth'
+import {
+  CheckLoginIdResponseSchema,
+  SignInResponseSchema,
+  SignUpResponseSchema
+} from '../../src/shared/ipc/auth-api'
 import { UiCommandSchema } from '../../src/shared/contracts/interaction'
 import { MediaCommandEnvelopeSchema, MediaEventSchema } from '../../src/shared/ipc/media-api'
-import { generation, utterance } from '../fixtures/contracts'
+import { authGeneration, authUser, generation, utterance } from '../fixtures/contracts'
 
 describe('structured-clone IPC contract boundaries', () => {
   it('round-trips completed audio independently of its original buffer', () => {
@@ -58,5 +64,64 @@ describe('structured-clone IPC contract boundaries', () => {
         }).success
       ).toBe(true)
     }
+  })
+
+  it('isolates authentication input from general UI commands and local control objects', () => {
+    const request = {
+      requestId: 'login-1',
+      generation: authGeneration,
+      input: { loginId: 'tester', password: 'example-password' }
+    }
+    expect(SignInRequestSchema.parse(structuredClone(request))).toEqual(request)
+    expect(UiCommandSchema.safeParse(request).success).toBe(false)
+    expect(
+      SignInRequestSchema.safeParse({ ...request, signal: new AbortController().signal }).success
+    ).toBe(false)
+  })
+
+  it('round-trips public auth state while refusing tokens in results and media events', () => {
+    const result = {
+      ok: true,
+      value: {
+        snapshot: { phase: 'signed_in', generation: authGeneration, user: authUser },
+        persistence: { status: 'stored' }
+      }
+    }
+    expect(SignInResponseSchema.parse(structuredClone(result))).toEqual(result)
+    expect(
+      SignInResponseSchema.safeParse({
+        ...result,
+        value: { ...result.value, accessToken: 'secret' }
+      }).success
+    ).toBe(false)
+    const event = { type: 'auth.state_changed', snapshot: result.value.snapshot }
+    expect(AuthEventSchema.parse(structuredClone(event))).toEqual(event)
+    expect(MediaEventSchema.safeParse(event).success).toBe(false)
+    expect(
+      SignUpResponseSchema.safeParse({
+        ok: true,
+        value: { loginId: 'tester', passwordHash: 'secret' }
+      }).success
+    ).toBe(false)
+  })
+
+  it('keeps failed duplicate checks distinct from an available or taken login ID', () => {
+    for (const available of [true, false]) {
+      expect(
+        CheckLoginIdResponseSchema.safeParse({ ok: true, value: { loginId: 'tester', available } })
+          .success
+      ).toBe(true)
+    }
+    const failure = {
+      ok: false,
+      error: { code: 'unavailable', message: 'Authentication service unavailable' }
+    }
+    expect(CheckLoginIdResponseSchema.parse(structuredClone(failure))).toEqual(failure)
+    expect(
+      CheckLoginIdResponseSchema.safeParse({
+        ...failure,
+        error: { ...failure.error, token: 'secret' }
+      }).success
+    ).toBe(false)
   })
 })

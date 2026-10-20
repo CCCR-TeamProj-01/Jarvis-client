@@ -4,7 +4,7 @@ import {
   SensorAcquireRequestSchema,
   SensorSnapshotSchema
 } from '../../src/shared/contracts/sensors'
-import { generation } from '../fixtures/contracts'
+import { clientSnapshot, generation } from '../fixtures/contracts'
 
 describe('UI command boundary', () => {
   it('keeps conversation activation separate from gesture control', () => {
@@ -37,18 +37,11 @@ describe('UI command boundary', () => {
 
   it('rejects duplicate sensor states in a snapshot', () => {
     const camera = { kind: 'camera', permission: 'not_determined', state: 'idle', leaseCount: 0 }
+    const snapshot = clientSnapshot()
+    const singleSensor = { ...snapshot, sensors: [camera] }
+    expect(ClientSnapshotSchema.safeParse(singleSensor).success).toBe(true)
     expect(
-      ClientSnapshotSchema.safeParse({
-        revision: 0,
-        recognitionPaused: false,
-        conversation: { phase: 'idle', generation: null },
-        request: { requestId: null, phase: 'idle' },
-        speech: { phase: 'idle', generation: null },
-        gesture: { phase: 'off', generation: null, activeHandId: null, displayId: null },
-        sensors: [camera, camera],
-        screen: 'hidden',
-        connection: 'offline'
-      }).success
+      ClientSnapshotSchema.safeParse({ ...singleSensor, sensors: [camera, camera] }).success
     ).toBe(false)
   })
 })
