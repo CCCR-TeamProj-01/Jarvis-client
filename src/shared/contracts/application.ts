@@ -19,8 +19,12 @@ export const TraySnapshotSchema = z.discriminatedUnion('status', [
 ])
 export type TraySnapshot = z.infer<typeof TraySnapshotSchema>
 
-/** Persistent startup state so registration failures are visible after the UI subscribes. */
+export const WindowMaterialSchema = z.enum(['opaque', 'vibrancy', 'acrylic'])
+export type WindowMaterial = z.infer<typeof WindowMaterialSchema>
+
+/** Persistent operating state, including the native material actually applied by Main. */
 export const ApplicationSnapshotSchema = z.strictObject({
+  windowMaterial: WindowMaterialSchema,
   shortcut: ShortcutSnapshotSchema,
   tray: TraySnapshotSchema
 })

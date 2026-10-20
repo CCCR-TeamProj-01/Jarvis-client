@@ -12,6 +12,7 @@ export function clientSnapshot(overrides: Partial<ClientSnapshot> = {}): ClientS
   return {
     revision: 0,
     application: {
+      windowMaterial: 'opaque',
       shortcut: { status: 'registered', accelerator: 'CommandOrControl+Shift+Space' },
       tray: { status: 'ready' }
     },

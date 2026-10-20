@@ -7,6 +7,7 @@
 | [제품 범위](product/scope.md) | MVP·확장 범위, 처리 원칙, BASE·OPS·LIFE |
 | [계정 인증](features/auth.md) | AUTH-01~07, 아이디·비밀번호 로그인·회원가입·중복 확인·로그인 유지·접근 제한 |
 | [호출과 화면](features/interaction-ui.md) | CALL·UI |
+| [디자인 시스템](design/design-system.md) | Frosted Pearl, 시각 토큰·컴포넌트·인증 화면·향후 창 레이아웃 |
 | [음성과 AI 요청](features/speech.md) | VOICE·AI, 음성 세션 상태와 앱 실행 흐름 |
 | [앱과 OS 제어](features/app-control.md) | APP |
 | [제스처 제어](features/gesture.md) | GEST |

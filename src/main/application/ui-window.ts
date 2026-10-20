@@ -1,5 +1,8 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, nativeTheme } from 'electron'
 import type { WebContents } from 'electron'
+import { release } from 'node:os'
+import type { WindowMaterial } from '../../shared/contracts/application'
+import { OPAQUE_WINDOW_BACKGROUND, watchWindowMaterial } from './window-material'
 
 interface UiWindowOptions {
   entryUrl: string
@@ -7,12 +10,15 @@ interface UiWindowOptions {
   isQuitting(): boolean
   canHide(): boolean
   onLoadFailure(): void
+  onMaterialChange(material: WindowMaterial): void
+  nativeEffectsEnabled?: boolean
 }
 
 export class UiWindow {
   private window: BrowserWindow | null = null
   private ready = false
   private showRequested = false
+  private releaseMaterial: (() => void) | null = null
 
   constructor(private readonly options: UiWindowOptions) {}
 
@@ -27,6 +33,11 @@ export class UiWindow {
     if (this.ready) this.show(window)
   }
 
+  dispose(): void {
+    this.releaseMaterial?.()
+    this.releaseMaterial = null
+  }
+
   private ensureWindow(): BrowserWindow {
     if (this.window && !this.window.isDestroyed()) return this.window
     this.ready = false
@@ -36,7 +47,8 @@ export class UiWindow {
       minWidth: 640,
       minHeight: 560,
       show: false,
-      backgroundColor: '#0b1220',
+      backgroundColor: OPAQUE_WINDOW_BACKGROUND,
+      visualEffectState: 'followWindow',
       title: 'Jarvis',
       webPreferences: {
         preload: this.options.preloadPath,
@@ -46,6 +58,14 @@ export class UiWindow {
       }
     })
     this.window = window
+    this.releaseMaterial = watchWindowMaterial(
+      window,
+      nativeTheme,
+      process.platform,
+      release(),
+      this.options.onMaterialChange,
+      this.options.nativeEffectsEnabled === true
+    )
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     window.webContents.on('will-navigate', (event) => event.preventDefault())
     window.webContents.on('will-redirect', (event) => event.preventDefault())
@@ -65,6 +85,7 @@ export class UiWindow {
     })
     window.on('closed', () => {
       if (this.window === window) {
+        this.dispose()
         this.window = null
         this.ready = false
       }

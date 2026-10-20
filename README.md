@@ -37,4 +37,8 @@ pnpm build
 
 기능 구현 기준은 [문서 목차](docs/README.md)를 참고하세요. 클라이언트에는 STT·TTS 모델을 넣지 않으며 로컬 KWS·VAD 모델과 네이티브 실행 파일의 패키징 방식은 기술 검증 후 확정합니다.
 
+현재 인증 화면은 [Frosted Pearl 디자인 시스템](docs/design/design-system.md)을 따릅니다. 시각 토큰은 `src/renderer/ui/tokens.css`에서 공유하고 Pretendard·Inter 글꼴과 Lucide 아이콘은 앱에 포함합니다.
+
+기본 실행은 밝은 불투명 네이티브 창과 앱 내부의 CSS 반투명 패널을 사용합니다. Vibrancy·Acrylic은 실제 창 외관에 문제가 확인되어 기본 비활성 상태이며, 개발 환경에서 `JARVIS_NATIVE_WINDOW_EFFECTS=1`을 지정한 경우에만 검증할 수 있습니다. 패키지 빌드에서는 이 실험 옵션을 적용하지 않습니다.
+
 모듈 간 코드 계약과 대역 주입 방법은 [클라이언트 공통 인터페이스](docs/architecture/client-interfaces.md)를 따릅니다. UI의 현재 Preload API는 platform·dispatch·getSnapshot·subscribe입니다. 전체 UiApi의 auth 영역과 미디어 제어는 실제 핸들러를 구현한 뒤 공개합니다.

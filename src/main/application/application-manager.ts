@@ -25,6 +25,8 @@ export class ApplicationManager {
       preloadPath,
       isQuitting: () => this.quitting,
       canHide: () => this.hasTray(),
+      onMaterialChange: (material) => this.interaction.setWindowMaterial(material),
+      nativeEffectsEnabled: !app.isPackaged && process.env.JARVIS_NATIVE_WINDOW_EFFECTS === '1',
       onLoadFailure: () => {
         if (this.quitting) return
         dialog.showErrorBox(
@@ -85,6 +87,7 @@ export class ApplicationManager {
         if (releaseShortcut) globalShortcut.unregister(DEFAULT_CALL_SHORTCUT)
       },
       () => releaseIpc?.(),
+      () => this.window.dispose(),
       () => {
         if (tray && !tray.isDestroyed()) tray.destroy()
       },

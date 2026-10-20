@@ -1,5 +1,9 @@
 import type { AuthSnapshot } from '../../shared/contracts/auth'
-import type { ShortcutSnapshot, TraySnapshot } from '../../shared/contracts/application'
+import type {
+  ShortcutSnapshot,
+  TraySnapshot,
+  WindowMaterial
+} from '../../shared/contracts/application'
 import type { ClientError, Result } from '../../shared/contracts/common'
 import { ClientSnapshotSchema } from '../../shared/contracts/interaction'
 import type {
@@ -29,6 +33,7 @@ export class InteractionManager implements InteractionPort {
     this.snapshot = ClientSnapshotSchema.parse({
       revision: 0,
       application: {
+        windowMaterial: 'opaque',
         shortcut: { status: 'pending', accelerator: options.accelerator },
         tray: { status: 'pending' }
       },
@@ -104,6 +109,11 @@ export class InteractionManager implements InteractionPort {
 
   setTrayState(tray: TraySnapshot): void {
     if (!this.disposed) this.update({ application: { ...this.snapshot.application, tray } })
+  }
+
+  setWindowMaterial(windowMaterial: WindowMaterial): void {
+    if (!this.disposed && this.snapshot.application.windowMaterial !== windowMaterial)
+      this.update({ application: { ...this.snapshot.application, windowMaterial } })
   }
 
   dispose(): void {
