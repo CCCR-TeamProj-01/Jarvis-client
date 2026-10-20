@@ -41,4 +41,4 @@ F-018([#21](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/21))에서 
 - 프레임 속도 기본값은 15 fps이며 `maxFps`로 조정한다. 인식이 느리면 프레임을 버려 지연이 쌓이지 않게 한다.
 - 손이 없을 때는 빈 `hands`의 프레임을 계속 보낸다(`no_hand` 손실 판단은 GestureController 몫). `permission_revoked`·`engine_error` 손실 이벤트는 추적의 종료를 뜻하며 Main은 카메라를 반납한다. 이전 세대와 되돌아간 sequence의 프레임은 버린다.
 - 프레임 시각 `capturedAtMs`는 Media Renderer의 `performance.now()` 시계다. 오래된 프레임 판정(GEST-06)은 후속 이슈에서 시계 차이를 맞춰 적용한다.
-- 개발용(패키징되지 않은 앱 한정): `JARVIS_FAKE_MEDIA=1`에 `JARVIS_FAKE_VIDEO_FILE=<y4m 또는 mjpeg 경로>`를 더하면 영상 파일이 카메라가 되고, `JARVIS_HAND_SELFTEST=<초>`는 로그인 후 그 시간 동안 추적해 `HAND_SELFTEST` 줄(시작 시간, 프레임 요약, 프레임 수·손이 보인 프레임 수)로 출력한다.
+- 개발용(패키징되지 않은 앱 한정): `JARVIS_FAKE_MEDIA=1`에 `JARVIS_FAKE_VIDEO_FILE=<y4m 또는 mjpeg 경로>`를 더하면 영상 파일이 카메라가 되고, `JARVIS_HAND_SELFTEST=<초>`는 로그인 후 그 시간 동안(`0`이면 로그아웃·종료까지 계속) 추적해 `HAND_SELFTEST` 줄(시작 시간, 프레임 요약, 프레임 수·손이 보인 프레임 수)로 출력한다.

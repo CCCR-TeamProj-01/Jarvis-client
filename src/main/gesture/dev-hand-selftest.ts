@@ -5,7 +5,7 @@ const generation = { sessionId: 'hand-selftest', revision: 0 }
 
 /**
  * Development only (unpackaged app with JARVIS_HAND_SELFTEST=<seconds>): once signed in, track
- * hands for that long and log what was seen, so the real camera → worker → Main path can be
+ * hands for that long (0 = until sign-out or quit) and log what was seen, so the real camera → worker → Main path can be
  * exercised without the gesture controller. With Chromium's fake camera playing a video of a hand
  * this shows the whole pipeline working.
  */
@@ -43,6 +43,7 @@ export function startHandSelfTest(
     const result = await tracking.start(generation)
     if (!result.ok) return print('error', result.error)
     print('started', { startupMs: Date.now() - started })
+    if (seconds === 0) return
     timer = setTimeout(() => {
       void tracking.stop().then(() => print('done', { frames, withHands }))
     }, seconds * 1000)

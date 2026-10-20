@@ -39,6 +39,13 @@ export interface ApplicationDependencies {
   media?: { entryUrl: string; preloadPath: string }
 }
 
+/** `0` (or `forever`) keeps tracking until sign-out or quit; otherwise the number of seconds. */
+function parseHandSelfTestSeconds(value: string): number {
+  if (value === 'forever') return 0
+  const seconds = Number.parseInt(value, 10)
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : 5
+}
+
 const HAND_MODEL_FILE = 'hand_landmarker.task'
 
 async function loadHandModel(): Promise<Result<Uint8Array>> {
@@ -262,7 +269,7 @@ export class ApplicationManager {
       )
     if (!app.isPackaged && process.env.JARVIS_HAND_SELFTEST)
       this.disposeHandSelfTest = startHandSelfTest(
-        Math.max(1, Number.parseInt(process.env.JARVIS_HAND_SELFTEST, 10) || 5),
+        parseHandSelfTestSeconds(process.env.JARVIS_HAND_SELFTEST),
         this.auth,
         this.handTracking
       )
