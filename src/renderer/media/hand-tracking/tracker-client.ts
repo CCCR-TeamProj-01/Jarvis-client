@@ -1,7 +1,7 @@
 import type { ClientError, Generation, Result } from '../../../shared/contracts/common'
 import type { HandTrackingFrame } from '../../../shared/contracts/gesture'
-import type { HandTrackerPort } from '../../../workers/hand-tracking/ports'
-import type { CameraFrame } from '../camera/ports'
+import type { HandTrackerPort } from './ports'
+import type { CameraFrame } from '../../../shared/ports/camera'
 import type { WorkerRequest, WorkerResponse } from './worker-protocol'
 
 /** The slice of Worker used here. */

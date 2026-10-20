@@ -44,17 +44,18 @@ pnpm build
 
 ## 구조
 
-- `src/main/application`: 앱 생명주기·트레이·단축키·창 관리
+- `src/main/application`: 앱 생명주기·창(`application-manager`)과 그 조립 부품 — 트레이, 단축키, 앱 상태 연결(`state-sync`), 개발용 셀프테스트 연결
+- `src/main/<기능>`: 기능별 폴더(auth, sensors, speech, conversation, tools, gesture, overlay, platform …). 각 폴더에 포트(인터페이스)와 구현이 함께 있음
 - `src/main/interaction`: Main 상태·화면·명령 처리
-- `src/main/ipc`: 소유 UI 창과 입력을 검증하는 IPC 핸들러
-- `src/preload`: UI·미디어 Renderer에 각각 노출할 제한된 API
+- `src/main/ipc`: 소유 창과 입력을 검증하는 IPC 핸들러
+- `src/preload`: UI·미디어·오버레이 Renderer에 각각 노출할 제한된 API
 - `src/renderer/ui`: 사용자 화면
-- `src/renderer/media`: 센서 입력과 서버 TTS 오디오 재생용 별도 Renderer 진입점
-- `src/workers`: 영상 추론 Worker 자리
-- `src/inference`: 로컬 KWS·VAD 프로세스 어댑터 자리
-- `src/main/speech`: 음성 세션과 서버 STT·TTS 연동 자리
-- `src/shared/contracts`: 앱·인증·UI·센서·제스처·도구·로컬 음성 데이터와 검증 스키마
-- `src/shared/ipc`: UI·Media Renderer의 제한된 공개 API 계약
+- `src/renderer/media`: 센서 입력(PCM·영상 프레임·손 인식 Worker)과 서버 TTS 오디오 재생용 별도 Renderer 진입점
+- `src/renderer/overlay`: 상태 오버레이 화면
+- `src/inference`: 로컬 VAD 프로세스 어댑터(호출어 자리 포함)
+- `src/shared/contracts`: 앱·인증·UI·센서·제스처·도구·음성·오버레이 데이터와 검증 스키마
+- `src/shared/ipc`: 각 Renderer의 제한된 공개 API 계약
+- `src/shared/ports`: 여러 계층이 함께 쓰는 포트(오디오 재생, 카메라 프레임)
 - `docs`: 기능 명세, 아키텍처, 검증 계획
 
 기능 구현 기준은 [문서 목차](docs/README.md)를 참고하세요. 클라이언트에는 STT·TTS 모델을 넣지 않으며 로컬 KWS·VAD 모델과 네이티브 실행 파일의 패키징 방식은 기술 검증 후 확정합니다.

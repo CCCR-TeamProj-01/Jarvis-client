@@ -22,7 +22,7 @@
   },
   "overrides": [
     {
-      "files": ["src/renderer/**", "src/workers/**", "src/shared/**"],
+      "files": ["src/renderer/**", "src/shared/**"],
       "rules": {
         "no-restricted-imports": [
           "error",

@@ -3,7 +3,7 @@ import { sameGeneration } from '../../shared/contracts/common'
 import type { SensorDevice, SensorKind } from '../../shared/contracts/sensors'
 import type { AudioCaptureStart } from '../../shared/contracts/speech'
 import type { MediaApi, MediaCommandEnvelope } from '../../shared/ipc/media-api'
-import type { AudioPlaybackPort } from './audio-playback/ports'
+import type { AudioPlaybackPort } from '../../shared/ports/audio-playback'
 import type { AudioCapture } from './audio-capture/web-audio-capture'
 import type { HandTrackingControl } from './hand-tracking/hand-tracking-pipeline'
 

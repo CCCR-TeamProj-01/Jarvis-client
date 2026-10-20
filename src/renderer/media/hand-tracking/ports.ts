@@ -1,6 +1,6 @@
-import type { CameraFrame } from '../../renderer/media/camera/ports'
-import type { Generation, Result } from '../../shared/contracts/common'
-import type { HandTrackingFrame } from '../../shared/contracts/gesture'
+import type { CameraFrame } from '../../../shared/ports/camera'
+import type { Generation, Result } from '../../../shared/contracts/common'
+import type { HandTrackingFrame } from '../../../shared/contracts/gesture'
 
 export interface HandTrackerPort {
   /** Consumes and closes the bitmap after inference, including failures. */

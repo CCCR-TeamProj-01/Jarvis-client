@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { describeMediaError, MediaController } from '../../src/renderer/media/media-controller'
-import type { AudioPlaybackPort } from '../../src/renderer/media/audio-playback/ports'
+import type { AudioPlaybackPort } from '../../src/shared/ports/audio-playback'
 import type { PlaybackEvent } from '../../src/shared/contracts/speech'
 import type { AudioCapture } from '../../src/renderer/media/audio-capture/web-audio-capture'
 import type { HandTrackingControl } from '../../src/renderer/media/hand-tracking/hand-tracking-pipeline'

@@ -1,5 +1,5 @@
-import type { Generation, Result, Unsubscribe } from '../../../shared/contracts/common'
-import type { CameraStart } from '../../../shared/ipc/media-api'
+import type { Generation, Result, Unsubscribe } from '../contracts/common'
+import type { CameraStart } from '../ipc/media-api'
 
 /** Browser-only resource. Never send this object through Electron IPC to Main. */
 export interface CameraFrame {

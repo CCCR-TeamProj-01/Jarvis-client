@@ -1,6 +1,6 @@
 import type { Generation, Result, Unsubscribe } from '../../shared/contracts/common'
 import type { PlaybackEvent, PlaybackRequest } from '../../shared/contracts/speech'
-import type { AudioPlaybackPort } from '../../renderer/media/audio-playback/ports'
+import type { AudioPlaybackPort } from '../../shared/ports/audio-playback'
 import type { MediaBridge } from '../sensors/media-bridge'
 
 const ACCEPT_TIMEOUT_MS = 10_000
