@@ -2,7 +2,7 @@
 
 클라이언트 모듈 사이의 데이터·메서드·오류·자원 정리 규약이다. [이슈 #2](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/2)의 코드 계약을 정의하며 서버의 엔드포인트·인증·전송 프로토콜은 후속 어댑터에서 결정한다. 기능 범위는 [클라이언트 아키텍처](client.md)와 각 기능 명세를 따른다.
 
-이슈 #2의 구현에 추가되는 인증 계약은 [계정 인증](../features/auth.md#클라이언트-계약과-구조)과 [이슈 #5](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/5)를 따른다. 아래 인증 확장은 명세 단계이며 현재 계약 코드·Preload에는 아직 구현되지 않았다.
+이슈 #2의 구현에 추가되는 인증 계약은 [계정 인증](../features/auth.md#클라이언트-계약과-구조)과 [이슈 #5](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/5)를 따른다. F-008에서 인증 데이터·공개 API·Main 포트 계약을 구현했으며, 실제 인증 기능과 Preload 연결은 후속 작업이다.
 
 ## 배치와 책임
 
@@ -17,6 +17,7 @@
 | `src/renderer/media/*/ports.ts`, `src/inference/ports.ts` | 캡처·재생·호출어·VAD 엔진의 실행 공간 내부 포트 | F-007 |
 | `src/main/speech/session/ports.ts` | 로컬 음성 세션·인식 이벤트·완료 발화 구독 포트 | F-007 |
 | `src/main/ports.ts` | Main 단조 시계, 로컬 취소·기한 옵션 | 공통 |
+| `src/shared/contracts/auth.ts`, `src/shared/ipc/auth-api.ts`, `src/main/auth/ports.ts` | 인증 데이터·전용 API·서버와 보호 저장소의 Main 포트 | F-008 |
 
 데이터 스키마는 Zod로 정의하고 TypeScript 타입을 추론한다. 프로세스 경계에서 입력을 검증하며 알 수 없는 필드는 거부한다. Main 전용 포트는 Main에, 브라우저 실행 공간의 포트는 해당 미디어·인식 영역에 둔다. 공유 계약은 Electron·Node·플랫폼 구현을 import하지 않는다.
 
@@ -49,11 +50,11 @@ IPC 채널은 UI 명령·상태 조회·이벤트와 미디어 명령·이벤트
 
 ### 인증 계약 확장
 
-후속 구현에서 `shared/contracts/auth.ts`와 `shared/ipc/auth-api.ts`를 추가하고 `UiApi.auth`를 연결한다. 인증 전용 IPC도 고정된 허용 채널로 추가하고 Main에서 발신 창·입력·현재 인증 세대를 검증한다. 정확한 요청·결과·상태·Main 포트의 배치는 [인증 원본](../features/auth.md#클라이언트-계약과-구조)에 둔다. 인증 입력을 일반 실행 명령 기록에 섞거나 Media API에 노출하지 않는다. `AuthSnapshot`에는 공개 사용자·인증 상태·인증 세대만 포함한다.
+`shared/contracts/auth.ts`와 `shared/ipc/auth-api.ts`, `UiApi.auth`, 고정된 `AUTH_CHANNELS`를 정의했다. 실제 핸들러는 후속 구현에서 Main의 발신 창·입력·현재 인증 세대 검증과 함께 연결한다. 정확한 요청·결과·상태·Main 포트의 배치는 [인증 원본](../features/auth.md#클라이언트-계약과-구조)에 둔다. 인증 입력을 일반 실행 명령 기록에 섞거나 Media API에 노출하지 않는다. `AuthSnapshot`에는 공개 사용자·인증 상태·인증 세대만 포함한다.
 
-현재 `ClientSnapshot.screen`은 인증 화면을 포함하지 않으므로 login·signup을 추가하고 인증 스냅샷과 상태 구독을 연결해야 한다. 기존 `UiCommand`·도구 호출·센서 시작은 Main이 현재 인증을 검사한 뒤 실행하며, UI 상태를 신뢰해 인증을 생략하지 않는다. 중지·정리·종료는 인증 상태와 무관하게 허용한다.
+`ClientSnapshot.auth`와 screen의 login·signup을 추가했으며 미인증 상태의 일반 화면 스냅샷을 거부한다. `auth.open`은 인증 화면 전환 요청이다. 기존 `UiCommand`·도구 호출·센서 시작은 실제 구현에서 Main이 현재 인증을 검사한 뒤 실행하며, UI 상태를 신뢰해 인증을 생략하지 않는다. 중지·정리·종료는 인증 상태와 무관하게 허용한다.
 
-인증 세대는 대화·제스처 세대와 별도로 관리한다. 로그아웃·계정 전환·세션 무효화 시 인증 세대를 먼저 무효화하고 관련 로컬 세대·연결을 정리한다. 늦은 로그인·복구 결과와 이전 사용자의 서버 메시지를 폐기한다. 인증 서버·보호 저장소 포트는 Main 내부에 배치하고 실제 서버 호출 전에는 명시적인 개발용 대역으로 검증한다.
+인증 세대는 대화·제스처 세대와 별도로 관리한다. 로그아웃·계정 전환·세션 무효화 시 인증 세대를 먼저 무효화하고 관련 로컬 세대·연결을 정리한다. 늦은 로그인·복구 결과와 이전 사용자의 서버 메시지를 폐기한다. 인증 서버·보호 저장소 포트는 Main 내부에 배치했다. `tests/typecheck/ports.ts`에 독립적인 포트 구현 예제를 추가했으며, 실제 상태 전이와 서버 호출은 후속 구현에서 명시적인 개발용 대역으로 검증한다.
 
 ## 센서 사용권
 

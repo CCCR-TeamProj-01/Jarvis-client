@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AuthSnapshotSchema } from './auth'
 import {
   ClientErrorSchema,
   GenerationSchema,
@@ -11,6 +12,7 @@ import { SensorSnapshotSchema } from './sensors'
 import { SpeechSnapshotSchema } from './speech'
 
 export const UiCommandSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('auth.open'), screen: z.enum(['login', 'signup']) }),
   z.strictObject({ type: z.literal('conversation.start') }),
   z.strictObject({
     type: z.literal('conversation.submit_text'),
@@ -39,6 +41,7 @@ export type CommandReceipt = z.infer<typeof CommandReceiptSchema>
 export const ClientSnapshotSchema = z
   .strictObject({
     revision: SequenceSchema,
+    auth: AuthSnapshotSchema,
     recognitionPaused: z.boolean(),
     conversation: z
       .strictObject({
@@ -61,12 +64,26 @@ export const ClientSnapshotSchema = z
     speech: SpeechSnapshotSchema,
     gesture: GestureSnapshotSchema,
     sensors: z.array(SensorSnapshotSchema).max(2),
-    screen: z.enum(['hidden', 'status', 'input', 'result', 'confirmation', 'settings']),
+    screen: z.enum([
+      'login',
+      'signup',
+      'hidden',
+      'status',
+      'input',
+      'result',
+      'confirmation',
+      'settings'
+    ]),
     connection: z.enum(['offline', 'connecting', 'online'])
   })
   .refine(
     (state) => new Set(state.sensors.map((sensor) => sensor.kind)).size === state.sensors.length,
     'Sensor kinds must be unique in a snapshot'
+  )
+  .refine(
+    (state) =>
+      state.auth.phase === 'signed_in' || state.screen === 'login' || state.screen === 'signup',
+    'Unauthenticated clients must show an authentication screen'
   )
 export type ClientSnapshot = z.infer<typeof ClientSnapshotSchema>
 

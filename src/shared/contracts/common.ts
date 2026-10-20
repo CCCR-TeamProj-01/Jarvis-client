@@ -17,6 +17,12 @@ export type Generation = z.infer<typeof GenerationSchema>
 export const ClientErrorSchema = z.strictObject({
   code: z.enum([
     'permission_denied',
+    'authentication_required',
+    'invalid_credentials',
+    'login_id_taken',
+    'session_expired',
+    'rate_limited',
+    'credential_unavailable',
     'device_unavailable',
     'unsupported',
     'invalid_input',

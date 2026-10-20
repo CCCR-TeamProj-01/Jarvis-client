@@ -55,19 +55,23 @@
 
 ## 클라이언트 계약과 구조
 
-다음 경로는 후속 구현의 배치안이다. 이번 명세 작업에서 실제 API나 인증 기능을 노출하지 않는다.
+F-008에서 아래 데이터·API·Main 포트 계약을 구현했다. AuthManager·화면·실제 IPC 핸들러·서버/보호 저장소 구현은 후속 작업이다. 현재 Preload는 Bootstrap API만 노출한다.
 
-| 위치 | 책임 |
-| --- | --- |
-| `src/shared/contracts/auth.ts` | 로그인·가입 입력, 아이디 사용 가능 결과, 공개 사용자 정보, 인증 스냅샷·이벤트·오류 스키마 |
-| `src/shared/ipc/auth-api.ts` | UI 전용 인증 API. 로그인·가입·중복 확인·로그아웃·상태 조회·구독 |
-| `src/main/auth/ports.ts` | 인증 서버 어댑터와 보호 자격 증명 저장소의 Main 내부 포트 |
-| `src/main/auth/auth-manager.ts` | 인증 상태·세대·유지·복구·만료·로그아웃과 기능 차단 조정 |
-| `src/renderer/ui/features/auth/` | 로그인·회원가입 폼, 비밀번호 재입력 검증, 요청별 진행·오류 표시 |
+| 위치 | 책임 | 상태 |
+| --- | --- | --- |
+| `src/shared/contracts/auth.ts` | 로그인·가입 입력, 아이디 사용 가능 결과, 공개 사용자 정보, 인증 스냅샷·이벤트·로그인 유지 결과 | 계약 구현 |
+| `src/shared/ipc/auth-api.ts` | UI 전용 인증 API와 응답 스키마. 로그인·가입·중복 확인·복구 재시도·로그아웃·상태 조회·구독 | 계약 구현 |
+| `src/main/auth/ports.ts` | 인증 서버 어댑터와 보호 자격 증명 저장소의 Main 내부 포트 | 계약 구현 |
+| `src/main/auth/auth-manager.ts` | 인증 상태·세대·유지·복구·만료·로그아웃과 기능 차단 조정 | 후속 구현 |
+| `src/renderer/ui/features/auth/` | 로그인·회원가입 폼, 비밀번호 재입력 검증, 요청별 진행·오류 표시 | 후속 구현 |
 
-UI 공개 API는 `UiApi.auth` 아래 `checkLoginId`, `signUp`, `signIn`, `signOut`, `getSnapshot`, `subscribe`를 제공하는 방향으로 확장한다. 입력값은 제한된 Preload API를 거쳐 Main에 전달하고 실제 인증 요청은 Main이 HTTPS로 수행한다. `AuthGatewayPort`는 인증 서버 작업을, `CredentialStorePort`는 자격 증명 읽기·저장·제거를 추상화한다. 토큰 형식과 자격 증명 객체는 Main 내부 계약이다.
+UI 공개 API 계약은 `UiApi.auth` 아래 `checkLoginId`, `signUp`, `signIn`, `restore`, `signOut`, `getSnapshot`, `subscribe`로 구성한다. `restore`는 통신 장애 후 Main에 보관된 자격 증명으로 복구를 재시도하며 UI에서 토큰을 받지 않는다. 실제 핸들러 구현 시 입력값은 제한된 Preload API를 거쳐 Main에 전달하고 인증 요청은 Main이 HTTPS로 수행한다. `AuthGatewayPort`는 인증 서버 작업을, `CredentialStorePort`는 자격 증명 읽기·저장·제거를 추상화한다. 토큰 형식과 자격 증명 객체는 Main 내부 계약이다.
 
-`AuthSnapshot`에는 상태·현재 인증 세대·확인된 사용자만 포함하고 비밀번호·세션 토큰은 넣지 않는다. 로그인·가입·복구의 요청 중 표시는 인증 완료 상태와 구분한다. 일반 `ClientSnapshot`과 화면 계약은 이 인증 상태에 맞춰 연결하며 login·signup 화면을 추가한다. 인증 실패·만료·저장 불가 등 필요한 오류 코드는 후속 계약 구현에서 공통 오류와의 관계를 명확히 정한다.
+`AuthSnapshot`에는 phase·현재 인증 세대·확인된 사용자만 포함하고 비밀번호·세션 토큰은 넣지 않는다. checking·signed_out에서는 user가 null이고 signed_in에서는 공개 사용자가 필수다. 로그인·가입·복구의 요청 중 표시는 인증 완료 상태와 구분한다. `ClientSnapshot.auth`로 상태를 연결하고 screen에 login·signup을 추가했다. 미인증 스냅샷에서 일반 화면을 보고하면 스키마 검증이 실패한다. 이 데이터 검증과 별도로 실제 Main 실행 경로의 인증 확인을 구현해야 한다.
+
+인증 요청은 requestId·generation과 input을 담는다. 비밀번호 없는 복구·로그아웃 요청은 requestId·generation만 사용한다. 요청 식별자와 세대의 동시 일치는 `isCurrentAuthRequest`로 검사할 수 있다. UI 화면 전환은 `auth.open` 명령으로 요청한다. Main이 현재 인증 세대·발신자를 검증하는 책임은 그대로 유지한다.
+
+결과는 기존 `Result<T>` 형식을 사용한다. `ClientError`에 authentication_required·invalid_credentials·login_id_taken·session_expired·rate_limited·credential_unavailable을 추가했다. 로그인·복구 성공 결과는 signed_in 스냅샷과 persistence를 분리한다. persistence가 unavailable이면 credential_unavailable 오류가 필수이며 로그인 유지 성공으로 표시하지 않는다.
 
 개발용 인증 대역은 같은 포트 뒤에 두고 개발 환경에서 명시적으로 선택한다. 운영 빌드가 대역으로 인증을 통과해서는 안 된다. 실제 인증 어댑터가 없어도 폼·복구·만료·기능 차단·계정 전환을 검증할 수 있어야 한다.
 
@@ -75,7 +79,7 @@ UI 공개 API는 `UiApi.auth` 아래 `checkLoginId`, `signUp`, `signIn`, `signOu
 
 비밀번호·토큰 저장과 로그 경계는 [데이터와 보안](../architecture/data-security.md#인증-정보와-계정-격리)을, 인증 연산의 서버 책임은 [서버 연동](../architecture/server-integration.md#계정-인증-계약)을 따른다. 로그인 유지 저장에 실패하면 이를 알리고 현재 실행의 로그인과 다음 실행의 복구 가능 여부를 구분한다. 평문 저장으로 대체하지 않는다.
 
-다음 항목은 실제 계약 코드·서버 어댑터 구현 전에 합의한다.
+현재 입력 스키마는 아이디가 공백만으로 구성되지 않는지와 비밀번호가 비어 있지 않은지만 검사하며 입력을 정규화하지 않는다. 다음 항목은 구체적인 입력 정책을 적용하는 폼·Main 검증과 실제 서버 어댑터 구현 전에 합의한다.
 
 - 아이디 허용 문자·최소/최대 길이·대소문자 구분·정규화와 비밀번호 최소/최대 길이. 중복 판정과 가입 저장에 같은 규칙을 사용한다.
 - 인증 엔드포인트·오류 형식·로그인 유지용 자격 증명·세션 검증/갱신·만료 시간·기기 연결과 폐기 방식.
