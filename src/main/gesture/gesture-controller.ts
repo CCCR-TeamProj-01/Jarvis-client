@@ -19,7 +19,12 @@ import type { GestureControlPort, HandTrackingSource, InputPermissionPort } from
 import { DEFAULT_TUNING } from './tuning'
 import type { GestureTuning } from './tuning'
 
-const INDEX_TIP = 8
+/**
+ * The cursor follows the index knuckle, not the fingertip: when the thumb comes to meet the index
+ * finger the tip moves with it, which would pull the cursor off its target just as the click
+ * happens. The knuckle stays where it is while the fingers close.
+ */
+const POINTER_JOINT = 5
 /** How often a running session re-checks that the OS still lets it move the pointer. */
 const PERMISSION_RECHECK_MS = 2_000
 
@@ -55,6 +60,9 @@ interface Session {
   pumping: boolean
   cancelWatchdog: (() => void) | null
   lastPermissionCheckMs: number
+  ratios: { atMs: number; ratio: number }[]
+  closing: boolean
+  holdMovesUntilMs: number
   stopTracking: Unsubscribe
 }
 
@@ -188,6 +196,9 @@ export class GestureController implements GestureControlPort {
       pumping: false,
       cancelWatchdog: null,
       lastPermissionCheckMs: this.options.clock.now(),
+      ratios: [],
+      closing: false,
+      holdMovesUntilMs: 0,
       stopTracking: () => undefined
     }
     this.session = session
@@ -253,7 +264,7 @@ export class GestureController implements GestureControlPort {
       this.markLost(session, false, frame.capturedAtMs)
       return
     }
-    const tip = hand.landmarks[INDEX_TIP]
+    const tip = hand.landmarks[POINTER_JOINT]
     if (!tip) return
 
     if (session.phase === 'lost') {
@@ -261,6 +272,9 @@ export class GestureController implements GestureControlPort {
       session.filter.reset()
       session.pinch.reset()
       session.history = []
+      session.ratios = []
+      session.closing = false
+      session.holdMovesUntilMs = 0
       session.lastSent = null
       session.lostSinceMs = null
       session.phase = 'tracking'
@@ -277,18 +291,41 @@ export class GestureController implements GestureControlPort {
     while (session.history.length > 1 && (session.history[0]?.atMs ?? 0) < horizon)
       session.history.shift()
 
-    const transition = session.pinch.update(pinchRatio(hand))
+    const ratio = pinchRatio(hand)
+    const closing = this.isClosing(session, frame.capturedAtMs, ratio)
+    const transition = session.pinch.update(ratio)
     if (transition === 'started') {
-      this.enqueue(session, { kind: 'click', point: this.pointBefore(session, frame.capturedAtMs) })
-      session.lastSent = point
+      // If the fingers were seen closing the cursor has already held still, and the click goes
+      // exactly there. Otherwise (a sudden pinch) it goes where the cursor was just before.
+      const target =
+        session.closing && session.lastSent
+          ? session.lastSent
+          : this.pointBefore(session, frame.capturedAtMs)
+      this.enqueue(session, { kind: 'click', point: target })
+      session.lastSent = target
+      session.closing = false
       return
     }
-    // While the fingers are together the tip drifts; the cursor stays where the click went.
-    if (session.pinch.isPinched) return
+    if (transition === 'ended')
+      session.holdMovesUntilMs = frame.capturedAtMs + this.tuning.closing.releaseHoldMs
+    session.closing = closing
+    // While the fingers are closing, together or opening, the cursor stays where the click goes.
+    if (closing || session.pinch.isPinched || frame.capturedAtMs < session.holdMovesUntilMs) return
     const last = session.lastSent
     if (last && Math.hypot(point.x - last.x, point.y - last.y) < this.tuning.deadZonePx) return
     session.lastSent = point
     this.enqueue(session, { kind: 'move', point })
+  }
+
+  /** The pinch ratio has fallen quickly lately: the fingers are on their way together. */
+  private isClosing(session: Session, atMs: number, ratio: number | null): boolean {
+    if (ratio === null) return session.closing
+    const { drop, windowMs } = this.tuning.closing
+    session.ratios.push({ atMs, ratio })
+    while (session.ratios.length > 1 && (session.ratios[0]?.atMs ?? 0) < atMs - windowMs)
+      session.ratios.shift()
+    if (session.pinch.isPinched) return false
+    return Math.max(...session.ratios.map((entry) => entry.ratio)) - ratio > drop
   }
 
   /** Where the cursor was just before the fingers began to close, so the click lands on target. */

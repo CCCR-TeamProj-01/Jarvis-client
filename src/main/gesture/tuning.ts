@@ -20,6 +20,12 @@ export interface GestureTuning {
   pinch: { enter: number; exit: number }
   /** The click lands where the cursor was this long before the pinch, before the fingers moved. */
   pinchLookbackMs: number
+  /**
+   * Fingers closing is told apart from a hand merely moving by the pinch ratio falling by more
+   * than `drop` within `windowMs`. From then on the cursor holds still, so it is already where the
+   * click will land, and it stays put for `releaseHoldMs` after the fingers open again.
+   */
+  closing: { drop: number; windowMs: number; releaseHoldMs: number }
   /** How long a dispatched input may wait before it is no longer worth running. */
   inputDeadlineMs: number
 }
@@ -32,5 +38,6 @@ export const DEFAULT_TUNING: GestureTuning = {
   deadZonePx: 1.5,
   pinch: { enter: 0.25, exit: 0.45 },
   pinchLookbackMs: 120,
+  closing: { drop: 0.12, windowMs: 150, releaseHoldMs: 150 },
   inputDeadlineMs: 300
 }

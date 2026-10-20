@@ -424,6 +424,84 @@ describe('GestureController pinch', () => {
   })
 })
 
+describe('GestureController steadiness while pinching', () => {
+  const at = (sequence: number, pinch: number) =>
+    hand({
+      // The knuckle keeps travelling; the fingertip does something else entirely.
+      knuckle: { x: 0.7 - sequence * 0.02, y: 0.475 },
+      tip: { x: 0.2 + (sequence % 2) * 0.3, y: 0.9 },
+      pinch
+    })
+
+  it('follows the index knuckle, so a moving fingertip does not move the cursor', async () => {
+    const t = setup()
+    await t.begin()
+    const still = (sequence: number) =>
+      hand({ knuckle: CENTER, tip: { x: 0.2 + (sequence % 2) * 0.5, y: 0.9 } })
+    for (let sequence = 1; sequence <= 6; sequence++)
+      await t.send(sequence, sequence * 33, [still(sequence)])
+    expect(t.moves()).toHaveLength(1)
+  })
+
+  it('holds the cursor as soon as the fingers start closing, and clicks exactly there', async () => {
+    const t = setup()
+    await t.begin()
+    for (let sequence = 1; sequence <= 6; sequence++)
+      await t.send(sequence, sequence * 33, [at(sequence, 1)])
+    const moves = t.moves().length
+    const resting = t.moves().at(-1)!.point
+    // The fingers close over four frames while the hand drifts on.
+    const ratios = [0.8, 0.6, 0.4, 0.2]
+    for (const [index, ratio] of ratios.entries())
+      await t.send(7 + index, (7 + index) * 33, [at(7 + index, ratio)])
+    expect(t.clicks()).toHaveLength(1)
+    const click = t.calls.findIndex((call) => call.kind === 'click')
+    // Between the last move before closing and the click only the click's own move happened.
+    expect(t.moves().length).toBeLessThanOrEqual(moves + 2)
+    const clickMove = t.calls[click - 1] as Extract<Call, { kind: 'move' }>
+    expect(clickMove.point.x).toBeGreaterThanOrEqual(resting.x - 0.001)
+    expect(
+      t
+        .moves()
+        .slice(moves)
+        .every((move) => Math.abs(move.point.x - clickMove.point.x) < 40)
+    ).toBe(true)
+  })
+
+  it('keeps the cursor still while the pinch is held and for a moment after it opens', async () => {
+    const t = setup()
+    await t.begin()
+    let sequence = 1
+    for (; sequence <= 4; sequence++) await t.send(sequence, sequence * 33, [at(sequence, 1)])
+    for (const ratio of [0.5, 0.2, 0.2, 0.2]) {
+      await t.send(sequence, sequence * 33, [at(sequence, ratio)])
+      sequence += 1
+    }
+    const held = t.moves().length
+    // Opening: the first frame ends the pinch; the next ones are inside the release hold.
+    for (const ratio of [0.6, 0.9, 1]) {
+      await t.send(sequence, sequence * 33, [at(sequence, ratio)])
+      sequence += 1
+    }
+    expect(t.moves()).toHaveLength(held)
+    // Well after the hold the cursor follows the hand again.
+    for (let later = 0; later < 6; later++) {
+      await t.send(sequence, sequence * 33, [at(sequence, 1)])
+      sequence += 1
+    }
+    expect(t.moves().length).toBeGreaterThan(held)
+  })
+
+  it('does not mistake a hand that simply moves for fingers closing', async () => {
+    const t = setup()
+    await t.begin()
+    for (let sequence = 1; sequence <= 8; sequence++)
+      await t.send(sequence, sequence * 33, [at(sequence, 0.6 + (sequence % 2) * 0.05)])
+    expect(t.moves()).toHaveLength(8)
+    expect(t.clicks()).toHaveLength(0)
+  })
+})
+
 describe('GestureController losing and regaining the hand', () => {
   it('stops input when the hand goes, and resumes without replaying anything', async () => {
     const t = setup()

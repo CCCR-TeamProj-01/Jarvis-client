@@ -15,6 +15,8 @@ export function hand(
     handedness?: HandObservation['handedness']
     confidence?: number
     tip?: { x: number; y: number }
+    /** The index knuckle, which the cursor follows; by default it is where the tip is. */
+    knuckle?: { x: number; y: number }
     pinch?: number
   } = {}
 ): HandObservation {
@@ -22,6 +24,8 @@ export function hand(
   const landmarks = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5, z: 0 }))
   landmarks[0] = { x: 0.5, y: 0.8, z: 0 }
   landmarks[9] = { x: 0.5, y: 0.6, z: 0 }
+  const knuckle = options.knuckle ?? tip
+  landmarks[5] = { x: knuckle.x, y: knuckle.y, z: 0 }
   landmarks[8] = { x: tip.x, y: tip.y, z: 0 }
   landmarks[4] = { x: tip.x + (options.pinch ?? 1) * 0.2, y: tip.y, z: 0 }
   return {
