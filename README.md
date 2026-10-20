@@ -25,6 +25,8 @@ JARVIS_DEV_AUTH=1 pnpm dev   # 기본 계정: demo / demo1234
 
 손 인식에는 `hand_landmarker.task` 모델이 필요하며 `pnpm models:fetch`가 함께 내려받습니다. 카메라 없이 확인하려면 `JARVIS_FAKE_MEDIA=1 JARVIS_FAKE_VIDEO_FILE=<y4m 또는 mjpeg 경로> JARVIS_HAND_SELFTEST=5`로 영상 파일을 카메라 입력으로 쓰고 로그인하면, 5초 동안 인식한 손 관절 요약을 `HAND_SELFTEST` 줄로 출력합니다(`JARVIS_HAND_SELFTEST=0`이면 로그아웃·종료까지 계속 추적)(패키징된 앱에서는 동작하지 않음).
 
+손으로 커서를 움직이려면 로그인 후 화면의 `제스처 시작`(또는 단축키 `⌘ ⇧ G` / `Ctrl Shift G`, 트레이 메뉴)을 누릅니다. macOS는 처음에 시스템 설정 > 개인정보 보호 및 보안 > 손쉬운 사용에서 자비스(개발 중에는 Electron 또는 터미널 앱)를 허용해야 하며, 허용한 뒤 다시 시작합니다. 검지만 펴서 가리키면 커서가 움직이고(주먹·편 손에서는 멈춤), 그 자세에서 엄지와 검지를 모으면 클릭합니다. 실제 커서를 움직이지 않고 확인하려면 `JARVIS_FAKE_POINTER=1`을 더하면 입력 내용을 `POINTER_FAKE` 줄로 출력합니다(패키징된 앱에서는 동작하지 않음).
+
 음성 대화 전체를 서버 없이 보려면 위 가짜 마이크 설정에 `JARVIS_DEV_SPEECH=1`을 더하면 서버 대역이 인식·응답·효과음을 대신하고, 화면의 `대화 시작`(음성) 또는 입력창(글)으로 시작합니다(`JARVIS_SPEECH_SELFTEST=1`이면 로그인 직후 자동으로 시작해 상태 변화를 `SPEECH_SELFTEST` 줄로 출력). 패키징된 앱에서는 동작하지 않습니다.
 
 VS Code 터미널에서 `ELECTRON_RUN_AS_NODE`가 설정돼 있으면 앱이 실행되지 않으니 해제하고 실행하세요. 인증 동작 기준은 [계정 인증](docs/features/auth.md)을 따릅니다.

@@ -112,7 +112,12 @@ vi.mock('electron', async () => {
       }
     },
     utilityProcess: { fork: vi.fn<(path: string) => unknown>() },
+    screen: {
+      getAllDisplays: vi.fn<() => unknown[]>(() => []),
+      getPrimaryDisplay: vi.fn<() => { id: number }>(() => ({ id: 1 }))
+    },
     systemPreferences: {
+      isTrustedAccessibilityClient: vi.fn<(prompt: boolean) => boolean>(() => true),
       getMediaAccessStatus: vi.fn<(type: string) => string>(() => 'granted'),
       askForMediaAccess: vi.fn<(type: string) => Promise<boolean>>(async () => true)
     },
@@ -134,6 +139,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import {
   ApplicationManager,
   DEFAULT_CALL_SHORTCUT,
+  GESTURE_TOGGLE_SHORTCUT,
   startApplication
 } from '../../src/main/application/application-manager'
 import { UI_CHANNELS } from '../../src/shared/ipc/channels'
@@ -212,7 +218,9 @@ describe('native application lifecycle', () => {
     const tray = vi.mocked(Tray).mock.results[0].value as Tray
     app.quit()
     expect(BrowserWindow.getAllWindows()).toHaveLength(0)
-    expect(globalShortcut.unregister).toHaveBeenCalledExactlyOnceWith(DEFAULT_CALL_SHORTCUT)
+    expect(globalShortcut.unregister).toHaveBeenCalledWith(DEFAULT_CALL_SHORTCUT)
+    expect(globalShortcut.unregister).toHaveBeenCalledWith(GESTURE_TOGGLE_SHORTCUT)
+    expect(globalShortcut.unregister).toHaveBeenCalledTimes(2)
     expect(tray.destroy).toHaveBeenCalledOnce()
     expect(ipcMain.removeHandler).toHaveBeenCalledWith(UI_CHANNELS.command)
     expect(ipcMain.removeHandler).toHaveBeenCalledWith(UI_CHANNELS.snapshot)
@@ -309,7 +317,7 @@ describe('native application lifecycle', () => {
       'Private filesystem'
     )
     expect(app.quit).toHaveBeenCalledOnce()
-    expect(globalShortcut.unregister).toHaveBeenCalledOnce()
+    expect(globalShortcut.unregister).toHaveBeenCalledTimes(2)
   })
 
   it('ignores a renderer URL override in a packaged application', async () => {

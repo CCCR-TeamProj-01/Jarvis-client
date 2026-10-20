@@ -4,7 +4,7 @@ import type { HandTrackingStart, MediaEvent } from '../../../shared/ipc/media-ap
 import type { HandTrackerPort } from '../../../workers/hand-tracking/ports'
 import type { FrameSource } from './video-frame-source'
 
-const DEFAULT_FPS = 15
+const DEFAULT_FPS = 30
 /** A few bad frames are noise; this many in a row means the engine is not coming back. */
 const MAX_CONSECUTIVE_ERRORS = 5
 

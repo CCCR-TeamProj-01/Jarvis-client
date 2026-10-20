@@ -93,6 +93,13 @@ importers:
       vitest:
         specifier: ^5.0.5
         version: 5.0.5(@types/node@26.6.5)(vite@8.3.4(@types/node@26.6.5)(jiti@2.7.0))
+    optionalDependencies:
+      '@nut-tree-fork/libnut-darwin':
+        specifier: 2.7.5
+        version: 2.7.5
+      '@nut-tree-fork/libnut-win32':
+        specifier: 2.7.5
+        version: 2.7.5
 
 packages:
 
@@ -258,6 +265,22 @@ packages:
   '@noble/hashes@2.4.0':
     resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
     engines: {node: '>= 20.19.0'}
+
+  '@nut-tree-fork/libnut-darwin@2.7.5':
+    resolution: {integrity: sha512-LbqtPtMPTJUcg4XoPP2jsU1wc8flBcGyKTerKsIfK9cD7nBHROnO0QksbrsbSWEpLym8T8fRtuU7XEY83l6Z2Q==}
+    engines: {node: '>=10.15.3'}
+    cpu: [x64, arm64]
+    os: [darwin, linux, win32]
+
+  '@nut-tree-fork/libnut-win32@2.7.5':
+    resolution: {integrity: sha512-yqC87zvmFcDPwFrRU40DYhN0xmEVM3aSkOuyF0IX+y1x+HWSu/i0PNklATpPBhGid3QVb/TOHuVoaraMrUFCNw==}
+    engines: {node: '>=10.15.3'}
+    cpu: [x64, arm64]
+    os: [darwin, linux, win32]
+
+  '@nut-tree-fork/node-mac-permissions@2.2.1':
+    resolution: {integrity: sha512-iSfOTDiBZ7VDa17PoQje5rUaZSvSAaq+XEyXCmhPuQwV5XuNU02Grv6oFhsdpz89w7+UvB/8KX/cX5IYQ5o2Bw==}
+    os: [darwin]
 
   '@oxc-project/types@0.154.0':
     resolution: {integrity: sha512-KYOUGQFlLWR+s4QMV2Q9ko38TZm7EdO87Qm7rvZLqk/webse/cDjtyxKhg/47l0byCbs/k46LT8qc4PKjAikzA==}
@@ -1010,6 +1033,9 @@ packages:
     resolution: {integrity: sha512-RbOBxmLBG8uvFUc15X9+9SFemKcQ0WBuISBVkpuiaUB2qblC8UWlHEjdWVoZ8AdhSwmoEgsiXKfopX0CQxaACQ==}
     engines: {node: '>=22'}
 
+  bindings@1.5.0:
+    resolution: {integrity: sha512-p2q/t/mhvuOj/UeLlV6566GD/guowlr0hHxClI0W9m7MWYkL1F0hLo+0Aexs9HSPCtR1SXQ0TD3MMKrXZajbiQ==}
+
   bluebird@3.7.2:
     resolution: {integrity: sha512-XpNj6GDQzdfW+r2Wnn7xiSAd7TM3jzkxGXBGTtWKuSXv1xUV+azxAm8jdWZN06QTQk+2N2XB9jRDkvbmQmcRtg==}
 
@@ -1329,6 +1355,9 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
+
+  file-uri-to-path@1.0.0:
+    resolution: {integrity: sha512-0Zt+s3L7Vf1biwWZ29aARiVYLx7iMGnEUl9x33fbB/j3jR81u/O2LbqK+Bm1CDSNDKVtJ/YjwY7TUd5SkeLQLw==}
 
   filelist@1.0.6:
     resolution: {integrity: sha512-5giy2PkLYY1cP39p17Ech+2xlpTRL9HLspOfEgm0L6CwBXBTgsK5ou0JtzYuepxkaQ/tvhCFIJ5uXo0OrM2DxA==}
@@ -1791,6 +1820,9 @@ packages:
   node-abi@4.38.0:
     resolution: {integrity: sha512-suSdznUPfabdaeLiNERA0LHod14RhcEn8wMPUZEQ6bKvajUCZ+aizY4pIvlLU+gImeLKp2bFDHhOc9yonISsXw==}
     engines: {node: '>=22.12.0'}
+
+  node-addon-api@5.0.0:
+    resolution: {integrity: sha512-CvkDw2OEnme7ybCykJpVcKH+uAOLV2qLqiyla128dN9TkEWfrYmxG6C2boDe5KcNQqZF3orkqzGgOMvZ/JNekA==}
 
   node-addon-api@8.9.2:
     resolution: {integrity: sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg==}
@@ -2658,6 +2690,26 @@ snapshots:
 
   '@noble/hashes@2.4.0': {}
 
+  '@nut-tree-fork/libnut-darwin@2.7.5':
+    dependencies:
+      bindings: 1.5.0
+    optionalDependencies:
+      '@nut-tree-fork/node-mac-permissions': 2.2.1
+    optional: true
+
+  '@nut-tree-fork/libnut-win32@2.7.5':
+    dependencies:
+      bindings: 1.5.0
+    optionalDependencies:
+      '@nut-tree-fork/node-mac-permissions': 2.2.1
+    optional: true
+
+  '@nut-tree-fork/node-mac-permissions@2.2.1':
+    dependencies:
+      bindings: 1.5.0
+      node-addon-api: 5.0.0
+    optional: true
+
   '@oxc-project/types@0.154.0': {}
 
   '@oxfmt/binding-android-arm-eabi@0.73.0':
@@ -3161,6 +3213,11 @@ snapshots:
     dependencies:
       node-addon-api: 8.9.2
 
+  bindings@1.5.0:
+    dependencies:
+      file-uri-to-path: 1.0.0
+    optional: true
+
   bluebird@3.7.2: {}
 
   boolean@3.2.0:
@@ -3522,6 +3579,9 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
       picomatch: 4.0.7
+
+  file-uri-to-path@1.0.0:
+    optional: true
 
   filelist@1.0.6:
     dependencies:
@@ -3936,6 +3996,9 @@ snapshots:
   node-abi@4.38.0:
     dependencies:
       semver: 7.7.4
+
+  node-addon-api@5.0.0:
+    optional: true
 
   node-addon-api@8.9.2: {}
 

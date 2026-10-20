@@ -13,6 +13,8 @@ import { registerMediaIpc } from '../ipc/media-ipc'
 import { registerUiIpc } from '../ipc/ui-ipc'
 import { createSensorStack, isFakeMediaEnabled } from '../sensors/create-sensors'
 import type { SensorStack } from '../sensors/create-sensors'
+import { createGestureController } from '../gesture/create-gesture'
+import type { GestureController } from '../gesture/gesture-controller'
 import { startHandSelfTest } from '../gesture/dev-hand-selftest'
 import { HandTrackingService } from '../gesture/hand-tracking'
 import { modelPath } from '../models'
@@ -32,6 +34,8 @@ import { createTrayIcon } from './tray-icon'
 import { UiWindow } from './ui-window'
 
 export const DEFAULT_CALL_SHORTCUT = 'CommandOrControl+Shift+Space'
+/** Turns gesture control on or off; the way to stop it at once without touching the pointer. */
+export const GESTURE_TOGGLE_SHORTCUT = 'CommandOrControl+Shift+G'
 
 export interface ApplicationDependencies {
   auth?: AuthManager
@@ -70,6 +74,7 @@ export class ApplicationManager {
   readonly tools: ToolStack
   readonly voice: VoiceStack
   readonly handTracking: HandTrackingService
+  readonly gesture: GestureController
   readonly conversation: ConversationManager
   private readonly sensorStack: SensorStack
   private recognitionWasPaused = false
@@ -84,6 +89,7 @@ export class ApplicationManager {
   private readonly window: UiWindow
   private tray: Tray | null = null
   private shortcutRegistered = false
+  private gestureShortcutRegistered = false
   private disposeIpc: (() => void) | null = null
   private disposeAuthIpc: (() => void) | null = null
   private disposeAuthSync: (() => void) | null = null
@@ -163,6 +169,12 @@ export class ApplicationManager {
       bridge: stack.bridge,
       loadModel: loadHandModel
     })
+    this.gesture = createGestureController({
+      tracking: this.handTracking,
+      gate: sensorGate,
+      isPackaged: app.isPackaged,
+      env: process.env
+    })
     this.disposeMediaIpc = registerMediaIpc({
       ipc: ipcMain,
       getContents: () => stack.window.getContents(),
@@ -185,6 +197,7 @@ export class ApplicationManager {
       // A conversation belongs to the user who started it.
       void this.voice.session.stop()
       void this.conversation.end()
+      void this.gesture.stop()
       void this.sensors.revokeAll({
         code: 'authentication_required',
         message: '로그인 상태가 변경되어 센서를 해제했습니다.'
@@ -200,6 +213,7 @@ export class ApplicationManager {
       if (paused && !this.recognitionWasPaused) {
         void this.voice.session.stop()
         void this.conversation.end()
+        void this.gesture.stop()
       }
       if (paused && !this.recognitionWasPaused)
         void this.sensors.revokeAll({
@@ -224,6 +238,16 @@ export class ApplicationManager {
         return conversation.end()
       }
     })
+    this.interaction.setGestureHandlers({
+      start: () => this.gesture.start({ activeHand: 'auto_lock', displayId: 'primary' }),
+      stop: () => this.gesture.stop()
+    })
+    const stopGestureState = this.gesture.subscribe((snapshot) =>
+      this.interaction.setGestureState(snapshot)
+    )
+    const stopGestureProblems = this.gesture.subscribeProblems((error) =>
+      this.interaction.publishNotice({ type: 'problem', error })
+    )
     const stopConversationState = conversation.subscribe((snapshot) => {
       this.interaction.setConversationState(snapshot)
       // Without a conversation there is nothing to listen for. A reply being worked on or spoken
@@ -242,8 +266,11 @@ export class ApplicationManager {
     this.disposeSpeechSync = () => {
       stopConversationState()
       stopSpeechState()
+      stopGestureState()
+      stopGestureProblems()
       for (const stop of stopNotices) stop()
       this.interaction.setConversationHandlers(null)
+      this.interaction.setGestureHandlers(null)
     }
   }
 
@@ -322,10 +349,15 @@ export class ApplicationManager {
     this.disposeSpeechSync = null
     const releaseShortcut = this.shortcutRegistered
     this.shortcutRegistered = false
+    const releaseGestureShortcut = this.gestureShortcutRegistered
+    this.gestureShortcutRegistered = false
     // A failed release must not prevent remaining resources from being released.
     for (const release of [
       () => {
         if (releaseShortcut) globalShortcut.unregister(DEFAULT_CALL_SHORTCUT)
+      },
+      () => {
+        if (releaseGestureShortcut) globalShortcut.unregister(GESTURE_TOGGLE_SHORTCUT)
       },
       () => releaseIpc?.(),
       () => releaseAuthIpc?.(),
@@ -342,6 +374,7 @@ export class ApplicationManager {
         // Releases devices through the media window, then the window itself goes away.
         void this.voice.session.stop()
         void this.conversation.end()
+        void this.gesture.stop()
         this.handTracking.dispose()
         this.voice.playback.dispose()
         this.voice.router.dispose()
@@ -393,6 +426,12 @@ export class ApplicationManager {
             }
           },
           {
+            label: '제스처 시작',
+            click: () => {
+              void this.interaction.dispatch({ type: 'gesture.start' })
+            }
+          },
+          {
             label: '제스처 중지',
             click: () => {
               void this.interaction.dispatch({ type: 'gesture.stop' })
@@ -424,6 +463,14 @@ export class ApplicationManager {
       )
     } catch {
       this.shortcutRegistered = false
+    }
+    try {
+      this.gestureShortcutRegistered = globalShortcut.register(GESTURE_TOGGLE_SHORTCUT, () => {
+        const running = this.interaction.getSnapshot().gesture.phase !== 'off'
+        void this.interaction.dispatch({ type: running ? 'gesture.stop' : 'gesture.start' })
+      })
+    } catch {
+      this.gestureShortcutRegistered = false
     }
     this.interaction.setShortcutState(
       this.shortcutRegistered
