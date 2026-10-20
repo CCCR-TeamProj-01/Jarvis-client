@@ -15,6 +15,9 @@ import { startSensorSelfTest } from '../sensors/dev-selftest'
 import { installMediaPermissionPolicy } from '../sensors/media-permissions'
 import { createSensorGate } from '../sensors/sensor-gate'
 import type { SensorManager } from '../sensors/sensor-manager'
+import { createVoiceStack } from '../speech/create-voice'
+import type { VoiceStack } from '../speech/create-voice'
+import { startVoiceSelfTest } from '../speech/dev-voice-selftest'
 import { createToolStack } from '../tools/create-tools'
 import type { ToolStack } from '../tools/create-tools'
 import { startToolSelfTest } from '../tools/dev-tool-selftest'
@@ -34,12 +37,14 @@ export class ApplicationManager {
   readonly auth: AuthManager
   readonly sensors: SensorManager
   readonly tools: ToolStack
+  readonly voice: VoiceStack
   private readonly sensorStack: SensorStack
   private recognitionWasPaused = false
   private disposeMediaIpc: (() => void) | null = null
   private disposeSensorSync: (() => void) | null = null
   private disposeSelfTest: (() => void) | null = null
   private disposeToolSelfTest: (() => void) | null = null
+  private disposeVoiceSelfTest: (() => void) | null = null
   private readonly window: UiWindow
   private tray: Tray | null = null
   private shortcutRegistered = false
@@ -100,6 +105,7 @@ export class ApplicationManager {
     })
     this.sensors = this.sensorStack.sensors
     const stack = this.sensorStack
+    this.voice = createVoiceStack(stack)
     this.disposeMediaIpc = registerMediaIpc({
       ipc: ipcMain,
       getContents: () => stack.window.getContents(),
@@ -152,6 +158,12 @@ export class ApplicationManager {
     this.window.open()
     if (!app.isPackaged && process.env.JARVIS_SENSOR_SELFTEST === '1')
       this.disposeSelfTest = startSensorSelfTest(this.auth, this.sensors)
+    if (!app.isPackaged && process.env.JARVIS_VOICE_SELFTEST)
+      this.disposeVoiceSelfTest = startVoiceSelfTest(
+        Math.max(1, Number.parseInt(process.env.JARVIS_VOICE_SELFTEST, 10) || 1),
+        this.auth,
+        this.voice.input
+      )
     if (!app.isPackaged && process.env.JARVIS_TOOL_SELFTEST)
       this.disposeToolSelfTest = startToolSelfTest(
         process.env.JARVIS_TOOL_SELFTEST,
@@ -191,6 +203,8 @@ export class ApplicationManager {
     this.disposeSelfTest = null
     const releaseToolSelfTest = this.disposeToolSelfTest
     this.disposeToolSelfTest = null
+    const releaseVoiceSelfTest = this.disposeVoiceSelfTest
+    this.disposeVoiceSelfTest = null
     const releaseShortcut = this.shortcutRegistered
     this.shortcutRegistered = false
     // A failed release must not prevent remaining resources from being released.
@@ -203,10 +217,13 @@ export class ApplicationManager {
       () => releaseAuthSync?.(),
       () => releaseSelfTest?.(),
       () => releaseToolSelfTest?.(),
+      () => releaseVoiceSelfTest?.(),
       () => releaseSensorSync?.(),
       () => releaseMediaIpc?.(),
       () => {
         // Releases devices through the media window, then the window itself goes away.
+        this.voice.router.dispose()
+        this.voice.vad.dispose()
         void this.sensors.dispose()
         this.sensorStack.window.dispose()
         this.sensorStack.bridge.dispose()
@@ -307,6 +324,10 @@ export function startApplication(): void {
     // Development only: synthetic camera/microphone. The permission handler stays authoritative;
     // Chromium's fake-UI switch is deliberately not used because it would bypass that handler.
     app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+    // Optionally play a WAV file as the microphone, once (for exercising capture and VAD).
+    const fakeAudio = process.env.JARVIS_FAKE_AUDIO_FILE
+    if (fakeAudio)
+      app.commandLine.appendSwitch('use-file-for-fake-audio-capture', `${fakeAudio}%noloop`)
   }
   if (!app.requestSingleInstanceLock()) {
     app.quit()

@@ -67,6 +67,7 @@ vi.mock('electron', async () => {
   const app = Object.assign(new EventEmitter(), {
     setName: vi.fn<(name: string) => void>(),
     isPackaged: false,
+    getAppPath: () => '/jarvis',
     requestSingleInstanceLock: vi.fn<() => boolean>(() => true),
     whenReady: vi.fn<() => Promise<void>>(async () => undefined),
     quit: vi.fn<() => void>(() => {
@@ -110,6 +111,7 @@ vi.mock('electron', async () => {
         setPermissionCheckHandler: vi.fn<(handler: unknown) => void>()
       }
     },
+    utilityProcess: { fork: vi.fn<(path: string) => unknown>() },
     systemPreferences: {
       getMediaAccessStatus: vi.fn<(type: string) => string>(() => 'granted'),
       askForMediaAccess: vi.fn<(type: string) => Promise<boolean>>(async () => true)

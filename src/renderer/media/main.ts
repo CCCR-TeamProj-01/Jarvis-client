@@ -1,3 +1,4 @@
+import { WebAudioCapture } from './audio-capture/web-audio-capture'
 import { MediaController } from './media-controller'
 import type { MediaDevicesLike, PermissionQuery } from './media-controller'
 
@@ -16,7 +17,8 @@ if (window.jarvisMedia && navigator.mediaDevices) {
   const controller = new MediaController(
     window.jarvisMedia,
     navigator.mediaDevices as unknown as MediaDevicesLike,
-    queryPermission
+    queryPermission,
+    new WebAudioCapture((chunk) => window.jarvisMedia.publish({ type: 'audio.pcm', chunk }))
   )
   window.addEventListener('pagehide', () => controller.dispose())
 }

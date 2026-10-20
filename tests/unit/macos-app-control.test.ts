@@ -319,12 +319,15 @@ describe('createUnsupportedAppControl', () => {
 })
 
 describe('nodeCommandRunner', () => {
+  // Uses the running Node binary so the checks behave the same on every operating system.
+  const node = process.execPath
+
   it('captures output and exit code without a shell', async () => {
-    expect(await nodeCommandRunner.run('/bin/echo', ['hello; echo injected'])).toEqual({
-      ok: true,
-      value: { code: 0, stdout: 'hello; echo injected\n', stderr: '' }
-    })
-    expect(await nodeCommandRunner.run('/usr/bin/false', [])).toMatchObject({
+    const argument = 'hello; echo injected'
+    expect(
+      await nodeCommandRunner.run(node, ['-e', 'process.stdout.write(process.argv[1])', argument])
+    ).toEqual({ ok: true, value: { code: 0, stdout: argument, stderr: '' } })
+    expect(await nodeCommandRunner.run(node, ['-e', 'process.exit(1)'])).toMatchObject({
       ok: true,
       value: { code: 1 }
     })
@@ -335,17 +338,13 @@ describe('nodeCommandRunner', () => {
       ok: false,
       error: { code: 'unavailable' }
     })
-    expect(await nodeCommandRunner.run('/bin/sleep', ['5'], { timeoutMs: 50 })).toMatchObject({
-      ok: false,
-      error: { code: 'unavailable' }
-    })
+    expect(
+      await nodeCommandRunner.run(node, ['-e', 'setTimeout(() => {}, 5000)'], { timeoutMs: 100 })
+    ).toMatchObject({ ok: false, error: { code: 'unavailable' } })
     const controller = new AbortController()
     controller.abort()
     expect(
-      await nodeCommandRunner.run('/bin/echo', ['x'], { signal: controller.signal })
-    ).toMatchObject({
-      ok: false,
-      error: { code: 'cancelled' }
-    })
+      await nodeCommandRunner.run(node, ['-e', ''], { signal: controller.signal })
+    ).toMatchObject({ ok: false, error: { code: 'cancelled' } })
   })
 })

@@ -4,7 +4,17 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 
 export default defineConfig({
-  main: {},
+  main: {
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          // Runs in a utilityProcess, so it is its own bundle next to the main one.
+          'vad-worker': resolve(__dirname, 'src/inference/vad/vad-worker.ts')
+        }
+      }
+    }
+  },
   preload: {
     build: {
       externalizeDeps: false,
