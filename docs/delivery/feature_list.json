@@ -74,6 +74,13 @@
       "description": "카메라·마이크 사용권을 공유·반납하는 SensorManager, 비표시 Media Renderer와 Media IPC, OS 권한 매핑과 session 권한 정책을 구현하고 로그아웃·일시 중지·장치 분리에서 사용권과 장치를 정리한다. 기본 설정 저장·프레임·PCM은 제외한다.",
       "status": "done",
       "issue": 12
+    },
+    {
+      "id": "F-014",
+      "title": "앱·OS 제어: CapabilityRegistry·ToolExecutor와 macOS 앱 어댑터 구현",
+      "description": "도구 요청 검증·중복 방지·실행 직전 재검증·순차 실행·취소/만료 보고를 하는 ToolExecutor, 도구 가용 상태 레지스트리, 호출 전 앱 기록과 macOS 앱 목록·실행·전환·복귀·URL 열기 어댑터를 구현한다. Windows 어댑터·포인터 입력·최근 작업 전환은 제외한다.",
+      "status": "done",
+      "issue": 14
     }
   ]
 }

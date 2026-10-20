@@ -119,7 +119,7 @@ Worker는 손 관측 결과를 만들고 Main의 GestureController가 활성 손
 
 `ToolExecutionReport`는 requestId·executionId·도구와 실제 outcome, cancelRequested·expired를 분리한다. outcome은 not_started·observed·failed·unknown이다. observed 내부에서도 실제 상태 확인과 단순 전달을 구분한다. URL의 브라우저 전달은 페이지 로딩 성공으로 기록하지 않는다.
 
-취소·만료 전에 시작하지 않은 작업은 not_started로 보고한다. 이미 실행한 동작은 결과를 보존한 채 취소 요청 여부를 별도로 기록한다. 결과 불명 시 unknown을 반환하며 동일 executionId로 부작용을 자동 재실행하지 않는다. 중복 방지와 실행 직전 재검증은 후속 ToolExecutor 구현이 담당한다.
+취소·만료 전에 시작하지 않은 작업은 not_started로 보고한다. 이미 실행한 동작은 결과를 보존한 채 취소 요청 여부를 별도로 기록한다. 결과 불명 시 unknown을 반환하며 동일 executionId로 부작용을 자동 재실행하지 않는다. 중복 방지와 실행 직전 재검증은 `ToolExecutor`가 담당한다([구현 현황](../features/app-control.md#구현-현황)).
 
 ## 음성·미디어
 

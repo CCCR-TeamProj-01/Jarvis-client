@@ -15,6 +15,9 @@ import { startSensorSelfTest } from '../sensors/dev-selftest'
 import { installMediaPermissionPolicy } from '../sensors/media-permissions'
 import { createSensorGate } from '../sensors/sensor-gate'
 import type { SensorManager } from '../sensors/sensor-manager'
+import { createToolStack } from '../tools/create-tools'
+import type { ToolStack } from '../tools/create-tools'
+import { startToolSelfTest } from '../tools/dev-tool-selftest'
 import { createTrayIcon } from './tray-icon'
 import { UiWindow } from './ui-window'
 
@@ -30,11 +33,13 @@ export class ApplicationManager {
   readonly interaction: InteractionManager
   readonly auth: AuthManager
   readonly sensors: SensorManager
+  readonly tools: ToolStack
   private readonly sensorStack: SensorStack
   private recognitionWasPaused = false
   private disposeMediaIpc: (() => void) | null = null
   private disposeSensorSync: (() => void) | null = null
   private disposeSelfTest: (() => void) | null = null
+  private disposeToolSelfTest: (() => void) | null = null
   private readonly window: UiWindow
   private tray: Tray | null = null
   private shortcutRegistered = false
@@ -82,6 +87,7 @@ export class ApplicationManager {
       entryUrl,
       auth: this.auth
     })
+    this.tools = createToolStack(this.auth)
     const mediaEntryUrl =
       dependencies.media?.entryUrl ?? entryUrl.replace(/\/ui\/index\.html$/, '/media/index.html')
     const mediaPreloadPath =
@@ -110,6 +116,9 @@ export class ApplicationManager {
     // Any change of generation (sign-out, expiry re-check, account switch) also ends sensor use.
     this.disposeAuthSync = this.auth.onGenerationChange((snapshot) => {
       this.interaction.setAuthSnapshot(snapshot)
+      // The previous user's tool history, pending work and "go back" target must not carry over.
+      this.tools.executor.resetForNewSession()
+      this.tools.restoreTracker.clear()
       void this.sensors.revokeAll({
         code: 'authentication_required',
         message: '로그인 상태가 변경되어 센서를 해제했습니다.'
@@ -143,11 +152,20 @@ export class ApplicationManager {
     this.window.open()
     if (!app.isPackaged && process.env.JARVIS_SENSOR_SELFTEST === '1')
       this.disposeSelfTest = startSensorSelfTest(this.auth, this.sensors)
+    if (!app.isPackaged && process.env.JARVIS_TOOL_SELFTEST)
+      this.disposeToolSelfTest = startToolSelfTest(
+        process.env.JARVIS_TOOL_SELFTEST,
+        this.auth,
+        this.tools
+      )
     void this.auth.start()
   }
 
   activate(source: ActivationSource): void {
-    if (!this.quitting) void this.interaction.activateConversation(source)
+    if (this.quitting) return
+    // Record where the user was before Jarvis takes the foreground, so "go back" has a target.
+    if (this.auth.isSignedIn()) void this.tools.restoreTracker.capture()
+    void this.interaction.activateConversation(source)
   }
 
   hasTray(): boolean {
@@ -171,6 +189,8 @@ export class ApplicationManager {
     this.disposeSensorSync = null
     const releaseSelfTest = this.disposeSelfTest
     this.disposeSelfTest = null
+    const releaseToolSelfTest = this.disposeToolSelfTest
+    this.disposeToolSelfTest = null
     const releaseShortcut = this.shortcutRegistered
     this.shortcutRegistered = false
     // A failed release must not prevent remaining resources from being released.
@@ -182,6 +202,7 @@ export class ApplicationManager {
       () => releaseAuthIpc?.(),
       () => releaseAuthSync?.(),
       () => releaseSelfTest?.(),
+      () => releaseToolSelfTest?.(),
       () => releaseSensorSync?.(),
       () => releaseMediaIpc?.(),
       () => {
