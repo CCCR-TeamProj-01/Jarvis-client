@@ -25,3 +25,4 @@ resources/models/*
 
 CLAUDE.local.md
 .context/
+.claude/settings.local.json
