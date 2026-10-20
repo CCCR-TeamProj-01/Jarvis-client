@@ -1,7 +1,9 @@
 import { app, dialog, globalShortcut, ipcMain, Menu, session, Tray } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import type { Result } from '../../shared/contracts/common'
 import type { AuthManager } from '../auth/auth-manager'
 import { createDefaultAuth } from '../auth/create-auth'
 import { InteractionManager } from '../interaction/interaction-manager'
@@ -11,6 +13,9 @@ import { registerMediaIpc } from '../ipc/media-ipc'
 import { registerUiIpc } from '../ipc/ui-ipc'
 import { createSensorStack, isFakeMediaEnabled } from '../sensors/create-sensors'
 import type { SensorStack } from '../sensors/create-sensors'
+import { startHandSelfTest } from '../gesture/dev-hand-selftest'
+import { HandTrackingService } from '../gesture/hand-tracking'
+import { modelPath } from '../models'
 import { startSensorSelfTest } from '../sensors/dev-selftest'
 import { installMediaPermissionPolicy } from '../sensors/media-permissions'
 import { createSensorGate } from '../sensors/sensor-gate'
@@ -34,12 +39,30 @@ export interface ApplicationDependencies {
   media?: { entryUrl: string; preloadPath: string }
 }
 
+const HAND_MODEL_FILE = 'hand_landmarker.task'
+
+async function loadHandModel(): Promise<Result<Uint8Array>> {
+  try {
+    return { ok: true, value: new Uint8Array(await readFile(modelPath(HAND_MODEL_FILE))) }
+  } catch {
+    // A missing model is a setup problem to name clearly rather than a mysterious engine failure.
+    return {
+      ok: false,
+      error: {
+        code: 'unavailable',
+        message: '손 인식 모델이 없습니다. pnpm models:fetch로 내려받아 주세요.'
+      }
+    }
+  }
+}
+
 export class ApplicationManager {
   readonly interaction: InteractionManager
   readonly auth: AuthManager
   readonly sensors: SensorManager
   readonly tools: ToolStack
   readonly voice: VoiceStack
+  readonly handTracking: HandTrackingService
   readonly conversation: ConversationManager
   private readonly sensorStack: SensorStack
   private recognitionWasPaused = false
@@ -49,6 +72,7 @@ export class ApplicationManager {
   private disposeToolSelfTest: (() => void) | null = null
   private disposeVoiceSelfTest: (() => void) | null = null
   private disposeSpeechSelfTest: (() => void) | null = null
+  private disposeHandSelfTest: (() => void) | null = null
   private disposeSpeechSync: (() => void) | null = null
   private readonly window: UiWindow
   private tray: Tray | null = null
@@ -127,6 +151,11 @@ export class ApplicationManager {
       }
     })
     this.voice = createVoiceStack(stack, sensorGate, this.conversation, server.speech)
+    this.handTracking = new HandTrackingService({
+      sensors: this.sensors,
+      bridge: stack.bridge,
+      loadModel: loadHandModel
+    })
     this.disposeMediaIpc = registerMediaIpc({
       ipc: ipcMain,
       getContents: () => stack.window.getContents(),
@@ -231,6 +260,12 @@ export class ApplicationManager {
         this.auth,
         this.voice.input
       )
+    if (!app.isPackaged && process.env.JARVIS_HAND_SELFTEST)
+      this.disposeHandSelfTest = startHandSelfTest(
+        Math.max(1, Number.parseInt(process.env.JARVIS_HAND_SELFTEST, 10) || 5),
+        this.auth,
+        this.handTracking
+      )
     if (!app.isPackaged && process.env.JARVIS_TOOL_SELFTEST)
       this.disposeToolSelfTest = startToolSelfTest(
         process.env.JARVIS_TOOL_SELFTEST,
@@ -274,6 +309,8 @@ export class ApplicationManager {
     this.disposeVoiceSelfTest = null
     const releaseSpeechSelfTest = this.disposeSpeechSelfTest
     this.disposeSpeechSelfTest = null
+    const releaseHandSelfTest = this.disposeHandSelfTest
+    this.disposeHandSelfTest = null
     const releaseSpeechSync = this.disposeSpeechSync
     this.disposeSpeechSync = null
     const releaseShortcut = this.shortcutRegistered
@@ -290,6 +327,7 @@ export class ApplicationManager {
       () => releaseToolSelfTest?.(),
       () => releaseVoiceSelfTest?.(),
       () => releaseSpeechSelfTest?.(),
+      () => releaseHandSelfTest?.(),
       () => releaseSpeechSync?.(),
       () => releaseSensorSync?.(),
       () => releaseMediaIpc?.(),
@@ -297,6 +335,7 @@ export class ApplicationManager {
         // Releases devices through the media window, then the window itself goes away.
         void this.voice.session.stop()
         void this.conversation.end()
+        this.handTracking.dispose()
         this.voice.playback.dispose()
         this.voice.router.dispose()
         this.voice.vad.dispose()
@@ -401,6 +440,9 @@ export function startApplication(): void {
     // Chromium's fake-UI switch is deliberately not used because it would bypass that handler.
     app.commandLine.appendSwitch('use-fake-device-for-media-stream')
     // Optionally play a WAV file as the microphone, once (for exercising capture and VAD).
+    // Optionally play a video as the camera, for exercising hand tracking.
+    const fakeVideo = process.env.JARVIS_FAKE_VIDEO_FILE
+    if (fakeVideo) app.commandLine.appendSwitch('use-file-for-fake-video-capture', fakeVideo)
     const fakeAudio = process.env.JARVIS_FAKE_AUDIO_FILE
     if (fakeAudio)
       app.commandLine.appendSwitch('use-file-for-fake-audio-capture', `${fakeAudio}%noloop`)

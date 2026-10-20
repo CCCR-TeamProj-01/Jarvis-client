@@ -3,11 +3,15 @@ import { describeMediaError, MediaController } from '../../src/renderer/media/me
 import type { AudioPlaybackPort } from '../../src/renderer/media/audio-playback/ports'
 import type { PlaybackEvent } from '../../src/shared/contracts/speech'
 import type { AudioCapture } from '../../src/renderer/media/audio-capture/web-audio-capture'
+import type { HandTrackingControl } from '../../src/renderer/media/hand-tracking/hand-tracking-pipeline'
 import type { Result } from '../../src/shared/contracts/common'
 import { FakeDevices } from '../fixtures/media-devices'
 import type { MediaApi, MediaCommandEnvelope, MediaEvent } from '../../src/shared/ipc/media-api'
 
-function setup(queryPermission?: () => Promise<'granted' | 'denied' | 'prompt' | 'unknown'>) {
+function setup(
+  queryPermission?: () => Promise<'granted' | 'denied' | 'prompt' | 'unknown'>,
+  handTracking?: HandTrackingControl
+) {
   const devices = new FakeDevices()
   const published: MediaEvent[] = []
   let deliver: (envelope: MediaCommandEnvelope) => void = () => undefined
@@ -22,7 +26,14 @@ function setup(queryPermission?: () => Promise<'granted' | 'denied' | 'prompt' |
       published.push(event)
     }
   }
-  const controller = new MediaController(api, devices, queryPermission)
+  const controller = new MediaController(
+    api,
+    devices,
+    queryPermission,
+    null,
+    null,
+    handTracking ?? null
+  )
   let id = 0
   const send = (command: MediaCommandEnvelope['command']) => {
     const commandId = `cmd-${++id}`
@@ -537,6 +548,103 @@ describe('MediaController', () => {
       expect(resultOf(published, commandId)).toMatchObject({
         result: { ok: false, error: { code: 'unsupported' } }
       })
+    })
+  })
+
+  describe('hand tracking', () => {
+    const openCamera = { generation: gen('cam'), leaseId: 'cam', deviceId: 'cam-0' }
+    const trackingRequest = { generation: gen('hand'), model: new Uint8Array([1]) }
+    function withTracking() {
+      const calls: string[] = []
+      const handTracking: HandTrackingControl = {
+        start: vi.fn<HandTrackingControl['start']>(async () => {
+          calls.push('start')
+          return { ok: true, value: null }
+        }),
+        stop: vi.fn<HandTrackingControl['stop']>(async () => {
+          calls.push('stop')
+        }),
+        cameraLost: vi.fn<HandTrackingControl['cameraLost']>(async () => {
+          calls.push('lost')
+        }),
+        dispose: vi.fn<HandTrackingControl['dispose']>(async () => undefined)
+      }
+      return { ...setup(undefined, handTracking), handTracking, calls }
+    }
+
+    it('starts on the open camera stream', async () => {
+      const { send, handTracking, published } = withTracking()
+      send({ type: 'camera.start', request: openCamera })
+      const commandId = send({ type: 'handtracking.start', request: trackingRequest })
+      await flush()
+      expect(handTracking.start).toHaveBeenCalledWith(
+        expect.objectContaining({ getTracks: expect.any(Function) }),
+        trackingRequest
+      )
+      expect(resultOf(published, commandId)).toMatchObject({ result: { ok: true } })
+    })
+
+    it('refuses to start without an open camera', async () => {
+      const { send, handTracking, published } = withTracking()
+      const commandId = send({ type: 'handtracking.start', request: trackingRequest })
+      await flush()
+      expect(handTracking.start).not.toHaveBeenCalled()
+      expect(resultOf(published, commandId)).toMatchObject({
+        result: { ok: false, error: { code: 'device_unavailable' } }
+      })
+    })
+
+    it('is unsupported without a tracker', async () => {
+      const { send, published } = setup()
+      send({ type: 'camera.start', request: openCamera })
+      const commandId = send({ type: 'handtracking.start', request: trackingRequest })
+      await flush()
+      expect(resultOf(published, commandId)).toMatchObject({
+        result: { ok: false, error: { code: 'unsupported' } }
+      })
+    })
+
+    it('stops on command', async () => {
+      const { send, handTracking, published } = withTracking()
+      const commandId = send({ type: 'handtracking.stop', generation: gen('hand') })
+      await flush()
+      expect(handTracking.stop).toHaveBeenCalledWith(gen('hand'))
+      expect(resultOf(published, commandId)).toMatchObject({ result: { ok: true } })
+    })
+
+    it('stops tracking before the camera is reported closed', async () => {
+      const { send, calls, published } = withTracking()
+      send({ type: 'camera.start', request: openCamera })
+      send({ type: 'camera.stop', generation: gen('cam') })
+      await flush()
+      expect(calls).toEqual(['stop'])
+      expect(published.at(-1)).toMatchObject({ type: 'media.command_result' })
+    })
+
+    it('stops tracking when a new camera stream replaces the old one', async () => {
+      const { send, calls } = withTracking()
+      send({ type: 'camera.start', request: openCamera })
+      send({ type: 'camera.start', request: { ...openCamera, generation: gen('cam2') } })
+      await flush()
+      expect(calls).toEqual(['stop'])
+    })
+
+    it('tells the tracker when the camera dies underneath it', async () => {
+      const { send, devices, handTracking } = withTracking()
+      send({ type: 'camera.start', request: openCamera })
+      await flush()
+      devices.tracks[0].end()
+      await flush()
+      expect(handTracking.cameraLost).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'device_unavailable' })
+      )
+      expect(handTracking.stop).not.toHaveBeenCalled()
+    })
+
+    it('shuts the tracker down with the controller', () => {
+      const { controller, handTracking } = withTracking()
+      controller.dispose()
+      expect(handTracking.dispose).toHaveBeenCalledOnce()
     })
   })
 })

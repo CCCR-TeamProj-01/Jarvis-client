@@ -11,6 +11,7 @@ extraResources:
     to: models
     filter:
       - '*.onnx'
+      - '*.task'
 mac:
   target: dmg
   extendInfo:

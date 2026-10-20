@@ -1,11 +1,13 @@
 import { z } from 'zod'
 import {
+  AudioBytesSchema,
   ClientErrorSchema,
   GenerationSchema,
   IdentifierSchema,
   resultSchema
 } from '../contracts/common'
 import type { Unsubscribe } from '../contracts/common'
+import { HandTrackingEventSchema } from '../contracts/gesture'
 import { SensorDeviceSchema, SensorKindSchema } from '../contracts/sensors'
 import {
   AudioCaptureStartSchema,
@@ -24,7 +26,18 @@ export const CameraStartSchema = z.strictObject({
 })
 export type CameraStart = z.infer<typeof CameraStartSchema>
 
+/** Hand tracking runs on the camera stream the sensor layer already opened. */
+export const HandTrackingStartSchema = z.strictObject({
+  generation: GenerationSchema,
+  /** The hand landmark model, read by Main so the page needs no file access of its own. */
+  model: AudioBytesSchema.refine((bytes) => bytes.byteLength > 0, 'Model must not be empty'),
+  maxFps: z.number().int().min(1).max(60).optional()
+})
+export type HandTrackingStart = z.infer<typeof HandTrackingStartSchema>
+
 export const MediaCommandSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('handtracking.start'), request: HandTrackingStartSchema }),
+  z.strictObject({ type: z.literal('handtracking.stop'), generation: GenerationSchema }),
   z.strictObject({ type: z.literal('devices.list'), kind: SensorKindSchema }),
   z.strictObject({ type: z.literal('camera.start'), request: CameraStartSchema }),
   z.strictObject({ type: z.literal('camera.stop'), generation: GenerationSchema }),
@@ -77,6 +90,13 @@ export const MediaEventSchema = z
       state: z.enum(['started', 'stopped', 'failed']),
       error: ClientErrorSchema.optional()
     }),
+    z.strictObject({ type: z.literal('hand.tracking'), event: HandTrackingEventSchema }),
+    z.strictObject({
+      type: z.literal('handtracking.state'),
+      generation: GenerationSchema,
+      state: z.enum(['started', 'stopped', 'failed']),
+      error: ClientErrorSchema.optional()
+    }),
     z.strictObject({ type: z.literal('audio.pcm'), chunk: PcmChunkSchema }),
     z.strictObject({ type: z.literal('audio.utterance'), utterance: CompletedUtteranceSchema }),
     z.strictObject({ type: z.literal('audio.playback'), event: PlaybackEventSchema })
@@ -84,7 +104,9 @@ export const MediaEventSchema = z
   .refine(
     (event) =>
       !(
-        (event.type === 'camera.state' || event.type === 'audio.capture.state') &&
+        (event.type === 'camera.state' ||
+          event.type === 'audio.capture.state' ||
+          event.type === 'handtracking.state') &&
         event.state === 'failed' &&
         event.error === undefined
       ),

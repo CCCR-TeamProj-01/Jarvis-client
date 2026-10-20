@@ -66,6 +66,47 @@ describe('structured-clone IPC contract boundaries', () => {
     }
   })
 
+  it('carries hand tracking through the media contract and rejects malformed use', () => {
+    const start = {
+      type: 'handtracking.start',
+      request: { generation, model: new Uint8Array([1, 2, 3]), maxFps: 30 }
+    }
+    const parsed = MediaCommandEnvelopeSchema.parse(
+      structuredClone({ commandId: 'c', command: start })
+    )
+    expect(parsed.command).toMatchObject({ type: 'handtracking.start' })
+    for (const request of [
+      { generation, model: new Uint8Array() },
+      { generation, model: 'file:///model.task' },
+      { generation, model: new Uint8Array([1]), maxFps: 0 },
+      { generation, model: new Uint8Array([1]), maxFps: 120 },
+      { generation, model: new Uint8Array([1]), path: '/etc/passwd' }
+    ])
+      expect(
+        MediaCommandEnvelopeSchema.safeParse({
+          commandId: 'c',
+          command: { type: 'handtracking.start', request }
+        }).success
+      ).toBe(false)
+
+    const frame = {
+      type: 'hand.tracking',
+      event: {
+        type: 'tracking.frame',
+        frame: { generation, sequence: 1, capturedAtMs: 1, hands: [] }
+      }
+    }
+    expect(MediaEventSchema.safeParse(structuredClone(frame)).success).toBe(true)
+    expect(
+      MediaEventSchema.safeParse({ type: 'handtracking.state', generation, state: 'failed' })
+        .success
+    ).toBe(false)
+    expect(
+      MediaEventSchema.safeParse({ type: 'handtracking.state', generation, state: 'started' })
+        .success
+    ).toBe(true)
+  })
+
   it('isolates authentication input from general UI commands and local control objects', () => {
     const request = {
       requestId: 'login-1',

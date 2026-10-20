@@ -1,4 +1,4 @@
-import { app, utilityProcess } from 'electron'
+import { utilityProcess } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -6,6 +6,7 @@ import type { VoiceActivityDetectorPort } from '../../inference/ports'
 import type { ConversationPort } from '../conversation/ports'
 import type { SensorStack } from '../sensors/create-sensors'
 import type { SensorGate } from '../sensors/hardware'
+import { modelPath } from '../models'
 import { AudioInputRouter } from './audio-input'
 import { UtilityProcessVad } from './vad-process'
 import type { VadProcess } from './vad-process'
@@ -23,13 +24,6 @@ export interface VoiceStack {
 }
 
 export const VAD_MODEL_FILE = 'silero_vad.onnx'
-
-/** Models are fetched into resources/models in development and shipped under resources/ in builds. */
-export function modelPath(file: string): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, 'models', file)
-    : join(app.getAppPath(), 'resources', 'models', file)
-}
 
 const schedule = (callback: () => void, delayMs: number) => {
   const timer = setTimeout(callback, delayMs)
