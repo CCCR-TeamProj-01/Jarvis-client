@@ -61,7 +61,12 @@ export interface ConversationPort {
    * time: a second one while the first is being worked on is refused.
    */
   submit(
-    input: { text: string; modality: TurnModality },
+    input: {
+      text: string
+      modality: TurnModality
+      /** Reuse an ID already given to this turn (for example to its speech recognition). */
+      requestId?: string
+    },
     options?: LocalExecutionOptions
   ): Promise<Result<TurnResult>>
   /** Keep the conversation from timing out while something (a voice session) is using it. */

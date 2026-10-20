@@ -126,6 +126,18 @@ describe('submitting what the user said or typed', () => {
     ])
   })
 
+  it('uses a request ID the caller already gave the turn instead of making a new one', async () => {
+    const t = setup()
+    const result = await t.manager.submit({
+      text: '안녕',
+      modality: 'speech',
+      requestId: 'stt-req-9'
+    })
+    expect(result).toMatchObject({ ok: true, value: { requestId: 'stt-req-9' } })
+    expect(t.respond.mock.calls[0][0]).toEqual({ conversationId: 'id-1', requestId: 'stt-req-9' })
+    expect(t.notices[0]).toMatchObject({ type: 'user', requestId: 'stt-req-9' })
+  })
+
   it('treats voice and typing alike and keeps them in one conversation', async () => {
     const t = setup()
     t.manager.start()

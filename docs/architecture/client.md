@@ -17,6 +17,7 @@ flowchart TB
         AUDIO["AudioCaptureManager · 마이크 PCM와 Ring Buffer"]
         KWS["교체 가능한 WakeWordDetector · 대기 중 실행"]
         SESSION["SpeechSessionController · 음성 상태 전이"]
+        CONV["ConversationManager · 대화와 요청 처리"]
         VAD["Silero VAD · 호출 후 발화 구간"]
         REMOTE["RemoteSpeechClient · 발화 업로드와 결과 수신"]
         TTS["SpeechOutput · 서버 TTS 오디오 재생"]
@@ -31,7 +32,8 @@ flowchart TB
         VAD -->|"완료 구간"| SESSION
         SESSION -->|"완료 발화 음성만"| REMOTE
         REMOTE -->|"STT 텍스트·TTS 오디오"| SESSION
-        SESSION <-->|"대화·요청 상태"| MAIN
+        SESSION -->|"인식한 텍스트"| CONV
+        CONV <-->|"대화·요청 상태"| MAIN
         SESSION -->|"대기 중 실행 제어"| KWS
         SESSION -->|"호출 후 실행 제어"| VAD
         SESSION <-->|"재생·중단 이벤트"| TTS
@@ -129,9 +131,10 @@ TypeScript는 앱 제어 로직과 연결 계층의 주 언어다. MediaPipe·sh
 | 상태 영역 | 상태 예시 | 유지 원칙 |
 | --- | --- | --- |
 | 인증 | checking, signed_out, signed_in | Main이 소유. 주요 기능을 허용하는 전제이며 연결 상태와 구분. 로그아웃·세션 무효화 시 기존 요청·인식·입력 정리. 상세 전이는 계정 인증 원본을 따름 |
-| 대화/음성 세션 | idle, wake_detected, awaiting_speech, listening, transcribing, processing, speaking, awaiting_followup | transcribing은 서버 STT 대기, speaking은 서버 TTS 오디오 재생. SpeechSessionController가 전이를 관리하고 종료 시 제스처를 변경하지 않음 |
+| 대화 | idle, active | ConversationManager가 `conversationId`·요청·유휴 종료를 관리. 입력이 음성이든 글이든 같고 음성 세션이 없어도 존재할 수 있음. 끝나면 음성 세션도 끝남 |
+| 음성 세션 | idle, wake_detected, awaiting_speech, listening, transcribing, processing, speaking, awaiting_followup | 대화에 붙는 듣기·말하기. transcribing은 서버 STT 대기, processing은 대화의 응답 대기, speaking은 서버 TTS 오디오 재생. SpeechSessionController가 전이를 관리하고 종료 시 제스처를 변경하지 않음 |
 | 제스처 | off, tracking, lost, suspended | 로컬 중지 우선. 복구 시 중립 입력부터 시작 |
 | 센서 | 미사용, 사용 중, 권한 없음, 장치 오류 | 기능별 소유권으로 사용 관리. 음성 호출 대기는 마이크 사용 기능으로 계산 |
 | 화면 | 로그인, 회원가입, 숨김, 상태 표시, 입력, 결과, 확인, 설정 | 인증 확인 전에는 인증 화면만 허용. 결과 창 닫기와 기능 종료를 구분 |
-| 요청 | created, processing, awaiting_confirmation, executing, terminal | terminal 결과를 성공·실패·취소·만료·확인 불가로 구분 |
+| 요청 | created, processing, awaiting_confirmation, executing, terminal | 대화 안의 한 요청. terminal 결과를 성공·실패·취소·만료·확인 불가로 구분. 현재 구현은 idle·processing만 사용하고 확인·실행 단계는 도구 연결과 함께 추가 |
 | 추천 | created, shown, approved, rejected, dismissed, expired | 실행 결과는 별도 필드로 연결 |

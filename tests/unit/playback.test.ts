@@ -213,7 +213,7 @@ describe('server stand-in', () => {
     format: { encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 },
     audio: new Uint8Array(64000)
   }
-  const turn = { requestId: 'r', session: generation }
+  const turn = { conversationId: 'c', requestId: 'r', session: generation }
   const context = { conversationId: 'c', requestId: 'r' }
 
   it('answers with fixed text and a short WAV tone, and ends after the configured turns', async () => {

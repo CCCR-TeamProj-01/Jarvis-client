@@ -2,8 +2,12 @@ import type { Generation, Result } from '../../../shared/contracts/common'
 import type { CompletedUtterance } from '../../../shared/contracts/speech'
 import type { LocalExecutionOptions } from '../../ports'
 
-/** Identifies one turn of a conversation so late answers can be told apart and dropped. */
+/**
+ * Identifies one turn so late answers can be told apart and dropped. The request ID is the same
+ * one the conversation uses for the answer, so recognition and reply belong together.
+ */
 export interface SpeechTurn {
+  conversationId: string
   requestId: string
   /** The speech session and its state version at the time of the request. */
   session: Generation

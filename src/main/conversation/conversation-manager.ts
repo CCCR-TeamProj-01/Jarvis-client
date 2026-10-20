@@ -115,7 +115,7 @@ export class ConversationManager implements ConversationPort {
   }
 
   async submit(
-    input: { text: string; modality: TurnModality },
+    input: { text: string; modality: TurnModality; requestId?: string },
     execution?: LocalExecutionOptions
   ): Promise<Result<TurnResult>> {
     const text = input.text.trim()
@@ -127,7 +127,7 @@ export class ConversationManager implements ConversationPort {
     if (conversation.requestId !== null)
       return failure('conflict', '이전 요청을 처리하고 있어요. 잠시 후 다시 시도해 주세요.')
 
-    const requestId = this.options.createId()
+    const requestId = input.requestId ?? this.options.createId()
     conversation.requestId = requestId
     this.touch(conversation)
     this.publish(conversation)

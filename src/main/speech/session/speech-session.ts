@@ -62,6 +62,7 @@ interface Session {
   version: number
   abort: AbortController
   playback: { id: string; generation: Generation } | null
+  conversationId: string
   /** Keeps the conversation from timing out while this session is using it. */
   releaseConversation: () => void
 }
@@ -118,6 +119,7 @@ export class SpeechSessionController implements SpeechSessionPort {
       version: 0,
       abort: new AbortController(),
       playback: null,
+      conversationId: conversation.value.conversationId,
       releaseConversation: this.options.conversation.hold()
     }
     this.session = session
@@ -163,7 +165,11 @@ export class SpeechSessionController implements SpeechSessionPort {
         heard = null
         // Each server step carries the version of the state it was sent from.
         this.enter(session, 'transcribing')
-        const turn = { requestId: this.options.createId(), session: this.generation(session) }
+        const turn = {
+          conversationId: session.conversationId,
+          requestId: this.options.createId(),
+          session: this.generation(session)
+        }
         const transcription = await this.withLimit(session, (execution) =>
           remote.transcribe(turn, utterance!, execution)
         )
@@ -186,7 +192,7 @@ export class SpeechSessionController implements SpeechSessionPort {
         // What was said goes to the conversation, which answers it (and tells the user).
         this.enter(session, 'processing')
         const answered = await conversation.submit(
-          { text: transcript.text, modality: 'speech' },
+          { text: transcript.text, modality: 'speech', requestId: turn.requestId },
           { signal: session.abort.signal }
         )
         if (!this.alive(session)) return

@@ -207,7 +207,7 @@ describe('a normal voice session', () => {
     ])
     expect(t.transcribe).toHaveBeenCalledOnce()
     expect(t.submit).toHaveBeenCalledWith(
-      { text: '크롬 열어 줘', modality: 'speech' },
+      { text: '크롬 열어 줘', modality: 'speech', requestId: expect.any(String) },
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
     t.emitPlayback('playback.started')
@@ -556,6 +556,18 @@ describe('stopping and stale results', () => {
     expect(await t.controller.stop()).toEqual({ ok: true, value: undefined })
     expect(await t.controller.stop()).toEqual({ ok: true, value: undefined })
     expect(t.phases).toEqual([])
+  })
+
+  it('gives recognition and the answer the same request ID, within the same conversation', async () => {
+    const t = setup()
+    t.queue.push(heard(), empty())
+    await t.controller.activate('ui')
+    await flush()
+    const turn = t.transcribe.mock.calls[0][0]
+    expect(turn.conversationId).toBe('conv-1')
+    expect(t.submit.mock.calls[0][0].requestId).toBe(turn.requestId)
+    t.emitPlayback('playback.ended')
+    await flush()
   })
 
   it('passes the session identity and state version to recognition', async () => {
