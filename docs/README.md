@@ -12,6 +12,7 @@
 | [실행 이력과 추천](features/activity-recommendation.md) | HIST·REC |
 | [캘린더](features/calendar.md) | CAL |
 | [클라이언트 아키텍처](architecture/client.md) | 실행 공간, 모듈, 기술 스택, 독립 상태 |
+| [클라이언트 공통 인터페이스](architecture/client-interfaces.md) | 내부 데이터·IPC·모듈 포트·좌표·취소·자원 정리 규약 |
 | [서버 연동과 실행 계약](architecture/server-integration.md) | 서버 음성 처리·오디오 계약, WSS, 취소·만료·중복 실행 |
 | [데이터와 보안](architecture/data-security.md) | 저장·삭제·권한·UI 실행 경계 |
 | [배포와 검증](delivery/validation.md) | 완료 시나리오, 미확정 항목, 구현 순서, 참고 자료 |

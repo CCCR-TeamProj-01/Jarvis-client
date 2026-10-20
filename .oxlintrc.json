@@ -21,7 +21,7 @@
   },
   "overrides": [
     {
-      "files": ["src/renderer/**", "src/workers/**"],
+      "files": ["src/renderer/**", "src/workers/**", "src/shared/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -29,13 +29,13 @@
             "paths": [
               {
                 "name": "electron",
-                "message": "Renderer와 Worker는 Preload API만 사용한다. 실행 경계는 docs/architecture/data-security.md를 따른다."
+                "message": "Electron API는 Preload 또는 Main에서 사용한다. 실행 경계는 docs/architecture/client-interfaces.md를 따른다."
               }
             ],
             "patterns": [
               {
                 "group": ["node:*", "src/main/*", "**/main/**"],
-                "message": "Renderer와 Worker에서 Node·Main 모듈을 직접 가져오지 않는다."
+                "message": "Renderer·Worker·공유 계약에서 Node·Main 모듈을 직접 가져오지 않는다."
               }
             ]
           }
