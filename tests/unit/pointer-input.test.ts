@@ -147,6 +147,148 @@ describe('PointerInput', () => {
   })
 })
 
+describe('PointerInput glide', () => {
+  function setupGlide(start = { x: 100, y: 100 }) {
+    let now = 1000
+    const timers: { callback: () => void; at: number; cancelled: boolean }[] = []
+    const calls: { x: number; y: number }[] = []
+    const events: string[] = []
+    let position = start
+    const driver: PointerDriver = {
+      moveTo: (point) => {
+        position = point
+        calls.push(point)
+        events.push('move')
+      },
+      click: () => events.push('click'),
+      position: () => position
+    }
+    const input = new PointerInput({
+      driver,
+      displays: { list: () => displays },
+      clock: { now: () => now },
+      glide: {
+        schedule: (callback, delayMs) => {
+          const timer = { callback, at: now + delayMs, cancelled: false }
+          timers.push(timer)
+          return () => {
+            timer.cancelled = true
+          }
+        },
+        intervalMs: 8,
+        timeConstantMs: 30
+      }
+    })
+    const options = (sequence: number, generation_ = generation): InputExecutionOptions => ({
+      generation: generation_,
+      sequence,
+      deadlineMs: 10_000
+    })
+    /** Runs the animation for `ms`, one 8 ms step at a time. */
+    const run = (ms: number) => {
+      for (let elapsed = 0; elapsed < ms; elapsed += 8) {
+        now += 8
+        for (const timer of [...timers])
+          if (!timer.cancelled && timer.at <= now) {
+            timer.cancelled = true
+            timer.callback()
+          }
+      }
+    }
+    return {
+      input,
+      calls,
+      events,
+      options,
+      run,
+      driver,
+      pending: () => timers.filter((t) => !t.cancelled).length
+    }
+  }
+
+  it('answers at once and glides towards the target over several steps', async () => {
+    const t = setupGlide()
+    const result = await t.input.moveTo({ displayId: '1', x: 500, y: 100 }, t.options(1))
+    expect(result).toMatchObject({ ok: true, value: { status: 'dispatched' } })
+    expect(t.calls).toEqual([])
+    t.run(40)
+    expect(t.calls.length).toBeGreaterThanOrEqual(4)
+    const xs = t.calls.map((point) => point.x)
+    expect([...xs].sort((a, b) => a - b)).toEqual(xs)
+    expect(xs.at(-1)!).toBeGreaterThan(100)
+    expect(xs.at(-1)!).toBeLessThan(500)
+  })
+
+  it('arrives exactly on the target and then stops asking for time', async () => {
+    const t = setupGlide()
+    await t.input.moveTo({ displayId: '1', x: 500, y: 300 }, t.options(1))
+    t.run(600)
+    expect(t.calls.at(-1)).toEqual({ x: 500, y: 300 })
+    expect(t.pending()).toBe(0)
+  })
+
+  it('turns towards a newer target without starting over', async () => {
+    const t = setupGlide()
+    await t.input.moveTo({ displayId: '1', x: 500, y: 100 }, t.options(1))
+    t.run(24)
+    const midway = t.calls.at(-1)!
+    await t.input.moveTo({ displayId: '1', x: 100, y: 400 }, t.options(2))
+    t.run(24)
+    expect(t.calls.at(-1)!.y).toBeGreaterThan(midway.y)
+    expect(t.pending()).toBe(1)
+    t.run(600)
+    expect(t.calls.at(-1)).toEqual({ x: 100, y: 400 })
+  })
+
+  it('clicks on the target itself, not wherever the glide has got to', async () => {
+    const t = setupGlide()
+    await t.input.moveTo({ displayId: '1', x: 700, y: 100 }, t.options(1))
+    t.run(16)
+    await t.input.click(t.options(2))
+    expect(t.events.slice(-2)).toEqual(['move', 'click'])
+    expect(t.calls.at(-1)).toEqual({ x: 700, y: 100 })
+    expect(t.pending()).toBe(0)
+  })
+
+  it('drops the rest of the glide when its generation is cancelled', async () => {
+    const t = setupGlide()
+    await t.input.moveTo({ displayId: '1', x: 700, y: 100 }, t.options(1))
+    t.run(16)
+    const moved = t.calls.length
+    await t.input.cancelGeneration(generation)
+    t.run(200)
+    expect(t.calls).toHaveLength(moved)
+    expect(t.pending()).toBe(0)
+  })
+
+  it('stops gliding when asked to release', async () => {
+    const t = setupGlide()
+    await t.input.moveTo({ displayId: '1', x: 700, y: 100 }, t.options(1))
+    t.run(16)
+    const moved = t.calls.length
+    await t.input.releaseOwnedInputs()
+    t.run(200)
+    expect(t.calls).toHaveLength(moved)
+  })
+
+  it('starts from where the pointer really is', async () => {
+    const t = setupGlide({ x: 900, y: 400 })
+    await t.input.moveTo({ displayId: '1', x: 1000, y: 400 }, t.options(1))
+    t.run(8)
+    expect(t.calls[0]!.x).toBeGreaterThan(900)
+  })
+
+  it('stops and stays quiet when the driver fails mid-glide', async () => {
+    const t = setupGlide()
+    await t.input.moveTo({ displayId: '1', x: 700, y: 100 }, t.options(1))
+    t.driver.moveTo = () => {
+      throw new Error('native')
+    }
+    t.run(40)
+    expect(t.pending()).toBe(0)
+  })
+})
+
 describe('Electron display source', () => {
   it('lists the primary display first and maps the fields', () => {
     const screen: ElectronScreen = {

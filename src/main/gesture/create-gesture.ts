@@ -53,7 +53,9 @@ export function createGestureController(options: {
     pointer: new PointerInput({
       driver,
       displays: createElectronDisplaySource(screen),
-      clock: { now: () => performance.now() }
+      clock: { now: () => performance.now() },
+      // Hand tracking updates ~25 times a second; the pointer glides between updates at ~120 Hz.
+      glide: { schedule, intervalMs: 8, timeConstantMs: 30 }
     }),
     permission: fake ? { isGranted: () => true, request: () => undefined } : systemPermission(),
     gate: options.gate,
