@@ -23,6 +23,8 @@ JARVIS_DEV_AUTH=1 pnpm dev   # 기본 계정: demo / demo1234
 
 로컬 음성 처리에는 VAD 모델이 필요합니다. 처음 한 번 `pnpm models:fetch`로 `resources/models/`에 내려받습니다(`pnpm package`는 자동으로 실행). 마이크 없이 확인하려면 `JARVIS_FAKE_MEDIA=1 JARVIS_FAKE_AUDIO_FILE=<wav 경로> JARVIS_VOICE_SELFTEST=1`로 파일을 마이크 입력으로 쓰고 로그인하면, 찾은 발화의 위치와 길이를 `VOICE_SELFTEST` 줄로 출력합니다(패키징된 앱에서는 동작하지 않음).
 
+음성 대화 전체를 서버 없이 보려면 위 가짜 마이크 설정에 `JARVIS_DEV_SPEECH=1`을 더하면 서버 대역이 인식·응답·효과음을 대신하고, 화면의 `대화 시작`으로 시작합니다(`JARVIS_SPEECH_SELFTEST=1`이면 로그인 직후 자동으로 시작해 상태 변화를 `SPEECH_SELFTEST` 줄로 출력). 패키징된 앱에서는 동작하지 않습니다.
+
 VS Code 터미널에서 `ELECTRON_RUN_AS_NODE`가 설정돼 있으면 앱이 실행되지 않으니 해제하고 실행하세요. 인증 동작 기준은 [계정 인증](docs/features/auth.md)을 따릅니다.
 
 검사와 빌드:

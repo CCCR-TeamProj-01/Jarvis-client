@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { describeMediaError, MediaController } from '../../src/renderer/media/media-controller'
+import type { AudioPlaybackPort } from '../../src/renderer/media/audio-playback/ports'
+import type { PlaybackEvent } from '../../src/shared/contracts/speech'
 import type { AudioCapture } from '../../src/renderer/media/audio-capture/web-audio-capture'
 import type { Result } from '../../src/shared/contracts/common'
 import { FakeDevices } from '../fixtures/media-devices'
@@ -443,6 +445,98 @@ describe('MediaController', () => {
       const { controller, audio } = withAudio()
       controller.dispose()
       expect(audio.dispose).toHaveBeenCalledOnce()
+    })
+  })
+
+  describe('with playback', () => {
+    function withPlayback(playResult: Result<void> = { ok: true, value: undefined }) {
+      const listeners = new Set<(event: PlaybackEvent) => void>()
+      const playback = {
+        play: vi.fn<AudioPlaybackPort['play']>(async () => playResult),
+        stop: vi.fn<AudioPlaybackPort['stop']>(async () => ({ ok: true, value: undefined })),
+        subscribe: vi.fn<AudioPlaybackPort['subscribe']>((listener) => {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        })
+      }
+      const published: MediaEvent[] = []
+      let deliver: (envelope: MediaCommandEnvelope) => void = () => undefined
+      const api: MediaApi = {
+        platform: 'test',
+        subscribeCommands: (listener) => {
+          deliver = listener
+          return () => undefined
+        },
+        publish: (event) => {
+          published.push(event)
+        }
+      }
+      const controller = new MediaController(api, new FakeDevices(), undefined, null, playback)
+      let id = 0
+      return {
+        playback,
+        published,
+        controller,
+        listeners,
+        send: (command: MediaCommandEnvelope['command']) => {
+          const commandId = `p-${++id}`
+          deliver({ commandId, command })
+          return commandId
+        }
+      }
+    }
+    const request = {
+      playbackId: 'pb',
+      generation: gen('s'),
+      mimeType: 'audio/wav',
+      audio: new Uint8Array([1])
+    }
+
+    it('plays on command and answers whether it was accepted', async () => {
+      const { send, playback, published } = withPlayback()
+      const commandId = send({ type: 'audio.playback.start', request })
+      await flush()
+      expect(playback.play).toHaveBeenCalledWith(request)
+      expect(resultOf(published, commandId)).toMatchObject({ result: { ok: true } })
+    })
+
+    it('reports a refused request', async () => {
+      const { send, published } = withPlayback({
+        ok: false,
+        error: { code: 'internal', message: '재생 준비 실패' }
+      })
+      const commandId = send({ type: 'audio.playback.start', request })
+      await flush()
+      expect(resultOf(published, commandId)).toMatchObject({ result: { ok: false } })
+    })
+
+    it('stops on command', async () => {
+      const { send, playback } = withPlayback()
+      send({ type: 'audio.playback.stop', playbackId: 'pb', generation: gen('s') })
+      await flush()
+      expect(playback.stop).toHaveBeenCalledWith('pb', gen('s'))
+    })
+
+    it('publishes playback events and stops publishing after dispose', async () => {
+      const { controller, listeners, published } = withPlayback()
+      const event: PlaybackEvent = {
+        type: 'playback.ended',
+        playbackId: 'pb',
+        generation: gen('s')
+      }
+      for (const listener of [...listeners]) listener(event)
+      expect(published).toContainEqual({ type: 'audio.playback', event })
+      controller.dispose()
+      expect(listeners.size).toBe(0)
+    })
+
+    it('answers playback commands as unsupported without a player', async () => {
+      const { send, published } = setup()
+      const commandId = send({ type: 'audio.playback.start', request })
+      await flush()
+      expect(resultOf(published, commandId)).toMatchObject({
+        result: { ok: false, error: { code: 'unsupported' } }
+      })
     })
   })
 })

@@ -1,4 +1,5 @@
 import type { AuthPort } from '../auth/auth-manager'
+import type { SpeechSessionPort } from './session/ports'
 import type { VoiceInput } from './voice-input'
 
 const generation = { sessionId: 'voice-selftest', revision: 0 }
@@ -50,4 +51,34 @@ export function startVoiceSelfTest(
     if (event.type === 'auth.state_changed' && event.snapshot.phase === 'signed_in')
       void run().catch((error: unknown) => print('error', String(error)))
   })
+}
+
+/**
+ * Development only (JARVIS_SPEECH_SELFTEST=1): once signed in, start one conversation and print
+ * every state change and notice until it ends. Needs JARVIS_DEV_SPEECH=1 for the stand-in server.
+ */
+export function startSpeechSelfTest(
+  auth: Pick<AuthPort, 'subscribe'>,
+  session: SpeechSessionPort,
+  log: (line: string) => void = console.log
+): () => void {
+  const print = (label: string, value: unknown) =>
+    log(`SPEECH_SELFTEST ${label} ${JSON.stringify(value)}`)
+  const stopState = session.subscribe((snapshot, requestId) =>
+    print('phase', {
+      phase: snapshot.phase,
+      version: snapshot.generation?.revision ?? null,
+      requestId
+    })
+  )
+  const stopNotices = session.subscribeNotices((notice) => print('notice', notice))
+  const stopAuth = auth.subscribe((event) => {
+    if (event.type === 'auth.state_changed' && event.snapshot.phase === 'signed_in')
+      void session.activate('ui').then((result) => print('activated', result.ok))
+  })
+  return () => {
+    stopAuth()
+    stopNotices()
+    stopState()
+  }
 }

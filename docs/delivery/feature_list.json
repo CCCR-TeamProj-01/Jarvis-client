@@ -88,6 +88,13 @@
       "description": "마이크 사용권 위에서 AudioWorklet으로 16 kHz PCM을 수집해 순환 버퍼에 보관하고 Main으로 전달하며, 별도 프로세스의 Silero VAD가 발화를 판단해 완료 구간만 추출하는 listen()을 구현한다. 호출어 엔진·음성 세션·재생은 제외한다.",
       "status": "done",
       "issue": 16
+    },
+    {
+      "id": "F-016",
+      "title": "음성 세션: SpeechSessionController·서버 STT/TTS 대역·응답 재생",
+      "description": "음성 대화의 상태 전이·시간 제한·실패 한도·취소와 늦은 결과 폐기를 소유하는 SpeechSessionController, 서버 음성 서비스 포트와 개발용 대역, Media Renderer 응답 재생, 대화 시작/중지 연결과 화면 표시를 구현한다. 호출어 엔진·실제 서버·도구 연결은 제외한다.",
+      "status": "done",
+      "issue": 18
     }
   ]
 }

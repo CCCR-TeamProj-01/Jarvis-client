@@ -1,23 +1,20 @@
-import type { Generation, Result, Unsubscribe } from '../../../shared/contracts/common'
-import type {
-  CompletedUtterance,
-  PlaybackEvent,
-  PlaybackRequest,
-  SpeechSnapshot,
-  VadEvent,
-  WakeWordEvent
-} from '../../../shared/contracts/speech'
+import type { ClientError, Generation, Result, Unsubscribe } from '../../../shared/contracts/common'
+import type { SpeechSnapshot } from '../../../shared/contracts/speech'
+import type { ActivationSource } from '../../interaction/ports'
+
+/** What the user should be told. Audio never appears here. */
+export type SpeechNotice =
+  | { type: 'transcript'; requestId: string; text: string }
+  | { type: 'response'; requestId: string; text: string; spoken: boolean }
+  | { type: 'problem'; error: ClientError }
 
 export interface SpeechSessionPort {
-  activate(): Promise<Result<Generation>>
-  /** Invalidate callbacks and clean up locally without awaiting a remote cancellation. */
+  /** Start a conversation. Already running is not an error: the current session is returned. */
+  activate(source: ActivationSource): Promise<Result<Generation>>
+  /** Invalidate results, cancel work and clean up locally without waiting for the server. */
   stop(): Promise<Result<void>>
-  acceptWakeWord(event: WakeWordEvent): void
-  acceptVad(event: VadEvent): void
-  acceptPlayback(event: PlaybackEvent): void
-  playResponse(request: PlaybackRequest): Promise<Result<void>>
   getSnapshot(): SpeechSnapshot
-  subscribe(listener: (snapshot: SpeechSnapshot) => void): Unsubscribe
-  /** A later remote adapter consumes local utterances through this boundary. */
-  subscribeUtterances(listener: (utterance: CompletedUtterance) => void): Unsubscribe
+  /** `requestId` is set while a turn is being recognised or worked on. */
+  subscribe(listener: (snapshot: SpeechSnapshot, requestId: string | null) => void): Unsubscribe
+  subscribeNotices(listener: (notice: SpeechNotice) => void): Unsubscribe
 }

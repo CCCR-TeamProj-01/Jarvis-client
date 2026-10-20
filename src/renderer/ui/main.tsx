@@ -3,11 +3,12 @@ import { createRoot } from 'react-dom/client'
 import { CircleAlert, CircleCheck, Info, LogOut, TriangleAlert } from 'lucide-react'
 import { CheckingPanel, SignedInPanel, SignInForm, SignUpForm } from './features/auth/auth-panels'
 import { useAuth } from './features/auth/use-auth'
+import { ConversationPanel } from './features/conversation/conversation-panel'
 import { useClientSnapshot } from './use-client-snapshot'
 import './styles.css'
 
 function App(): React.JSX.Element {
-  const { snapshot, error, refresh, dispatch } = useClientSnapshot(window.jarvis)
+  const { snapshot, error, messages, refresh, dispatch } = useClientSnapshot(window.jarvis)
   const auth = useAuth(window.jarvis?.auth)
   const [prefillLoginId, setPrefillLoginId] = useState('')
   const [signedUpNotice, setSignedUpNotice] = useState(false)
@@ -86,6 +87,19 @@ function App(): React.JSX.Element {
             notice={auth.notice}
             onSignOut={() => {
               void auth.signOut()
+            }}
+          />
+        )}
+        {phase === 'signed_in' && snapshot && (
+          <ConversationPanel
+            phase={snapshot.speech.phase}
+            paused={snapshot.recognitionPaused}
+            messages={messages}
+            onStart={() => {
+              void dispatch({ type: 'conversation.start' })
+            }}
+            onStop={() => {
+              void dispatch({ type: 'conversation.stop' })
             }}
           />
         )}

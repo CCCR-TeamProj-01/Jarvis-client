@@ -13,6 +13,8 @@ import type {
   UiEvent
 } from '../../shared/contracts/interaction'
 import type { SensorSnapshot } from '../../shared/contracts/sensors'
+import type { SpeechSnapshot } from '../../shared/contracts/speech'
+import type { SpeechNotice } from '../speech/session/ports'
 import type { ActivationSource, InteractionPort } from './ports'
 import type { LocalExecutionOptions } from '../ports'
 
@@ -39,9 +41,15 @@ function idleSubsystems(): Pick<
   }
 }
 
+export interface ConversationHandlers {
+  start(): Promise<Result<unknown>>
+  stop(): Promise<Result<void>>
+}
+
 export class InteractionManager implements InteractionPort {
   private snapshot: ClientSnapshot
   private readonly listeners = new Set<(event: UiEvent) => void>()
+  private conversation: ConversationHandlers | null = null
   private disposed = false
 
   constructor(private readonly options: InteractionOptions) {
@@ -86,9 +94,21 @@ export class InteractionManager implements InteractionPort {
         this.open(command.screen)
         return this.accepted()
       case 'conversation.stop':
-      case 'gesture.stop':
-        // No subsystem is started by this foundation. Stopping an idle subsystem is safe.
+        // Stopping never needs a sign-in, and an idle conversation is already stopped.
+        await this.conversation?.stop()
         return this.accepted()
+      case 'gesture.stop':
+        return this.accepted()
+      case 'conversation.start': {
+        if (this.snapshot.auth.phase !== 'signed_in') {
+          this.open('login')
+          return this.failure('authentication_required', '로그인이 필요합니다.')
+        }
+        if (!this.conversation)
+          return this.failure('unsupported', '아직 사용할 수 없는 기능입니다.')
+        const started = await this.conversation.start()
+        return started.ok ? this.accepted() : started
+      }
       case 'recognition.pause':
         if (!this.snapshot.recognitionPaused) this.update({ recognitionPaused: true })
         return this.accepted()
@@ -143,6 +163,44 @@ export class InteractionManager implements InteractionPort {
     this.options.showWindow()
   }
 
+  /** Connect the voice conversation; until then the commands report themselves unsupported. */
+  setConversationHandlers(handlers: ConversationHandlers | null): void {
+    this.conversation = handlers
+  }
+
+  /** The speech session's state, from which the conversation and request views follow. */
+  setSpeechState(speech: SpeechSnapshot, requestId: string | null): void {
+    if (this.disposed) return
+    const working = speech.phase === 'transcribing' || speech.phase === 'processing'
+    this.update({
+      speech,
+      conversation:
+        speech.phase === 'idle'
+          ? { phase: 'idle', generation: null }
+          : { phase: 'active', generation: speech.generation },
+      request:
+        working && requestId
+          ? { requestId, phase: 'processing' }
+          : { requestId: null, phase: 'idle' }
+    })
+  }
+
+  /** Words for the user from the conversation, as events (they are not part of the state). */
+  publishNotice(notice: SpeechNotice): void {
+    if (this.disposed) return
+    const event: UiEvent | null =
+      notice.type === 'transcript'
+        ? { type: 'result.available', requestId: notice.requestId, text: `나: ${notice.text}` }
+        : notice.type === 'response'
+          ? {
+              type: 'result.available',
+              requestId: notice.requestId,
+              text: `자비스: ${notice.text}`
+            }
+          : { type: 'client.error', error: notice.error }
+    this.emit(event)
+  }
+
   /** Published by the sensor layer; Main is the only writer. */
   setSensors(sensors: SensorSnapshot[]): void {
     if (this.disposed) return
@@ -179,9 +237,13 @@ export class InteractionManager implements InteractionPort {
       ...patch,
       revision: this.snapshot.revision + 1
     })
+    this.emit({ type: 'state.changed', snapshot: this.getSnapshot() })
+  }
+
+  private emit(event: UiEvent): void {
     for (const listener of [...this.listeners]) {
       try {
-        listener({ type: 'state.changed', snapshot: this.getSnapshot() })
+        listener(event)
       } catch {
         /* Observers cannot prevent state transitions or other observers. */
       }
