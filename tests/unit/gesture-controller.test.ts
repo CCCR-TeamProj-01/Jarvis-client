@@ -378,20 +378,51 @@ async function approach(t: ReturnType<typeof setup>, ratios: number[], start = 1
 }
 
 describe('GestureController pinch', () => {
-  it('clicks once when the fingers close, where the cursor was before they moved', async () => {
+  it('clicks where the cursor stands when the fingers snap together', async () => {
     const t = setup()
     await t.begin()
     const next = await approach(t, [1, 1, 1, 1, 1, 1, 1])
     expect(t.moves()).toHaveLength(7)
-    // The pinch frame is captured at 264 ms; 120 ms earlier the newest known position was frame 4's.
-    const expected = t.moves()[3]!.point
+    const standing = t.moves()[6]!.point
     await approach(t, [0.2], next)
     expect(t.clicks()).toHaveLength(1)
     const click = t.calls.findIndex((call) => call.kind === 'click')
     const beforeClick = t.calls[click - 1] as Extract<Call, { kind: 'move' }>
     expect(beforeClick.kind).toBe('move')
-    expect(beforeClick.point).toEqual(expected)
+    expect(beforeClick.point).toEqual(standing)
     expect(t.calls[click]!.options.sequence).toBeGreaterThan(beforeClick.options.sequence)
+  })
+
+  it('clicks where the cursor was a moment earlier when the fingers close too slowly to be noticed', async () => {
+    const t = setup()
+    await t.begin()
+    // Closing by 0.02 a frame never falls by 0.12 within 150 ms, so the cursor keeps following.
+    const frameAt = (sequence: number, pinch: number) =>
+      t.send(sequence, sequence * 33, [
+        hand({ tip: { x: 0.95 - sequence * 0.012, y: 0.475 }, pinch })
+      ])
+    // The number of moves sent once each frame had been handled.
+    const sent: number[] = []
+    let sequence = 1
+    // The smoothing needs a few frames to get going; then every frame moves the cursor.
+    for (; sequence <= 8; sequence++) {
+      await frameAt(sequence, 1)
+      sent[sequence] = t.moves().length
+    }
+    for (let ratio = 0.98; ratio > 0.255; ratio -= 0.02) {
+      await frameAt(sequence, ratio)
+      sent[sequence++] = t.moves().length
+    }
+    const warm = sent[8]!
+    expect(t.moves()).toHaveLength(warm + (sequence - 9))
+    expect(t.clicks()).toHaveLength(0)
+    await frameAt(sequence, 0.24)
+    expect(t.clicks()).toHaveLength(1)
+    const click = t.calls.findIndex((call) => call.kind === 'click')
+    const beforeClick = t.calls[click - 1] as Extract<Call, { kind: 'move' }>
+    // The pinch frame is number `sequence`; the newest position 120 ms older is frame sequence - 4.
+    expect(beforeClick.point).toEqual(t.moves()[sent[sequence - 4]! - 1]!.point)
+    expect(beforeClick.point).not.toEqual(t.moves()[sent[sequence - 1]! - 1]!.point)
   })
 
   it('does not click again while the pinch is held, and not for a hand that only wobbles', async () => {
@@ -428,8 +459,8 @@ describe('GestureController steadiness while pinching', () => {
   const at = (sequence: number, pinch: number) =>
     hand({
       // The knuckle keeps travelling; the fingertip does something else entirely.
-      knuckle: { x: 0.7 - sequence * 0.02, y: 0.475 },
-      tip: { x: 0.2 + (sequence % 2) * 0.3, y: 0.9 },
+      tip: { x: 0.7 - sequence * 0.02, y: 0.475 },
+      fingertip: { x: 0.7 - sequence * 0.02 + (sequence % 2) * 0.1, y: 0.2 },
       pinch
     })
 
@@ -437,7 +468,7 @@ describe('GestureController steadiness while pinching', () => {
     const t = setup()
     await t.begin()
     const still = (sequence: number) =>
-      hand({ knuckle: CENTER, tip: { x: 0.2 + (sequence % 2) * 0.5, y: 0.9 } })
+      hand({ tip: CENTER, fingertip: { x: 0.4 + (sequence % 2) * 0.2, y: 0.2 } })
     for (let sequence = 1; sequence <= 6; sequence++)
       await t.send(sequence, sequence * 33, [still(sequence)])
     expect(t.moves()).toHaveLength(1)
@@ -499,6 +530,118 @@ describe('GestureController steadiness while pinching', () => {
       await t.send(sequence, sequence * 33, [at(sequence, 0.6 + (sequence % 2) * 0.05)])
     expect(t.moves()).toHaveLength(8)
     expect(t.clicks()).toHaveLength(0)
+  })
+})
+
+describe('GestureController pointing pose', () => {
+  const pose = (sequence: number, shape: 'pointing' | 'open' | 'fist', pinch = 1) =>
+    hand({ tip: { x: 0.7 - sequence * 0.02, y: 0.475 }, pose: shape, pinch })
+
+  it('moves only while pointing; the cursor stays put otherwise', async () => {
+    const t = setup()
+    await t.begin()
+    for (let sequence = 1; sequence <= 12; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, 'open')])
+    expect(t.moves()).toHaveLength(0)
+    expect(t.controller.getSnapshot().phase).toBe('tracking')
+    for (let sequence = 13; sequence <= 24; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, 'fist')])
+    expect(t.moves()).toHaveLength(0)
+    for (let sequence = 25; sequence <= 30; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, 'pointing')])
+    expect(t.moves().length).toBeGreaterThan(0)
+  })
+
+  it('stops following soon after the hand leaves the pointing pose', async () => {
+    const t = setup()
+    await t.begin()
+    for (let sequence = 1; sequence <= 10; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, 'pointing')])
+    const moving = t.moves().length
+    for (let sequence = 11; sequence <= 30; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, 'open')])
+    // It kept following only for the short hold after the pose ended.
+    expect(t.moves().length).toBeLessThan(moving + 8)
+    const settled = t.moves().length
+    for (let sequence = 31; sequence <= 40; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, 'open')])
+    expect(t.moves()).toHaveLength(settled)
+  })
+
+  it('rides out a single frame where the pose is misread', async () => {
+    const t = setup()
+    await t.begin()
+    for (let sequence = 1; sequence <= 10; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, sequence === 6 ? 'open' : 'pointing')])
+    const afterMiss = t.moves().length
+    await t.send(11, 11 * 33, [pose(11, 'pointing')])
+    expect(t.moves().length).toBeGreaterThanOrEqual(afterMiss)
+    expect(t.moves().length).toBeGreaterThan(6)
+  })
+
+  it('does not click for a pinch made outside the pointing pose', async () => {
+    const t = setup()
+    await t.begin()
+    for (let sequence = 1; sequence <= 4; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, 'open', 1)])
+    for (let sequence = 5; sequence <= 9; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, 'open', 0.2)])
+    expect(t.clicks()).toHaveLength(0)
+  })
+
+  it('does not click when the hand turns to pointing while still pinched, only after opening', async () => {
+    const t = setup()
+    await t.begin()
+    for (let sequence = 1; sequence <= 4; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, 'open', 1)])
+    for (let sequence = 5; sequence <= 12; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, 'open', 0.2)])
+    for (let sequence = 13; sequence <= 20; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, 'pointing', 0.2)])
+    expect(t.clicks()).toHaveLength(0)
+    await t.send(21, 21 * 33, [pose(21, 'pointing', 1)])
+    await t.send(22, 22 * 33, [pose(22, 'pointing', 0.2)])
+    expect(t.clicks()).toHaveLength(1)
+  })
+
+  it('still clicks when bending the index finger to meet the thumb makes it look less extended', async () => {
+    const t = setup()
+    await t.begin()
+    const knuckle = { x: 0.5, y: 0.475 }
+    for (let sequence = 1; sequence <= 8; sequence++)
+      await t.send(sequence, sequence * 33, [hand({ tip: knuckle, pose: 'pointing', pinch: 1 })])
+    // The fingertip curls towards the thumb: a short reach, as when pinching.
+    const curl = [
+      { pinch: 0.8, y: 0.3 },
+      { pinch: 0.6, y: 0.35 },
+      { pinch: 0.4, y: 0.4 },
+      { pinch: 0.2, y: 0.45 }
+    ]
+    for (const [index, step] of curl.entries())
+      await t.send(9 + index, (9 + index) * 33, [
+        hand({
+          tip: knuckle,
+          fingertip: { x: 0.5, y: step.y },
+          pose: 'pointing',
+          pinch: step.pinch
+        })
+      ])
+    expect(t.clicks()).toHaveLength(1)
+  })
+
+  it('keeps the cursor where it was when a pose is lost and jumps to the hand when pointing resumes', async () => {
+    const t = setup()
+    await t.begin()
+    for (let sequence = 1; sequence <= 10; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, 'pointing')])
+    for (let sequence = 11; sequence <= 20; sequence++)
+      await t.send(sequence, sequence * 33, [pose(sequence, 'fist')])
+    const before = t.moves().length
+    const lastPoint = t.moves().at(-1)!.point
+    for (let sequence = 40; sequence <= 46; sequence++)
+      await t.send(sequence, sequence * 33, [hand({ tip: { x: 0.3, y: 0.475 }, pose: 'pointing' })])
+    expect(t.moves().length).toBeGreaterThan(before)
+    expect(t.moves().at(-1)!.point.x).not.toBe(lastPoint.x)
   })
 })
 

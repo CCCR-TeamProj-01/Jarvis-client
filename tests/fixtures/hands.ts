@@ -5,9 +5,13 @@ import type {
 } from '../../src/shared/contracts/gesture'
 import type { Generation } from '../../src/shared/contracts/common'
 
+type Pose = 'pointing' | 'open' | 'fist'
+
 /**
- * A hand whose wrist and middle knuckle are 0.2 apart, with the index fingertip at `tip` and the
- * thumb tip placed so that thumb–index distance over hand size equals `pinch`.
+ * A hand whose wrist and middle knuckle are 0.2 apart. `tip` is where the hand points, which is
+ * the index knuckle the cursor follows. The fingertips are laid out for the pose: in `pointing` the
+ * index finger is stretched and the others folded, `open` has all four stretched, `fist` none. The
+ * thumb tip is placed so that thumb–index distance over hand size equals `pinch`.
  */
 export function hand(
   options: {
@@ -15,19 +19,29 @@ export function hand(
     handedness?: HandObservation['handedness']
     confidence?: number
     tip?: { x: number; y: number }
-    /** The index knuckle, which the cursor follows; by default it is where the tip is. */
-    knuckle?: { x: number; y: number }
+    /** Where the index fingertip is, if not straight above the knuckle. */
+    fingertip?: { x: number; y: number }
+    pose?: Pose
     pinch?: number
   } = {}
 ): HandObservation {
-  const tip = options.tip ?? { x: 0.5, y: 0.5 }
-  const landmarks = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5, z: 0 }))
-  landmarks[0] = { x: 0.5, y: 0.8, z: 0 }
-  landmarks[9] = { x: 0.5, y: 0.6, z: 0 }
-  const knuckle = options.knuckle ?? tip
-  landmarks[5] = { x: knuckle.x, y: knuckle.y, z: 0 }
-  landmarks[8] = { x: tip.x, y: tip.y, z: 0 }
-  landmarks[4] = { x: tip.x + (options.pinch ?? 1) * 0.2, y: tip.y, z: 0 }
+  const knuckle = options.tip ?? { x: 0.5, y: 0.5 }
+  const pose = options.pose ?? 'pointing'
+  const landmarks = Array.from({ length: 21 }, () => ({ x: knuckle.x, y: knuckle.y, z: 0 }))
+  const at = (x: number, y: number) => ({ x, y, z: 0 })
+  const stretched = at(knuckle.x, knuckle.y - 0.3)
+  const folded = at(knuckle.x, knuckle.y + 0.05)
+  landmarks[0] = at(knuckle.x, knuckle.y + 0.2)
+  const indexTip = options.fingertip
+    ? at(options.fingertip.x, options.fingertip.y)
+    : pose === 'fist'
+      ? folded
+      : stretched
+  landmarks[8] = indexTip
+  landmarks[12] = pose === 'open' ? stretched : folded
+  landmarks[16] = pose === 'open' ? stretched : folded
+  landmarks[20] = pose === 'open' ? stretched : folded
+  landmarks[4] = at(indexTip.x + (options.pinch ?? 1) * 0.2, indexTip.y)
   return {
     handId: options.handId ?? 'right',
     handedness: options.handedness ?? 'right',

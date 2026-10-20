@@ -1,5 +1,6 @@
 import type { AuthPort } from '../auth/auth-manager'
 import type { HandTrackingService } from './hand-tracking'
+import { fingerExtensions } from './finger-pose'
 import { pinchRatio } from './pinch-detector'
 
 const generation = { sessionId: 'hand-selftest', revision: 0 }
@@ -33,6 +34,10 @@ export function startHandSelfTest(
           handedness: hand.handedness,
           confidence: Number(hand.confidence.toFixed(2)),
           pinch: Number((pinchRatio(hand) ?? -1).toFixed(2)),
+          // How far each finger reaches (index, middle, ring, pinky): about 2 stretched, under 1 curled.
+          reach: Object.values(fingerExtensions(hand) ?? {}).map((value) =>
+            Number(value.toFixed(2))
+          ),
           indexTip: {
             x: Number(hand.landmarks[8].x.toFixed(3)),
             y: Number(hand.landmarks[8].y.toFixed(3))

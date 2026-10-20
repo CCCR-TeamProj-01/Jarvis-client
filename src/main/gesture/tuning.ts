@@ -18,6 +18,15 @@ export interface GestureTuning {
   deadZonePx: number
   /** Thumb–index distance over hand size: below `enter` the pinch starts, above `exit` it ends. */
   pinch: { enter: number; exit: number }
+  /**
+   * The cursor moves, and a click is sent, only while pointing: index finger out, the others
+   * folded. Values are finger reach over knuckle reach (about 2 stretched, under 1 curled).
+   */
+  pose: {
+    indexExtended: { enter: number; keep: number }
+    othersCurled: { enter: number; keep: number }
+    exitHoldMs: number
+  }
   /** The click lands where the cursor was this long before the pinch, before the fingers moved. */
   pinchLookbackMs: number
   /**
@@ -37,6 +46,11 @@ export const DEFAULT_TUNING: GestureTuning = {
   smoothing: { minCutoffHz: 1.5, beta: 12, derivativeCutoffHz: 1 },
   deadZonePx: 1.5,
   pinch: { enter: 0.25, exit: 0.45 },
+  pose: {
+    indexExtended: { enter: 1.5, keep: 1.35 },
+    othersCurled: { enter: 1.3, keep: 1.45 },
+    exitHoldMs: 200
+  },
   pinchLookbackMs: 120,
   closing: { drop: 0.12, windowMs: 150, releaseHoldMs: 150 },
   inputDeadlineMs: 300

@@ -2,9 +2,9 @@ import { Hand, Square } from 'lucide-react'
 import type { GestureSnapshot } from '../../../../shared/contracts/gesture'
 
 const PHASE_LABEL: Record<GestureSnapshot['phase'], string> = {
-  off: '손으로 커서를 움직이고 엄지와 검지를 모으면 클릭해요. 영상은 이 기기에서만 처리돼요.',
+  off: '검지만 펴서 가리키면 커서가 움직이고, 엄지와 검지를 모으면 클릭해요. 영상은 이 기기에서만 처리돼요.',
   lost: '손을 찾고 있어요. 카메라에 손을 보여 주세요.',
-  tracking: '손으로 제어하고 있어요.',
+  tracking: '검지로 가리켜 움직이고, 엄지와 검지를 모아 클릭하세요.',
   suspended: '제스처 제어가 잠시 멈춰 있어요.'
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ActiveHandSelector } from '../../src/main/gesture/active-hand'
 import { toDesktopPoint, toRegionPosition } from '../../src/main/gesture/cursor-mapper'
+import { fingerExtensions, PointingPose } from '../../src/main/gesture/finger-pose'
 import { FrameClock } from '../../src/main/gesture/frame-clock'
 import { OneEuroFilter2D } from '../../src/main/gesture/one-euro-filter'
 import { PinchDetector, pinchRatio } from '../../src/main/gesture/pinch-detector'
@@ -191,5 +192,81 @@ describe('FrameClock', () => {
     expect(clock.age(40, 150)).toBe(5)
     clock.reset()
     expect(clock.age(0, 500)).toBe(0)
+  })
+})
+
+describe('finger pose', () => {
+  const thresholds = DEFAULT_TUNING.pose
+
+  it('measures how far each finger reaches relative to its knuckle', () => {
+    const pointing = fingerExtensions(hand({ pose: 'pointing' }))!
+    expect(pointing.index).toBeGreaterThan(2)
+    expect(Math.max(pointing.middle, pointing.ring, pointing.pinky)).toBeLessThan(1)
+    const open = fingerExtensions(hand({ pose: 'open' }))!
+    expect(Math.min(open.index, open.middle, open.ring, open.pinky)).toBeGreaterThan(2)
+    const fist = fingerExtensions(hand({ pose: 'fist' }))!
+    expect(Math.max(fist.index, fist.middle, fist.ring, fist.pinky)).toBeLessThan(1)
+  })
+
+  it('does not depend on which way the hand points', () => {
+    const upright = hand({ pose: 'pointing' })
+    const turned = {
+      ...upright,
+      landmarks: upright.landmarks.map((point) => ({
+        x: 0.5 - (point.y - 0.5),
+        y: 0.5 + (point.x - 0.5),
+        z: 0
+      }))
+    }
+    const a = fingerExtensions(upright)!
+    const b = fingerExtensions(turned)!
+    expect(b.index).toBeCloseTo(a.index)
+    expect(b.middle).toBeCloseTo(a.middle)
+  })
+
+  it('has no extensions for a degenerate hand', () => {
+    const flat = hand()
+    flat.landmarks[5] = { ...flat.landmarks[0]! }
+    expect(fingerExtensions(flat)).toBeNull()
+  })
+
+  const pointing = () => fingerExtensions(hand({ pose: 'pointing' }))
+  const open = () => fingerExtensions(hand({ pose: 'open' }))
+
+  it('is pointing only with the index out and the others folded', () => {
+    const pose = new PointingPose(thresholds)
+    expect(pose.update(open(), 0, false)).toBe(false)
+    expect(pose.update(fingerExtensions(hand({ pose: 'fist' })), 33, false)).toBe(false)
+    expect(pose.update(pointing(), 66, false)).toBe(true)
+  })
+
+  it('survives a short miss but not a long one', () => {
+    const pose = new PointingPose(thresholds)
+    pose.update(pointing(), 0, false)
+    expect(pose.update(open(), 100, false)).toBe(true)
+    expect(pose.update(open(), 190, false)).toBe(true)
+    expect(pose.update(open(), 250, false)).toBe(false)
+  })
+
+  it('starts at the strict thresholds and keeps at the loose ones', () => {
+    const pose = new PointingPose(thresholds)
+    const between = { index: 1.4, middle: 1.4, ring: 1, pinky: 1 }
+    expect(pose.update(between, 0, false)).toBe(false)
+    pose.update(pointing(), 33, false)
+    expect(pose.update(between, 400, false)).toBe(true)
+  })
+
+  it('stays while latched, and needs the strict thresholds again after a reset', () => {
+    const pose = new PointingPose(thresholds)
+    pose.update(pointing(), 0, false)
+    expect(pose.update(open(), 5_000, true)).toBe(true)
+    pose.reset()
+    expect(pose.isPointing).toBe(false)
+    expect(pose.update(null, 6_000, true)).toBe(false)
+  })
+
+  it('is not pointing without a measurement', () => {
+    const pose = new PointingPose(thresholds)
+    expect(pose.update(null, 0, false)).toBe(false)
   })
 })

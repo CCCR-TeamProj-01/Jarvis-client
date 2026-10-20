@@ -12,6 +12,7 @@ import type { InputExecutionOptions, PointerInputPort } from '../platform/ports'
 import type { LocalExecutionOptions, MonotonicClock } from '../ports'
 import { ActiveHandSelector } from './active-hand'
 import { toDesktopPoint, toRegionPosition } from './cursor-mapper'
+import { fingerExtensions, PointingPose } from './finger-pose'
 import { FrameClock } from './frame-clock'
 import { OneEuroFilter2D } from './one-euro-filter'
 import { PinchDetector, pinchRatio } from './pinch-detector'
@@ -49,6 +50,7 @@ interface Session {
   selector: ActiveHandSelector
   filter: OneEuroFilter2D
   pinch: PinchDetector
+  pose: PointingPose
   frameClock: FrameClock
   phase: 'tracking' | 'lost'
   lastSequence: number
@@ -185,6 +187,7 @@ export class GestureController implements GestureControlPort {
       selector: new ActiveHandSelector(settings.activeHand),
       filter: new OneEuroFilter2D(this.tuning.smoothing),
       pinch: new PinchDetector(this.tuning.pinch),
+      pose: new PointingPose(this.tuning.pose),
       frameClock: new FrameClock(),
       phase: 'lost',
       lastSequence: -1,
@@ -271,6 +274,7 @@ export class GestureController implements GestureControlPort {
       // Back from a loss: start from nothing, as if the hand had just appeared.
       session.filter.reset()
       session.pinch.reset()
+      session.pose.reset()
       session.history = []
       session.ratios = []
       session.closing = false
@@ -293,24 +297,40 @@ export class GestureController implements GestureControlPort {
 
     const ratio = pinchRatio(hand)
     const closing = this.isClosing(session, frame.capturedAtMs, ratio)
+    // Closing the fingers bends the index finger; that must not look like the pose ending.
+    const pointing = session.pose.update(
+      fingerExtensions(hand),
+      frame.capturedAtMs,
+      session.pinch.isPinched || session.closing || closing
+    )
     const transition = session.pinch.update(ratio)
     if (transition === 'started') {
-      // If the fingers were seen closing the cursor has already held still, and the click goes
-      // exactly there. Otherwise (a sudden pinch) it goes where the cursor was just before.
+      // A pinch outside the pointing pose is not a click (and the hand has to open before the
+      // next one counts). Otherwise, if the fingers were seen closing the cursor has already held
+      // still and the click goes exactly there; a sudden pinch goes where the cursor just was.
+      const wasClosing = session.closing || closing
+      session.closing = false
+      if (!pointing) return
       const target =
-        session.closing && session.lastSent
+        wasClosing && session.lastSent
           ? session.lastSent
           : this.pointBefore(session, frame.capturedAtMs)
       this.enqueue(session, { kind: 'click', point: target })
       session.lastSent = target
-      session.closing = false
       return
     }
     if (transition === 'ended')
       session.holdMovesUntilMs = frame.capturedAtMs + this.tuning.closing.releaseHoldMs
     session.closing = closing
-    // While the fingers are closing, together or opening, the cursor stays where the click goes.
-    if (closing || session.pinch.isPinched || frame.capturedAtMs < session.holdMovesUntilMs) return
+    // The cursor stays put unless the hand is pointing, and while the fingers close, are
+    // together or have just opened.
+    if (
+      !pointing ||
+      closing ||
+      session.pinch.isPinched ||
+      frame.capturedAtMs < session.holdMovesUntilMs
+    )
+      return
     const last = session.lastSent
     if (last && Math.hypot(point.x - last.x, point.y - last.y) < this.tuning.deadZonePx) return
     session.lastSent = point
@@ -343,6 +363,7 @@ export class GestureController implements GestureControlPort {
       session.phase = 'lost'
       session.filter.reset()
       session.pinch.reset()
+      session.pose.reset()
       session.lastSent = null
       session.lostSinceMs = frameTimeMs ?? null
       void this.options.pointer.releaseOwnedInputs().catch(() => undefined)
