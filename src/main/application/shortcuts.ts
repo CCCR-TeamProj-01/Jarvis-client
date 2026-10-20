@@ -1,9 +1,8 @@
 import { globalShortcut } from 'electron'
+import { DEFAULT_CALL_SHORTCUT, GESTURE_TOGGLE_SHORTCUT } from '../../shared/contracts/application'
 import type { ShortcutSnapshot } from '../../shared/contracts/application'
 
-export const DEFAULT_CALL_SHORTCUT = 'CommandOrControl+Shift+Space'
-/** Turns gesture control on or off; the way to stop it at once without touching the pointer. */
-export const GESTURE_TOGGLE_SHORTCUT = 'CommandOrControl+Shift+G'
+export { DEFAULT_CALL_SHORTCUT, GESTURE_TOGGLE_SHORTCUT }
 
 interface ShortcutOptions {
   /** The call: start a conversation. */

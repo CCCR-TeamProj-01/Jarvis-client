@@ -107,7 +107,7 @@ describe('Main interaction state', () => {
   it('keeps repeated subscriptions of the same callback independent and isolated', async () => {
     const { manager } = setup()
     const listener = vi.fn<(event: UiEvent) => void>((event) => {
-      if (event.type === 'state.changed') event.snapshot.screen = 'hidden'
+      if (event.type === 'state.changed') event.snapshot.screen = 'settings'
     })
     const first = manager.subscribe(listener)
     manager.subscribe(() => {

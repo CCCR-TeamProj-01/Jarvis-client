@@ -29,3 +29,7 @@ export const ApplicationSnapshotSchema = z.strictObject({
   tray: TraySnapshotSchema
 })
 export type ApplicationSnapshot = z.infer<typeof ApplicationSnapshotSchema>
+
+export const DEFAULT_CALL_SHORTCUT = 'CommandOrControl+Shift+Space'
+/** Turns gesture control on or off; the way to stop it at once without touching the pointer. */
+export const GESTURE_TOGGLE_SHORTCUT = 'CommandOrControl+Shift+G'

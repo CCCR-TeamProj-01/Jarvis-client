@@ -12,9 +12,30 @@ import { GestureSnapshotSchema } from './gesture'
 import { SensorSnapshotSchema } from './sensors'
 import { SpeechSnapshotSchema } from './speech'
 
+/**
+ * What the main window shows. Signed-out clients see `login` or `signup`; a signed-in one sees one of
+ * the three tabs, and `input`, `result` and `confirmation` are kept for the temporary windows.
+ */
+export const ScreenSchema = z.enum([
+  'login',
+  'signup',
+  'conversation',
+  'gesture',
+  'settings',
+  'input',
+  'result',
+  'confirmation'
+])
+export type Screen = z.infer<typeof ScreenSchema>
+
+/** The tabs of the signed-in window. */
+export const TabSchema = z.enum(['conversation', 'gesture', 'settings'])
+export type Tab = z.infer<typeof TabSchema>
+
 export const UiCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('app.quit') }),
   z.strictObject({ type: z.literal('auth.open'), screen: z.enum(['login', 'signup']) }),
+  z.strictObject({ type: z.literal('screen.open'), screen: TabSchema }),
   z.strictObject({ type: z.literal('conversation.start') }),
   z.strictObject({
     type: z.literal('conversation.submit_text'),
@@ -67,16 +88,7 @@ export const ClientSnapshotSchema = z
     speech: SpeechSnapshotSchema,
     gesture: GestureSnapshotSchema,
     sensors: z.array(SensorSnapshotSchema).max(2),
-    screen: z.enum([
-      'login',
-      'signup',
-      'hidden',
-      'status',
-      'input',
-      'result',
-      'confirmation',
-      'settings'
-    ]),
+    screen: ScreenSchema,
     connection: z.enum(['offline', 'connecting', 'online'])
   })
   .refine(
@@ -104,6 +116,8 @@ export const UiEventSchema = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal('result.available'),
     requestId: IdentifierSchema,
+    /** Who the line is from: the user's words, the assistant's answer, or a tool's result. */
+    role: z.enum(['user', 'assistant', 'tool']),
     text: z.string()
   }),
   z.strictObject({

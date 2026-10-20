@@ -42,10 +42,10 @@ export class UiWindow {
     if (this.window && !this.window.isDestroyed()) return this.window
     this.ready = false
     const window = new BrowserWindow({
-      width: 880,
-      height: 800,
+      width: 1100,
+      height: 760,
       minWidth: 640,
-      minHeight: 560,
+      minHeight: 520,
       show: false,
       backgroundColor: OPAQUE_WINDOW_BACKGROUND,
       visualEffectState: 'followWindow',

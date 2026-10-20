@@ -49,7 +49,7 @@ pnpm build
 - `src/main/interaction`: Main 상태·화면·명령 처리
 - `src/main/ipc`: 소유 창과 입력을 검증하는 IPC 핸들러
 - `src/preload`: UI·미디어·오버레이 Renderer에 각각 노출할 제한된 API
-- `src/renderer/ui`: 사용자 화면
+- `src/renderer/ui`: 사용자 화면(로그인 카드, 로그인 후 왼쪽 메뉴의 대화·제스처·설정 탭)
 - `src/renderer/media`: 센서 입력(PCM·영상 프레임·손 인식 Worker)과 서버 TTS 오디오 재생용 별도 Renderer 진입점
 - `src/renderer/overlay`: 상태 오버레이 화면
 - `src/inference`: 로컬 VAD 프로세스 어댑터(호출어 자리 포함)

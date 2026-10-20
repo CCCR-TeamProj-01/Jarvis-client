@@ -95,7 +95,7 @@ describe('authentication IPC', () => {
       value: { snapshot: { phase: 'signed_in', user: { loginId: 'alice' } } }
     })
     expect(interaction.getSnapshot().auth.phase).toBe('signed_in')
-    expect(interaction.getSnapshot().screen).toBe('status')
+    expect(interaction.getSnapshot().screen).toBe('conversation')
   })
 
   it('pushes validated state changes and errors to subscribers', async () => {

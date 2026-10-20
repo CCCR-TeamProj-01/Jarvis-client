@@ -189,8 +189,8 @@ describe('conversation and speech state', () => {
     manager.publishNotice({ type: 'assistant', requestId: 'r', text: '반가워요' })
     manager.publishNotice({ type: 'problem', error: { code: 'unavailable', message: '실패' } })
     expect(events).toEqual([
-      { type: 'result.available', requestId: 'r', text: '나: 안녕' },
-      { type: 'result.available', requestId: 'r', text: '자비스: 반가워요' },
+      { type: 'result.available', requestId: 'r', role: 'user', text: '안녕' },
+      { type: 'result.available', requestId: 'r', role: 'assistant', text: '반가워요' },
       { type: 'client.error', error: { code: 'unavailable', message: '실패' } }
     ])
     expect(manager.getSnapshot().revision).toBe(revision)
