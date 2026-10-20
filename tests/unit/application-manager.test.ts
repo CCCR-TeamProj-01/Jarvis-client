@@ -149,13 +149,19 @@ import {
   ApplicationManager,
   DEFAULT_CALL_SHORTCUT,
   GESTURE_TOGGLE_SHORTCUT,
-  startApplication
+  startApplication,
+  trayClickOpensWindow
 } from '../../src/main/application/application-manager'
 import { authGeneration, authUser } from '../fixtures/contracts'
 import { UI_CHANNELS } from '../../src/shared/ipc/channels'
 
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve))
 const managers: ApplicationManager[] = []
+
+const realPlatform = process.platform
+function setPlatform(platform: NodeJS.Platform) {
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+}
 
 beforeEach(() => {
   app.removeAllListeners()
@@ -170,6 +176,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  setPlatform(realPlatform)
   for (const manager of managers.splice(0)) manager.dispose()
   app.emit('before-quit', {})
   vi.restoreAllMocks()
@@ -240,7 +247,8 @@ describe('native application lifecycle', () => {
       return { manager, window, dispatch: vi.spyOn(manager.interaction, 'dispatch') }
     }
 
-    it('opens the window from the tray icon and menu without starting a conversation', async () => {
+    it('opens the window from the tray icon (Windows) and menu without starting a conversation', async () => {
+      setPlatform('win32')
       const { window, dispatch } = await signedInManager()
       const tray = vi.mocked(Tray).mock.results[0].value as Tray
       tray.emit('click')
@@ -258,6 +266,22 @@ describe('native application lifecycle', () => {
       expect(dispatch.mock.calls.some(([command]) => command.type === 'conversation.start')).toBe(
         false
       )
+    })
+
+    it('on macOS clicking the menu-bar icon only opens its menu, not the window', async () => {
+      setPlatform('darwin')
+      const { window } = await signedInManager()
+      const tray = vi.mocked(Tray).mock.results[0].value as Tray
+      expect(tray.listenerCount('click')).toBe(0)
+      tray.emit('click')
+      await flush()
+      expect(window.isVisible()).toBe(false)
+    })
+
+    it('decides by platform whether an icon click opens the window', () => {
+      expect(trayClickOpensWindow('darwin')).toBe(false)
+      expect(trayClickOpensWindow('win32')).toBe(true)
+      expect(trayClickOpensWindow('linux')).toBe(true)
     })
 
     it('opens the window when the Dock icon is clicked or Jarvis is launched again', async () => {
@@ -335,8 +359,14 @@ describe('native application lifecycle', () => {
     const window = BrowserWindow.getAllWindows()[0]
     window.close()
     const tray = vi.mocked(Tray).mock.results[0].value as Tray
-    tray.emit('click')
+    // The tray menu is the fallback way to the window.
+    const menu = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0] as {
+      label?: string
+      click?: () => void
+    }[]
+    menu.find((item) => item.label === '자비스 열기')?.click?.()
     expect(window.isVisible()).toBe(true)
+    expect(tray.listenerCount('click')).toBe(trayClickOpensWindow(process.platform) ? 1 : 0)
     expect(Tray).toHaveBeenCalledOnce()
     manager.dispose()
     expect(globalShortcut.unregister).not.toHaveBeenCalled()

@@ -34,6 +34,12 @@ import { startToolSelfTest } from '../tools/dev-tool-selftest'
 import { createTrayIcon } from './tray-icon'
 import { UiWindow } from './ui-window'
 
+/**
+ * On macOS a menu-bar icon opens its menu when clicked and the window is opened from the menu's
+ * "자비스 열기"; on Windows a click on the notification-area icon opens the window directly.
+ */
+export const trayClickOpensWindow = (platform: NodeJS.Platform): boolean => platform !== 'darwin'
+
 export const DEFAULT_CALL_SHORTCUT = 'CommandOrControl+Shift+Space'
 /** Turns gesture control on or off; the way to stop it at once without touching the pointer. */
 export const GESTURE_TOGGLE_SHORTCUT = 'CommandOrControl+Shift+G'
@@ -477,7 +483,7 @@ export class ApplicationManager {
           { label: '앱 종료', click: () => app.quit() }
         ])
       )
-      this.tray.on('click', () => this.showWindow())
+      if (trayClickOpensWindow(process.platform)) this.tray.on('click', () => this.showWindow())
       this.interaction.setTrayState({ status: 'ready' })
     } catch {
       if (this.tray && !this.tray.isDestroyed()) this.tray.destroy()
