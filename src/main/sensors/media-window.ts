@@ -61,7 +61,9 @@ export class MediaWindow {
         nodeIntegration: false,
         sandbox: true,
         // Capture must keep running while the window is hidden, occluded or the screen is locked.
-        backgroundThrottling: false
+        backgroundThrottling: false,
+        // Responses are played here without any user gesture in this hidden page.
+        autoplayPolicy: 'no-user-gesture-required'
       }
     })
     this.window = window

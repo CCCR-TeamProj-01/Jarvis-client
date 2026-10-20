@@ -13,6 +13,9 @@ import type {
   UiEvent
 } from '../../shared/contracts/interaction'
 import type { SensorSnapshot } from '../../shared/contracts/sensors'
+import type { SpeechSnapshot } from '../../shared/contracts/speech'
+import type { ConversationNotice, ConversationSnapshot } from '../conversation/ports'
+import type { SpeechNotice } from '../speech/session/ports'
 import type { ActivationSource, InteractionPort } from './ports'
 import type { LocalExecutionOptions } from '../ports'
 
@@ -39,9 +42,19 @@ function idleSubsystems(): Pick<
   }
 }
 
+export interface ConversationHandlers {
+  /** Start a conversation with the voice side attached. */
+  start(): Promise<Result<unknown>>
+  /** Type something into the conversation (starting one if needed), with no voice. */
+  submitText(text: string): Promise<Result<unknown>>
+  /** End the conversation and its voice side. */
+  stop(): Promise<Result<void>>
+}
+
 export class InteractionManager implements InteractionPort {
   private snapshot: ClientSnapshot
   private readonly listeners = new Set<(event: UiEvent) => void>()
+  private conversation: ConversationHandlers | null = null
   private disposed = false
 
   constructor(private readonly options: InteractionOptions) {
@@ -86,9 +99,31 @@ export class InteractionManager implements InteractionPort {
         this.open(command.screen)
         return this.accepted()
       case 'conversation.stop':
-      case 'gesture.stop':
-        // No subsystem is started by this foundation. Stopping an idle subsystem is safe.
+        // Stopping never needs a sign-in, and an idle conversation is already stopped.
+        await this.conversation?.stop()
         return this.accepted()
+      case 'gesture.stop':
+        return this.accepted()
+      case 'conversation.submit_text': {
+        if (this.snapshot.auth.phase !== 'signed_in') {
+          this.open('login')
+          return this.failure('authentication_required', '로그인이 필요합니다.')
+        }
+        if (!this.conversation)
+          return this.failure('unsupported', '아직 사용할 수 없는 기능입니다.')
+        const submitted = await this.conversation.submitText(command.text)
+        return submitted.ok ? this.accepted() : submitted
+      }
+      case 'conversation.start': {
+        if (this.snapshot.auth.phase !== 'signed_in') {
+          this.open('login')
+          return this.failure('authentication_required', '로그인이 필요합니다.')
+        }
+        if (!this.conversation)
+          return this.failure('unsupported', '아직 사용할 수 없는 기능입니다.')
+        const started = await this.conversation.start()
+        return started.ok ? this.accepted() : started
+      }
       case 'recognition.pause':
         if (!this.snapshot.recognitionPaused) this.update({ recognitionPaused: true })
         return this.accepted()
@@ -143,6 +178,51 @@ export class InteractionManager implements InteractionPort {
     this.options.showWindow()
   }
 
+  /** Connect the voice conversation; until then the commands report themselves unsupported. */
+  setConversationHandlers(handlers: ConversationHandlers | null): void {
+    this.conversation = handlers
+  }
+
+  /** The voice side: listening and speaking. */
+  setSpeechState(speech: SpeechSnapshot): void {
+    if (this.disposed) return
+    this.update({ speech })
+  }
+
+  /** The conversation and the request in it, as the conversation manager reports them. */
+  setConversationState(conversation: ConversationSnapshot): void {
+    if (this.disposed) return
+    this.update({
+      conversation:
+        conversation.phase === 'idle' || conversation.conversationId === null
+          ? { phase: 'idle', generation: null }
+          : {
+              phase: 'active',
+              generation: { sessionId: conversation.conversationId, revision: conversation.version }
+            },
+      request:
+        conversation.request.phase === 'processing' && conversation.request.requestId
+          ? { requestId: conversation.request.requestId, phase: 'processing' }
+          : { requestId: null, phase: 'idle' }
+    })
+  }
+
+  /** Words for the user from the conversation, as events (they are not part of the state). */
+  publishNotice(notice: ConversationNotice | SpeechNotice): void {
+    if (this.disposed) return
+    const event: UiEvent =
+      notice.type === 'user'
+        ? { type: 'result.available', requestId: notice.requestId, text: `나: ${notice.text}` }
+        : notice.type === 'assistant'
+          ? {
+              type: 'result.available',
+              requestId: notice.requestId,
+              text: `자비스: ${notice.text}`
+            }
+          : { type: 'client.error', error: notice.error }
+    this.emit(event)
+  }
+
   /** Published by the sensor layer; Main is the only writer. */
   setSensors(sensors: SensorSnapshot[]): void {
     if (this.disposed) return
@@ -179,9 +259,13 @@ export class InteractionManager implements InteractionPort {
       ...patch,
       revision: this.snapshot.revision + 1
     })
+    this.emit({ type: 'state.changed', snapshot: this.getSnapshot() })
+  }
+
+  private emit(event: UiEvent): void {
     for (const listener of [...this.listeners]) {
       try {
-        listener({ type: 'state.changed', snapshot: this.getSnapshot() })
+        listener(event)
       } catch {
         /* Observers cannot prevent state transitions or other observers. */
       }

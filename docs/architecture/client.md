@@ -17,6 +17,7 @@ flowchart TB
         AUDIO["AudioCaptureManager · 마이크 PCM와 Ring Buffer"]
         KWS["교체 가능한 WakeWordDetector · 대기 중 실행"]
         SESSION["SpeechSessionController · 음성 상태 전이"]
+        CONV["ConversationManager · 대화와 요청 처리"]
         VAD["Silero VAD · 호출 후 발화 구간"]
         REMOTE["RemoteSpeechClient · 발화 업로드와 결과 수신"]
         TTS["SpeechOutput · 서버 TTS 오디오 재생"]
@@ -31,7 +32,8 @@ flowchart TB
         VAD -->|"완료 구간"| SESSION
         SESSION -->|"완료 발화 음성만"| REMOTE
         REMOTE -->|"STT 텍스트·TTS 오디오"| SESSION
-        SESSION <-->|"대화·요청 상태"| MAIN
+        SESSION -->|"인식한 텍스트"| CONV
+        CONV <-->|"대화·요청 상태"| MAIN
         SESSION -->|"대기 중 실행 제어"| KWS
         SESSION -->|"호출 후 실행 제어"| VAD
         SESSION <-->|"재생·중단 이벤트"| TTS
@@ -84,7 +86,8 @@ flowchart TB
 | SpeechSessionController | 대기·호출·발화·서버 STT 대기·응답·후속 발화 상태 전이와 로컬 KWS/VAD 활성화. 버퍼 연계, 타임아웃, TTS 재생 중 입력 억제, 취소·마이크 중지·권한 철회 처리 |
 | VoiceActivityDetector | 호출 후 Silero VAD로 발화 시작·끝·무음 타임아웃 판단. 완료된 발화 구간만 음성 전송 대상으로 확정 |
 | RemoteSpeechClient | 완료 발화의 인증된 업로드, 서버 STT 결과·TTS 오디오 수신, 취소·기한·세션 버전 검증. 전송 구현은 ConnectionManager를 사용 |
-| InteractionManager | 대화·요청·승인 상태, 호출 통합, 취소·만료 |
+| InteractionManager | UI에 보이는 상태(스냅샷)·명령 진입점·호출 통합 |
+| ConversationManager | 대화 식별(`conversationId`)·요청과 그 처리 상태·응답 처리·취소·유휴 종료. 입력이 음성이든 글이든 같음. 음성 세션과의 관계는 [음성 명세](../features/speech.md#대화와-음성-세션의-관계) |
 | GestureController | 좌표 변환·필터·Pinch 상태·전환·추적 손실·로컬 중지 |
 | ConnectionManager | AuthManager의 현재 인증에 연결한 WSS·HTTPS 전송, 음성 데이터 전송, 상태 보고·재연결·메시지 유효성. 인증 비밀은 Main 내부에서만 사용 |
 | CapabilityRegistry | 지원 도구, 스키마, 권한·일시 가용 상태 |
@@ -128,9 +131,10 @@ TypeScript는 앱 제어 로직과 연결 계층의 주 언어다. MediaPipe·sh
 | 상태 영역 | 상태 예시 | 유지 원칙 |
 | --- | --- | --- |
 | 인증 | checking, signed_out, signed_in | Main이 소유. 주요 기능을 허용하는 전제이며 연결 상태와 구분. 로그아웃·세션 무효화 시 기존 요청·인식·입력 정리. 상세 전이는 계정 인증 원본을 따름 |
-| 대화/음성 세션 | idle, wake_detected, awaiting_speech, listening, transcribing, processing, speaking, awaiting_followup | transcribing은 서버 STT 대기, speaking은 서버 TTS 오디오 재생. SpeechSessionController가 전이를 관리하고 종료 시 제스처를 변경하지 않음 |
+| 대화 | idle, active | ConversationManager가 `conversationId`·요청·유휴 종료를 관리. 입력이 음성이든 글이든 같고 음성 세션이 없어도 존재할 수 있음. 끝나면 음성 세션도 끝남 |
+| 음성 세션 | idle, wake_detected, awaiting_speech, listening, transcribing, processing, speaking, awaiting_followup | 대화에 붙는 듣기·말하기. transcribing은 서버 STT 대기, processing은 대화의 응답 대기, speaking은 서버 TTS 오디오 재생. SpeechSessionController가 전이를 관리하고 종료 시 제스처를 변경하지 않음 |
 | 제스처 | off, tracking, lost, suspended | 로컬 중지 우선. 복구 시 중립 입력부터 시작 |
 | 센서 | 미사용, 사용 중, 권한 없음, 장치 오류 | 기능별 소유권으로 사용 관리. 음성 호출 대기는 마이크 사용 기능으로 계산 |
 | 화면 | 로그인, 회원가입, 숨김, 상태 표시, 입력, 결과, 확인, 설정 | 인증 확인 전에는 인증 화면만 허용. 결과 창 닫기와 기능 종료를 구분 |
-| 요청 | created, processing, awaiting_confirmation, executing, terminal | terminal 결과를 성공·실패·취소·만료·확인 불가로 구분 |
+| 요청 | created, processing, awaiting_confirmation, executing, terminal | 대화 안의 한 요청. terminal 결과를 성공·실패·취소·만료·확인 불가로 구분. 현재 구현은 idle·processing만 사용하고 확인·실행 단계는 도구 연결과 함께 추가 |
 | 추천 | created, shown, approved, rejected, dismissed, expired | 실행 결과는 별도 필드로 연결 |

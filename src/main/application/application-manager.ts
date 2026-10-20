@@ -15,9 +15,11 @@ import { startSensorSelfTest } from '../sensors/dev-selftest'
 import { installMediaPermissionPolicy } from '../sensors/media-permissions'
 import { createSensorGate } from '../sensors/sensor-gate'
 import type { SensorManager } from '../sensors/sensor-manager'
+import { ConversationManager } from '../conversation/conversation-manager'
+import { createRemoteSpeech } from '../speech/remote-speech/create-remote-speech'
 import { createVoiceStack } from '../speech/create-voice'
 import type { VoiceStack } from '../speech/create-voice'
-import { startVoiceSelfTest } from '../speech/dev-voice-selftest'
+import { startSpeechSelfTest, startVoiceSelfTest } from '../speech/dev-voice-selftest'
 import { createToolStack } from '../tools/create-tools'
 import type { ToolStack } from '../tools/create-tools'
 import { startToolSelfTest } from '../tools/dev-tool-selftest'
@@ -38,6 +40,7 @@ export class ApplicationManager {
   readonly sensors: SensorManager
   readonly tools: ToolStack
   readonly voice: VoiceStack
+  readonly conversation: ConversationManager
   private readonly sensorStack: SensorStack
   private recognitionWasPaused = false
   private disposeMediaIpc: (() => void) | null = null
@@ -45,6 +48,8 @@ export class ApplicationManager {
   private disposeSelfTest: (() => void) | null = null
   private disposeToolSelfTest: (() => void) | null = null
   private disposeVoiceSelfTest: (() => void) | null = null
+  private disposeSpeechSelfTest: (() => void) | null = null
+  private disposeSpeechSync: (() => void) | null = null
   private readonly window: UiWindow
   private tray: Tray | null = null
   private shortcutRegistered = false
@@ -97,15 +102,31 @@ export class ApplicationManager {
       dependencies.media?.entryUrl ?? entryUrl.replace(/\/ui\/index\.html$/, '/media/index.html')
     const mediaPreloadPath =
       dependencies.media?.preloadPath ?? preloadPath.replace(/ui\.js$/, 'media.js')
+    const sensorGate = createSensorGate(
+      this.auth,
+      () => this.interaction.getSnapshot().recognitionPaused
+    )
     this.sensorStack = createSensorStack({
       mediaEntryUrl,
       mediaPreloadPath,
       isQuitting: () => this.quitting,
-      gate: createSensorGate(this.auth, () => this.interaction.getSnapshot().recognitionPaused)
+      gate: sensorGate
     })
     this.sensors = this.sensorStack.sensors
     const stack = this.sensorStack
-    this.voice = createVoiceStack(stack)
+    const server = createRemoteSpeech({ isPackaged: app.isPackaged, env: process.env })
+    this.conversation = new ConversationManager({
+      gate: sensorGate,
+      assistant: server.assistant,
+      clock: { now: () => performance.now() },
+      createId: randomUUID,
+      schedule: (callback, delayMs) => {
+        const timer = setTimeout(callback, delayMs)
+        timer.unref()
+        return () => clearTimeout(timer)
+      }
+    })
+    this.voice = createVoiceStack(stack, sensorGate, this.conversation, server.speech)
     this.disposeMediaIpc = registerMediaIpc({
       ipc: ipcMain,
       getContents: () => stack.window.getContents(),
@@ -125,6 +146,9 @@ export class ApplicationManager {
       // The previous user's tool history, pending work and "go back" target must not carry over.
       this.tools.executor.resetForNewSession()
       this.tools.restoreTracker.clear()
+      // A conversation belongs to the user who started it.
+      void this.voice.session.stop()
+      void this.conversation.end()
       void this.sensors.revokeAll({
         code: 'authentication_required',
         message: '로그인 상태가 변경되어 센서를 해제했습니다.'
@@ -137,6 +161,10 @@ export class ApplicationManager {
     const stopPauseWatch = this.interaction.subscribe((event) => {
       if (event.type !== 'state.changed') return
       const paused = event.snapshot.recognitionPaused
+      if (paused && !this.recognitionWasPaused) {
+        void this.voice.session.stop()
+        void this.conversation.end()
+      }
       if (paused && !this.recognitionWasPaused)
         void this.sensors.revokeAll({
           code: 'cancelled',
@@ -148,6 +176,39 @@ export class ApplicationManager {
       stopSensorSnapshots()
       stopPauseWatch()
     }
+    // Commands, state and the words shown to the user all go through Main's interaction state.
+    const speechSession = this.voice.session
+    const conversation = this.conversation
+    this.interaction.setConversationHandlers({
+      // Starting means a conversation with the voice side attached (the call shortcut, tray, button).
+      start: () => speechSession.activate('ui'),
+      submitText: (text) => conversation.submit({ text, modality: 'text' }),
+      stop: async () => {
+        await speechSession.stop()
+        return conversation.end()
+      }
+    })
+    const stopConversationState = conversation.subscribe((snapshot) => {
+      this.interaction.setConversationState(snapshot)
+      // Without a conversation there is nothing to listen for. A reply being worked on or spoken
+      // is let finish (it may be the final one): the session ends on its own right after it.
+      const phase = speechSession.getSnapshot().phase
+      if (snapshot.phase === 'idle' && phase !== 'processing' && phase !== 'speaking')
+        void speechSession.stop()
+    })
+    const stopSpeechState = speechSession.subscribe((snapshot) =>
+      this.interaction.setSpeechState(snapshot)
+    )
+    const stopNotices = [
+      conversation.subscribeNotices((notice) => this.interaction.publishNotice(notice)),
+      speechSession.subscribeNotices((notice) => this.interaction.publishNotice(notice))
+    ]
+    this.disposeSpeechSync = () => {
+      stopConversationState()
+      stopSpeechState()
+      for (const stop of stopNotices) stop()
+      this.interaction.setConversationHandlers(null)
+    }
   }
 
   start(): void {
@@ -158,6 +219,12 @@ export class ApplicationManager {
     this.window.open()
     if (!app.isPackaged && process.env.JARVIS_SENSOR_SELFTEST === '1')
       this.disposeSelfTest = startSensorSelfTest(this.auth, this.sensors)
+    if (!app.isPackaged && process.env.JARVIS_SPEECH_SELFTEST === '1')
+      this.disposeSpeechSelfTest = startSpeechSelfTest(
+        this.auth,
+        this.voice.session,
+        this.conversation
+      )
     if (!app.isPackaged && process.env.JARVIS_VOICE_SELFTEST)
       this.disposeVoiceSelfTest = startVoiceSelfTest(
         Math.max(1, Number.parseInt(process.env.JARVIS_VOICE_SELFTEST, 10) || 1),
@@ -205,6 +272,10 @@ export class ApplicationManager {
     this.disposeToolSelfTest = null
     const releaseVoiceSelfTest = this.disposeVoiceSelfTest
     this.disposeVoiceSelfTest = null
+    const releaseSpeechSelfTest = this.disposeSpeechSelfTest
+    this.disposeSpeechSelfTest = null
+    const releaseSpeechSync = this.disposeSpeechSync
+    this.disposeSpeechSync = null
     const releaseShortcut = this.shortcutRegistered
     this.shortcutRegistered = false
     // A failed release must not prevent remaining resources from being released.
@@ -218,10 +289,15 @@ export class ApplicationManager {
       () => releaseSelfTest?.(),
       () => releaseToolSelfTest?.(),
       () => releaseVoiceSelfTest?.(),
+      () => releaseSpeechSelfTest?.(),
+      () => releaseSpeechSync?.(),
       () => releaseSensorSync?.(),
       () => releaseMediaIpc?.(),
       () => {
         // Releases devices through the media window, then the window itself goes away.
+        void this.voice.session.stop()
+        void this.conversation.end()
+        this.voice.playback.dispose()
         this.voice.router.dispose()
         this.voice.vad.dispose()
         void this.sensors.dispose()

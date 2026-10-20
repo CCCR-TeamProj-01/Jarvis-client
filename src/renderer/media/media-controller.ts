@@ -3,6 +3,7 @@ import { sameGeneration } from '../../shared/contracts/common'
 import type { SensorDevice, SensorKind } from '../../shared/contracts/sensors'
 import type { AudioCaptureStart } from '../../shared/contracts/speech'
 import type { MediaApi, MediaCommandEnvelope } from '../../shared/ipc/media-api'
+import type { AudioPlaybackPort } from './audio-playback/ports'
 import type { AudioCapture } from './audio-capture/web-audio-capture'
 
 /** The slice of browser media APIs this controller uses, so it can run against fakes. */
@@ -73,6 +74,7 @@ export class MediaController {
   private readonly queues = new Map<SensorKind, Promise<void>>()
   private readonly known = new Map<SensorKind, string>()
   private readonly stop: () => void
+  private readonly stopPlaybackEvents: () => void
   private readonly onDeviceChange = () => void this.refreshDevices()
   private disposed = false
 
@@ -81,9 +83,14 @@ export class MediaController {
     private readonly devices: MediaDevicesLike,
     private readonly queryPermission: PermissionQuery = async () => 'unknown',
     /** PCM capture on the open microphone stream; without it the stream is only held open. */
-    private readonly audio: AudioCapture | null = null
+    private readonly audio: AudioCapture | null = null,
+    /** Plays server responses; without it playback commands are answered as unsupported. */
+    private readonly playback: AudioPlaybackPort | null = null
   ) {
     this.stop = api.subscribeCommands((envelope) => this.receive(envelope))
+    this.stopPlaybackEvents =
+      playback?.subscribe((event) => api.publish({ type: 'audio.playback', event })) ??
+      (() => undefined)
     devices.addEventListener('devicechange', this.onDeviceChange)
   }
 
@@ -94,6 +101,7 @@ export class MediaController {
     this.devices.removeEventListener('devicechange', this.onDeviceChange)
     for (const kind of KINDS) this.release(kind)
     this.audio?.dispose()
+    this.stopPlaybackEvents()
   }
 
   private receive({ commandId, command }: MediaCommandEnvelope): void {
@@ -163,8 +171,21 @@ export class MediaController {
         return this.reply(commandId, this.close('camera', command.generation))
       case 'audio.capture.stop':
         return this.reply(commandId, this.close('microphone', command.generation))
+      case 'audio.playback.start':
+        return this.reply(
+          commandId,
+          this.playback
+            ? this.mapVoid(await this.playback.play(command.request))
+            : failure('unsupported', '오디오 재생을 지원하지 않습니다.')
+        )
+      case 'audio.playback.stop':
+        return this.reply(
+          commandId,
+          this.playback
+            ? this.mapVoid(await this.playback.stop(command.playbackId, command.generation))
+            : failure('unsupported', '오디오 재생을 지원하지 않습니다.')
+        )
       default:
-        // Playback arrives with the speech session work.
         return this.reply(
           commandId,
           failure('unsupported', '아직 지원하지 않는 미디어 명령입니다.')

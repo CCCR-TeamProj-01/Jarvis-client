@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ClientSnapshot, UiCommand } from '../../shared/contracts/interaction'
 import type { InteractionUiApi } from '../../shared/ipc/ui-api'
 
@@ -12,6 +12,8 @@ export function newestSnapshot(
 export function useClientSnapshot(api: InteractionUiApi | undefined) {
   const [snapshot, setSnapshot] = useState<ClientSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [messages, setMessages] = useState<{ id: number; text: string }[]>([])
+  const nextMessage = useRef(0)
   const refresh = useCallback(async () => {
     if (!api) {
       setError('앱과 연결하지 못했습니다. 다시 실행해 주세요.')
@@ -32,6 +34,10 @@ export function useClientSnapshot(api: InteractionUiApi | undefined) {
       if (event.type === 'state.changed')
         setSnapshot((current) => newestSnapshot(current, event.snapshot))
       else if (event.type === 'client.error') setError(event.error.message)
+      else if (event.type === 'result.available') {
+        const id = nextMessage.current++
+        setMessages((current) => [...current, { id, text: event.text }].slice(-6))
+      }
     })
     void api.getSnapshot().then((result) => {
       if (!active) return
@@ -57,6 +63,7 @@ export function useClientSnapshot(api: InteractionUiApi | undefined) {
   return {
     snapshot,
     error: !api ? '앱과 연결하지 못했습니다. 다시 실행해 주세요.' : error,
+    messages,
     refresh,
     dispatch
   }

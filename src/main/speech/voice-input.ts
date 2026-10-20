@@ -47,7 +47,7 @@ export class VoiceInput {
   constructor(private readonly options: VoiceInputOptions) {}
 
   async listen(
-    request: { generation: Generation; policy?: VadPolicy },
+    request: { generation: Generation; policy?: VadPolicy; onSpeechStarted?: () => void },
     execution?: LocalExecutionOptions
   ): Promise<Result<ListenOutcome>> {
     if (this.busy) return failure('conflict', '이미 음성 입력을 받고 있습니다.')
@@ -65,6 +65,7 @@ export class VoiceInput {
       return await this.run(
         lease.value,
         request.policy ?? DEFAULT_VAD_POLICY,
+        request.onSpeechStarted,
         execution,
         cleanups,
         (g) => {
@@ -84,6 +85,7 @@ export class VoiceInput {
   private run(
     lease: SensorLease,
     policy: VadPolicy,
+    onSpeechStarted: (() => void) | undefined,
     execution: LocalExecutionOptions | undefined,
     cleanups: (() => unknown)[],
     onCapture: (generation: Generation) => void
@@ -120,7 +122,7 @@ export class VoiceInput {
       watch(vad.subscribeErrors((error) => finish({ ok: false, error })))
       watch(
         vad.subscribe((event) => {
-          void this.onVad(event, execution, finish)
+          void this.onVad(event, execution, finish, onSpeechStarted)
         })
       )
 
@@ -171,8 +173,17 @@ export class VoiceInput {
   private async onVad(
     event: VadEvent,
     execution: LocalExecutionOptions | undefined,
-    finish: (result: Result<ListenOutcome>) => void
+    finish: (result: Result<ListenOutcome>) => void,
+    onSpeechStarted: (() => void) | undefined
   ): Promise<void> {
+    if (event.type === 'speech.started') {
+      try {
+        onSpeechStarted?.()
+      } catch {
+        /* A faulty observer must not end the utterance. */
+      }
+      return
+    }
     if (event.type === 'speech.empty')
       return finish({ ok: true, value: { kind: 'empty', reason: event.reason } })
     if (event.type !== 'speech.completed') return
