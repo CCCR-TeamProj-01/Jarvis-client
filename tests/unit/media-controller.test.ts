@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { describeMediaError, MediaController } from '../../src/renderer/media/media-controller'
+import type { AudioCapture } from '../../src/renderer/media/audio-capture/web-audio-capture'
+import type { Result } from '../../src/shared/contracts/common'
 import { FakeDevices } from '../fixtures/media-devices'
 import type { MediaApi, MediaCommandEnvelope, MediaEvent } from '../../src/shared/ipc/media-api'
 
@@ -296,5 +298,151 @@ describe('MediaController', () => {
     await flush()
     expect(devices.tracks[0].stopped).toBe(true)
     expect(resultOf(published, commandId)).toMatchObject({ result: { ok: false } })
+  })
+
+  describe('with PCM capture', () => {
+    const micStart = (id: string) =>
+      ({
+        type: 'audio.capture.start',
+        request: {
+          generation: gen(id),
+          leaseId: id,
+          deviceId: 'mic-0',
+          format: { encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 }
+        }
+      }) as const
+
+    function withAudio(startResult: Result<void> = { ok: true, value: undefined }) {
+      const audio = {
+        start: vi.fn<AudioCapture['start']>(async () => startResult),
+        stop: vi.fn<AudioCapture['stop']>(),
+        clear: vi.fn<AudioCapture['clear']>(() => ({ ok: true, value: undefined })),
+        extract: vi.fn<AudioCapture['extract']>(),
+        dispose: vi.fn<AudioCapture['dispose']>()
+      }
+      const devices = new FakeDevices()
+      const published: MediaEvent[] = []
+      let deliver: (envelope: MediaCommandEnvelope) => void = () => undefined
+      const api: MediaApi = {
+        platform: 'test',
+        subscribeCommands: (listener) => {
+          deliver = listener
+          return () => undefined
+        },
+        publish: (event) => {
+          published.push(event)
+        }
+      }
+      const controller = new MediaController(api, devices, undefined, audio)
+      let id = 0
+      return {
+        audio,
+        devices,
+        published,
+        controller,
+        send: (command: MediaCommandEnvelope['command']) => {
+          const commandId = `a-${++id}`
+          deliver({ commandId, command })
+          return commandId
+        }
+      }
+    }
+
+    it('starts PCM capture on the opened microphone stream and not on the camera', async () => {
+      const { audio, send } = withAudio()
+      send({
+        type: 'camera.start',
+        request: { generation: gen('c'), leaseId: 'c', deviceId: 'cam-0' }
+      })
+      await flush()
+      expect(audio.start).not.toHaveBeenCalled()
+      send(micStart('m'))
+      await flush()
+      expect(audio.start).toHaveBeenCalledOnce()
+      expect(audio.start.mock.calls[0][1]).toMatchObject({
+        generation: gen('m'),
+        deviceId: 'mic-0'
+      })
+    })
+
+    it('stops capture and the stream when capture cannot start', async () => {
+      const { send, devices, published } = withAudio({
+        ok: false,
+        error: { code: 'unsupported', message: '샘플레이트' }
+      })
+      const commandId = send(micStart('m'))
+      await flush()
+      expect(resultOf(published, commandId)).toMatchObject({ result: { ok: false } })
+      expect(devices.tracks[0].stopped).toBe(true)
+    })
+
+    it('stops capture before the stream when stopped, and when the track ends', async () => {
+      const { send, audio, devices } = withAudio()
+      send(micStart('m'))
+      await flush()
+      send({ type: 'audio.capture.stop', generation: gen('m') })
+      await flush()
+      expect(audio.stop).toHaveBeenCalledWith(gen('m'))
+      expect(devices.tracks[0].stopped).toBe(true)
+
+      const second = withAudio()
+      second.send(micStart('n'))
+      await flush()
+      second.devices.tracks[0].end()
+      await flush()
+      expect(second.audio.stop).toHaveBeenCalledWith(gen('n'))
+    })
+
+    it('clears the history on request and reports a missing capture', async () => {
+      const { send, audio, published } = withAudio()
+      send(micStart('m'))
+      await flush()
+      const ok = send({ type: 'audio.buffer.clear', generation: gen('m') })
+      await flush()
+      expect(audio.clear).toHaveBeenCalledWith(gen('m'))
+      expect(resultOf(published, ok)).toMatchObject({ result: { ok: true } })
+      audio.clear.mockReturnValueOnce({ ok: false, error: { code: 'not_found', message: '없음' } })
+      const missing = send({ type: 'audio.buffer.clear', generation: gen('x') })
+      await flush()
+      expect(resultOf(published, missing)).toMatchObject({ result: { ok: false } })
+    })
+
+    it('publishes an extracted utterance as an event and answers the command', async () => {
+      const { send, audio, published } = withAudio()
+      const utterance = {
+        utteranceId: 'u1',
+        generation: gen('m'),
+        startSample: 0,
+        sampleCount: 1,
+        format: { encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 },
+        audio: new Uint8Array(2)
+      } as const
+      audio.extract.mockReturnValueOnce({ ok: true, value: utterance })
+      const commandId = send({
+        type: 'audio.utterance.extract',
+        range: { utteranceId: 'u1', generation: gen('m'), startSample: 0, sampleCount: 1 }
+      })
+      await flush()
+      expect(published).toContainEqual({ type: 'audio.utterance', utterance })
+      expect(resultOf(published, commandId)).toMatchObject({ result: { ok: true } })
+
+      audio.extract.mockReturnValueOnce({
+        ok: false,
+        error: { code: 'not_found', message: '없음' }
+      })
+      const failed = send({
+        type: 'audio.utterance.extract',
+        range: { utteranceId: 'u2', generation: gen('m'), startSample: 0, sampleCount: 1 }
+      })
+      await flush()
+      expect(published.filter((event) => event.type === 'audio.utterance')).toHaveLength(1)
+      expect(resultOf(published, failed)).toMatchObject({ result: { ok: false } })
+    })
+
+    it('disposes the audio side with the controller', async () => {
+      const { controller, audio } = withAudio()
+      controller.dispose()
+      expect(audio.dispose).toHaveBeenCalledOnce()
+    })
   })
 })

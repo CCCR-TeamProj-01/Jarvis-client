@@ -132,6 +132,8 @@ Worker는 손 관측 결과를 만들고 Main의 GestureController가 활성 손
 - `AudioPlaybackPort`는 playbackId·세대·MIME·오디오를 받아 재생하고 started·ended·stopped·failed 이벤트를 낸다. 시작 요청 수락과 실제 재생 완료는 구분한다.
 - 미디어 제어 명령은 카메라·오디오 시작/중지, 버퍼 폐기, 발화 추출, 오디오 재생/중지다. 장치 자격은 SensorManager의 leaseId로 확인한다. Media API가 인증 자격 증명이나 서버 주소를 받지 않는다.
 
+로컬 음성 입력(수집·순환 버퍼·VAD·구간 추출)은 구현했다([구현 현황](../features/speech.md#구현-현황-로컬-음성-입력)). `VoiceActivityDetectorPort.start`는 정책과 첫 샘플 번호를 받도록 확장했고, `camera.start`·`audio.capture.start`에 선택적 `deviceId`를 두었다.
+
 UI 제어·상태 데이터와 영상·PCM 데이터의 전달 경로를 구분한다. ImageBitmap·VideoFrame은 Media Renderer와 Worker 사이에 유지하고 Main에는 관측 결과와 필요한 발화 바이트만 전달한다. 고빈도 전송의 실제 MessagePort·Worker 배치는 미디어 구현 시 측정해 결정한다.
 
 기존 `src/shared/speech-protocol/`의 사용되지 않는 서버 메타데이터·버전 초안은 로컬 `contracts/speech.ts`로 교체했다. 이후 서버 어댑터가 로컬 발화에 인증·원격 요청 식별자를 덧붙인다. 서버 API를 이번 작업에서 고정하지 않는다.

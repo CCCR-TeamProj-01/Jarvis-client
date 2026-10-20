@@ -21,6 +21,8 @@ JARVIS_DEV_AUTH=1 pnpm dev   # 기본 계정: demo / demo1234
 
 앱·OS 제어 도구는 서버 없이 `JARVIS_TOOL_SELFTEST='[{"requestId":"r1","executionId":"e1","command":{"tool":"apps.list","arguments":{}}}]'`처럼 도구 요청 JSON 배열을 주면 로그인 직후 실행하고 보고를 `TOOL_SELFTEST` 줄로 출력합니다(macOS에서 앱 도구 동작, 패키징된 앱에서는 동작하지 않음).
 
+로컬 음성 처리에는 VAD 모델이 필요합니다. 처음 한 번 `pnpm models:fetch`로 `resources/models/`에 내려받습니다(`pnpm package`는 자동으로 실행). 마이크 없이 확인하려면 `JARVIS_FAKE_MEDIA=1 JARVIS_FAKE_AUDIO_FILE=<wav 경로> JARVIS_VOICE_SELFTEST=1`로 파일을 마이크 입력으로 쓰고 로그인하면, 찾은 발화의 위치와 길이를 `VOICE_SELFTEST` 줄로 출력합니다(패키징된 앱에서는 동작하지 않음).
+
 VS Code 터미널에서 `ELECTRON_RUN_AS_NODE`가 설정돼 있으면 앱이 실행되지 않으니 해제하고 실행하세요. 인증 동작 기준은 [계정 인증](docs/features/auth.md)을 따릅니다.
 
 검사와 빌드:

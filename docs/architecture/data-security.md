@@ -44,6 +44,10 @@
 
 참고: [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage), [OWASP Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
 
+### 로컬 오디오 처리 경계
+
+수집한 PCM은 Media Renderer의 30초 순환 버퍼와 Main의 처리 중 메모리에만 있다. 듣는 쪽이 없으면 Main은 PCM을 버리고 어디에도 저장하지 않는다. 발화 하나를 받으면 VAD를 멈추고 버퍼를 비운 뒤 마이크 사용권을 반납하며, 완료된 발화 바이트만 호출한 쪽에 남는다. 오디오는 로그·진단 출력에 넣지 않는다(셀프테스트도 길이와 크기만 출력한다).
+
 ### 카메라·마이크 권한 경계
 
 Electron session의 권한 처리기는 기본 거부다. 카메라·마이크는 비표시 Media Renderer가 Main이 센서를 시작하는 중이거나 사용 중인 종류에 대해서만 허용하며, UI 창·다른 문서·그 밖의 모든 권한 요청은 거부한다. Chromium의 가짜 UI 승인 스위치는 처리기를 우회하므로 개발용 가짜 장치에서도 쓰지 않는다. macOS 사용 목적 문구는 패키징 설정에 둔다.

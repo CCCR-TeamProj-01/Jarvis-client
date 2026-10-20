@@ -69,3 +69,24 @@ sequenceDiagram
 | awaiting_followup | 중지 | 실행 | 중지 | 호출어 없이 다음 발화 수집. 발화 완료 시 transcribing, 대기 타임아웃·명시적 종료면 idle |
 
 SpeechSessionController는 모든 이벤트에 음성 세션 ID와 상태 버전을 붙여 이전 발화의 늦은 KWS/VAD/서버 STT·TTS 결과를 폐기한다. TTS 재생 시작과 종료·중단 경계에서 Ring Buffer를 비워 자체 출력이 후속 발화로 유입되지 않게 한다. 취소·마이크 중지·권한 철회·인식 일시 중지 시 진행 중인 음성 업로드와 TTS 수신·재생의 취소를 시도하고, 확정되지 않은 음성·Ring Buffer를 즉시 폐기한다. 서버에서 이미 시작된 처리는 취소가 보장되지 않으므로 늦게 도착한 응답을 적용하지 않는다. 마이크 사용 기능이 남아 있지 않으면 SensorManager가 장치를 해제한다. 도구 실행 중 취소는 [서버 연동의 취소 규칙](../architecture/server-integration.md#취소와-오류-규칙)을 따른다. TTS 중 끼어들기는 MVP 범위 밖이며, 사용자는 트레이·단축키로 응답을 중단할 수 있다.
+
+## 구현 현황: 로컬 음성 입력
+
+F-015([#16](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/16))에서 VOICE-01의 입력 쪽을 구현했다. 호출어(KWS) 엔진, 음성 세션 상태 전이, 서버 STT·TTS 대역, 오디오 재생과 재생 중 입력 억제는 후속 작업이다. 한국어 "자비스" 호출어 모델이 없어(공식 KWS 모델은 중국어·영어뿐) 엔진 선택은 보류했고, `WakeWordDetectorPort` 뒤의 자리로 남겨 두었다.
+
+| 위치 | 책임 |
+| --- | --- |
+| `src/renderer/media/audio-capture/` | AudioWorklet으로 16 kHz mono PCM을 수집해 100 ms 단위 연속 청크로 Main에 전달. 30초 순환 버퍼를 같은 절대 샘플 번호로 보관하고 구간 추출·폐기를 처리 |
+| `src/main/speech/audio-input.ts` | 청크의 세대·연속성 검사, 듣는 쪽이 없으면 폐기, 완료 구간 추출 요청과 응답 대응 |
+| `src/inference/vad/` | Silero VAD(sherpa-onnx)와 타이밍 규칙(`VadEngine`). utilityProcess 워커에서 실행하고 Main은 `src/main/speech/vad-process.ts`로 연결 |
+| `src/main/speech/voice-input.ts` | 마이크 사용권 → VAD → 완료 구간 추출을 묶어 발화 하나를 받는 `listen()`. 끝나면 VAD 중지·버퍼 폐기·사용권 반납 |
+
+동작 기준은 다음과 같다.
+
+- 마이크 사용권이 열리면 수집이 시작되고, 사용권이 닫히면 수집이 멈추며 버퍼가 폐기된다. 로그아웃·일시 중지·권한 철회로 사용권이 철회되면 `listen()`이 즉시 끝난다.
+- Main은 VAD를 시작한 뒤에만 PCM을 처리하며, VAD 시작 중 들어온 오디오는 순서대로 보관했다가 재생한다. 오디오에 끊김이 있으면 수집을 종료하고 이어 붙이지 않는다.
+- VAD 정책(`VadPolicy`)은 세션이 주입한다. 기본값은 측정 전 잠정값이다: 시작 대기 6초, 종료 무음 700 ms, 최대 발화 15초, 사전 구간 300 ms, 최소 발화 150 ms. 오디오 처리 제약(에코 제거·잡음 억제·자동 이득)은 브라우저 기본값이며 실기기 측정 후 정한다.
+- 발화 하나가 끝나면 VAD는 종료된다. 다음 발화는 새로 시작한다(후속 발화는 세션이 다시 `listen()`을 호출).
+- 모델은 저장소에 없다. `pnpm models:fetch`가 `resources/models/`에 내려받아 해시를 검증하고, 패키징은 `resources/models/*.onnx`를 포함한다.
+- 개발용: 패키징되지 않은 앱에서 `JARVIS_FAKE_MEDIA=1`과 `JARVIS_FAKE_AUDIO_FILE=<wav>`로 파일을 마이크 입력으로 쓰고, `JARVIS_VOICE_SELFTEST=<횟수>`로 로그인 후 그 횟수만큼 `listen()`한 결과(오디오 제외)를 `VOICE_SELFTEST` 줄로 출력한다. 가짜 마이크는 사용권을 다시 열 때마다 파일을 처음부터 재생한다.
+

@@ -1,7 +1,9 @@
 import type { ClientError, Generation, Result } from '../../shared/contracts/common'
 import { sameGeneration } from '../../shared/contracts/common'
 import type { SensorDevice, SensorKind } from '../../shared/contracts/sensors'
+import type { AudioCaptureStart } from '../../shared/contracts/speech'
 import type { MediaApi, MediaCommandEnvelope } from '../../shared/ipc/media-api'
+import type { AudioCapture } from './audio-capture/web-audio-capture'
 
 /** The slice of browser media APIs this controller uses, so it can run against fakes. */
 export interface TrackLike {
@@ -77,7 +79,9 @@ export class MediaController {
   constructor(
     private readonly api: MediaApi,
     private readonly devices: MediaDevicesLike,
-    private readonly queryPermission: PermissionQuery = async () => 'unknown'
+    private readonly queryPermission: PermissionQuery = async () => 'unknown',
+    /** PCM capture on the open microphone stream; without it the stream is only held open. */
+    private readonly audio: AudioCapture | null = null
   ) {
     this.stop = api.subscribeCommands((envelope) => this.receive(envelope))
     devices.addEventListener('devicechange', this.onDeviceChange)
@@ -89,6 +93,7 @@ export class MediaController {
     this.stop()
     this.devices.removeEventListener('devicechange', this.onDeviceChange)
     for (const kind of KINDS) this.release(kind)
+    this.audio?.dispose()
   }
 
   private receive({ commandId, command }: MediaCommandEnvelope): void {
@@ -117,6 +122,8 @@ export class MediaController {
         return 'camera'
       case 'audio.capture.start':
       case 'audio.capture.stop':
+      case 'audio.buffer.clear':
+      case 'audio.utterance.extract':
         return 'microphone'
       default:
         return null
@@ -137,12 +144,27 @@ export class MediaController {
         return this.reply(commandId, await this.start('camera', command.request))
       case 'audio.capture.start':
         return this.reply(commandId, await this.start('microphone', command.request))
+      case 'audio.buffer.clear':
+        return this.reply(
+          commandId,
+          this.audio
+            ? this.mapVoid(this.audio.clear(command.generation))
+            : failure('unsupported', '오디오 수집을 지원하지 않습니다.')
+        )
+      case 'audio.utterance.extract': {
+        const extracted = this.audio?.extract(command.range)
+        if (!extracted)
+          return this.reply(commandId, failure('unsupported', '오디오 수집을 지원하지 않습니다.'))
+        // The audio goes out as its own event; the reply only says whether it could be produced.
+        if (extracted.ok) this.api.publish({ type: 'audio.utterance', utterance: extracted.value })
+        return this.reply(commandId, this.mapVoid(extracted))
+      }
       case 'camera.stop':
         return this.reply(commandId, this.close('camera', command.generation))
       case 'audio.capture.stop':
         return this.reply(commandId, this.close('microphone', command.generation))
       default:
-        // PCM extraction, buffer clearing and playback arrive with the voice work.
+        // Playback arrives with the speech session work.
         return this.reply(
           commandId,
           failure('unsupported', '아직 지원하지 않는 미디어 명령입니다.')
@@ -171,9 +193,13 @@ export class MediaController {
     }
   }
 
+  private mapVoid(result: Result<unknown>): Result<null> {
+    return result.ok ? { ok: true, value: null } : result
+  }
+
   private async start(
     kind: SensorKind,
-    request: { generation: Generation; deviceId?: string }
+    request: { generation: Generation; deviceId?: string; format?: AudioCaptureStart['format'] }
   ): Promise<Result<null>> {
     if (request.deviceId === undefined) return failure('invalid_input', '장치를 지정해야 합니다.')
     // A new start replaces whatever this sensor still held.
@@ -187,6 +213,16 @@ export class MediaController {
       if (this.disposed) {
         for (const track of stream.getTracks()) track.stop()
         return failure('cancelled', '미디어 컨트롤러가 종료되었습니다.')
+      }
+      if (kind === 'microphone' && this.audio) {
+        const capturing = await this.audio.start(stream, request as AudioCaptureStart)
+        if (!capturing.ok || this.disposed) {
+          for (const track of stream.getTracks()) track.stop()
+          this.audio.stop(request.generation)
+          return capturing.ok
+            ? failure('cancelled', '미디어 컨트롤러가 종료되었습니다.')
+            : capturing
+        }
       }
       this.attach(kind, request.generation, stream)
       this.publishState(kind, request.generation, 'started')
@@ -223,6 +259,8 @@ export class MediaController {
     const current = this.open.get(kind)
     if (!current) return
     this.open.delete(kind)
+    // Captured audio must not outlive the stream it came from.
+    if (kind === 'microphone') this.audio?.stop(current.generation)
     current.detach()
     for (const track of current.stream.getTracks()) track.stop()
   }
