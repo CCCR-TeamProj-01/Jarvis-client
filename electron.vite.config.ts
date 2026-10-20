@@ -29,6 +29,8 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react(), tailwindcss()],
+    // The hand landmarker worker is an ES module so it can load the engine's module build.
+    worker: { format: 'es' },
     build: {
       rollupOptions: {
         input: {

@@ -5,6 +5,7 @@ import type { AudioCaptureStart } from '../../shared/contracts/speech'
 import type { MediaApi, MediaCommandEnvelope } from '../../shared/ipc/media-api'
 import type { AudioPlaybackPort } from './audio-playback/ports'
 import type { AudioCapture } from './audio-capture/web-audio-capture'
+import type { HandTrackingControl } from './hand-tracking/hand-tracking-pipeline'
 
 /** The slice of browser media APIs this controller uses, so it can run against fakes. */
 export interface TrackLike {
@@ -85,7 +86,9 @@ export class MediaController {
     /** PCM capture on the open microphone stream; without it the stream is only held open. */
     private readonly audio: AudioCapture | null = null,
     /** Plays server responses; without it playback commands are answered as unsupported. */
-    private readonly playback: AudioPlaybackPort | null = null
+    private readonly playback: AudioPlaybackPort | null = null,
+    /** Hand detection on the open camera stream; without it those commands are unsupported. */
+    private readonly handTracking: HandTrackingControl | null = null
   ) {
     this.stop = api.subscribeCommands((envelope) => this.receive(envelope))
     this.stopPlaybackEvents =
@@ -101,6 +104,7 @@ export class MediaController {
     this.devices.removeEventListener('devicechange', this.onDeviceChange)
     for (const kind of KINDS) this.release(kind)
     this.audio?.dispose()
+    void this.handTracking?.dispose()
     this.stopPlaybackEvents()
   }
 
@@ -127,6 +131,8 @@ export class MediaController {
         return null
       case 'camera.start':
       case 'camera.stop':
+      case 'handtracking.start':
+      case 'handtracking.stop':
         return 'camera'
       case 'audio.capture.start':
       case 'audio.capture.stop':
@@ -168,9 +174,23 @@ export class MediaController {
         return this.reply(commandId, this.mapVoid(extracted))
       }
       case 'camera.stop':
-        return this.reply(commandId, this.close('camera', command.generation))
+        return this.reply(commandId, await this.close('camera', command.generation))
+      case 'handtracking.start': {
+        if (!this.handTracking)
+          return this.reply(commandId, failure('unsupported', '손 인식을 지원하지 않습니다.'))
+        const camera = this.open.get('camera')
+        if (!camera)
+          return this.reply(
+            commandId,
+            failure('device_unavailable', '카메라가 열려 있지 않습니다.')
+          )
+        return this.reply(commandId, await this.handTracking.start(camera.stream, command.request))
+      }
+      case 'handtracking.stop':
+        await this.handTracking?.stop(command.generation)
+        return this.reply(commandId, { ok: true, value: null })
       case 'audio.capture.stop':
-        return this.reply(commandId, this.close('microphone', command.generation))
+        return this.reply(commandId, await this.close('microphone', command.generation))
       case 'audio.playback.start':
         return this.reply(
           commandId,
@@ -266,20 +286,23 @@ export class MediaController {
     })
   }
 
-  private close(kind: SensorKind, generation: Generation): Result<null> {
+  private async close(kind: SensorKind, generation: Generation): Promise<Result<null>> {
     const current = this.open.get(kind)
     // A stop for an older stream must not close the one that replaced it.
     if (current && sameGeneration(current.generation, generation)) {
-      this.release(kind)
+      this.release(kind, true)
+      // Tracking reads the camera, so it must be down before the camera is reported closed.
+      if (kind === 'camera') await this.handTracking?.stop()
       this.publishState(kind, generation, 'stopped')
     }
     return { ok: true, value: null }
   }
 
-  private release(kind: SensorKind): void {
+  private release(kind: SensorKind, keepTracking = false): void {
     const current = this.open.get(kind)
     if (!current) return
     this.open.delete(kind)
+    if (kind === 'camera' && !keepTracking) void this.handTracking?.stop()
     // Captured audio must not outlive the stream it came from.
     if (kind === 'microphone') this.audio?.stop(current.generation)
     current.detach()
@@ -289,12 +312,13 @@ export class MediaController {
   private async onTrackEnded(kind: SensorKind, generation: Generation): Promise<void> {
     const current = this.open.get(kind)
     if (!current || !sameGeneration(current.generation, generation)) return
-    this.release(kind)
+    this.release(kind, true)
     const permission = await this.queryPermission(kind).catch(() => 'unknown' as const)
     const error: ClientError =
       permission === 'denied'
         ? { code: 'permission_denied', message: '카메라·마이크 권한이 철회되었습니다.' }
         : { code: 'device_unavailable', message: '장치 연결이 끊어졌습니다.' }
+    if (kind === 'camera') await this.handTracking?.cameraLost(error)
     this.publishState(kind, generation, 'failed', error)
   }
 

@@ -11,6 +11,12 @@ const MODELS = [
     // Silero VAD (MIT), as packaged by sherpa-onnx.
     url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx',
     sha256: '9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6'
+  },
+  {
+    name: 'hand_landmarker.task',
+    // MediaPipe hand landmarker, float16 (Apache-2.0).
+    url: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+    sha256: 'fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1'
   }
 ]
 
@@ -51,5 +57,5 @@ for (const model of MODELS) {
   await rename(temporary, join(target, model.name))
   console.log(`installed ${model.name}`)
 }
-await rm(join(target, 'silero_vad.onnx.download'), { force: true })
+for (const model of MODELS) await rm(join(target, `${model.name}.download`), { force: true })
 process.exit(failed ? 1 : 0)

@@ -102,6 +102,13 @@
       "description": "conversationId·요청 상태·응답 처리·유휴 종료를 소유하는 ConversationManager와 서버 응답 포트(AssistantPort)를 도입하고, 음성 세션이 대화에 붙어 인식한 글을 제출하도록 분리한다. conversation.submit_text와 화면 입력창으로 음성 없는 대화와 음성·글이 섞인 대화를 지원한다.",
       "status": "done",
       "issue": 19
+    },
+    {
+      "id": "F-018",
+      "title": "손 인식 파이프라인: 카메라 프레임 → MediaPipe Worker → 손 관측",
+      "description": "열린 카메라 스트림에서 최신 프레임만 MediaPipe HandLandmarker Web Worker로 보내 21개 관절 관측(HandTrackingFrame)을 만들고, Main HandTrackingService가 gesture_control 사용권으로 추적을 시작·중지하며 철회·오류·세대 변경을 처리한다. 모델 내려받기·패키징과 개발용 가짜 영상·셀프테스트를 포함하고 좌표 보정·Pinch·OS 입력은 제외한다.",
+      "status": "done",
+      "issue": 21
     }
   ]
 }
