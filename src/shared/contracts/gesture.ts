@@ -94,7 +94,9 @@ export const GestureSnapshotSchema = z
     phase: z.enum(['off', 'tracking', 'lost', 'suspended']),
     generation: GenerationSchema.nullable(),
     activeHandId: IdentifierSchema.nullable(),
-    displayId: IdentifierSchema.nullable()
+    displayId: IdentifierSchema.nullable(),
+    /** The active hand is in the pointing pose, so the cursor is following it. */
+    pointing: z.boolean()
   })
   .refine(
     (snapshot) => (snapshot.phase === 'off') === (snapshot.generation === null),

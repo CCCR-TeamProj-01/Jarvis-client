@@ -19,3 +19,10 @@ export const AUTH_CHANNELS = {
   snapshot: 'jarvis:auth:snapshot',
   event: 'jarvis:auth:event'
 } as const
+
+export const OVERLAY_CHANNELS = {
+  state: 'jarvis:overlay:state',
+  snapshot: 'jarvis:overlay:snapshot',
+  interactive: 'jarvis:overlay:interactive',
+  stop: 'jarvis:overlay:stop'
+} as const

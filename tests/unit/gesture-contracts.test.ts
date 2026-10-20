@@ -37,7 +37,13 @@ describe('hand tracking data', () => {
   })
 
   it('rejects active gesture modes without a generation', () => {
-    const snapshot = { phase: 'tracking', generation: null, activeHandId: null, displayId: null }
+    const snapshot = {
+      phase: 'tracking',
+      generation: null,
+      activeHandId: null,
+      displayId: null,
+      pointing: false
+    }
     expect(GestureSnapshotSchema.safeParse(snapshot).success).toBe(false)
     expect(GestureSnapshotSchema.safeParse({ ...snapshot, generation }).success).toBe(true)
   })

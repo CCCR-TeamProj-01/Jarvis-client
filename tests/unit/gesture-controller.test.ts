@@ -170,7 +170,8 @@ describe('GestureController start and stop', () => {
       phase: 'lost',
       generation: t.generation(),
       activeHandId: null,
-      displayId: '1'
+      displayId: '1',
+      pointing: false
     })
   })
 
@@ -214,7 +215,8 @@ describe('GestureController start and stop', () => {
       phase: 'off',
       generation: null,
       activeHandId: null,
-      displayId: null
+      displayId: null,
+      pointing: false
     })
     expect(t.pointer.cancelGeneration).toHaveBeenCalledWith(t.generation())
     expect(t.order).toEqual(['pointer.cancel', 'pointer.release', 'tracking.stop'])
@@ -642,6 +644,65 @@ describe('GestureController pointing pose', () => {
       await t.send(sequence, sequence * 33, [hand({ tip: { x: 0.3, y: 0.475 }, pose: 'pointing' })])
     expect(t.moves().length).toBeGreaterThan(before)
     expect(t.moves().at(-1)!.point.x).not.toBe(lastPoint.x)
+  })
+})
+
+describe('GestureController status for the screen', () => {
+  it('reports whether the hand is pointing in the snapshot', async () => {
+    const t = setup()
+    await t.begin()
+    await t.send(1, 33, [hand({ tip: CENTER, pose: 'open' })])
+    expect(t.controller.getSnapshot()).toMatchObject({ phase: 'tracking', pointing: false })
+    await t.send(2, 66, [hand({ tip: CENTER, pose: 'pointing' })])
+    expect(t.controller.getSnapshot()).toMatchObject({ phase: 'tracking', pointing: true })
+    expect(t.snapshots.at(-1)?.pointing).toBe(true)
+  })
+
+  it('stops reporting pointing when the hand is lost or the mode ends', async () => {
+    const t = setup()
+    await t.begin()
+    await t.send(1, 33, [hand({ tip: CENTER })])
+    t.advance(700)
+    expect(t.controller.getSnapshot()).toMatchObject({ phase: 'lost', pointing: false })
+    await t.send(2, 66, [hand({ tip: CENTER })])
+    await t.controller.stop()
+    expect(t.controller.getSnapshot().pointing).toBe(false)
+  })
+
+  it('announces each click once', async () => {
+    const t = setup()
+    const clicks: number[] = []
+    t.controller.subscribeClicks(() => clicks.push(1))
+    await t.begin()
+    let next = await approach(t, [1, 1, 1])
+    next = await approach(t, [0.2, 0.2], next)
+    expect(clicks).toHaveLength(1)
+    next = await approach(t, [1], next)
+    await approach(t, [0.2], next)
+    expect(clicks).toHaveLength(2)
+  })
+
+  it('a click that is not made (outside the pointing pose) is not announced', async () => {
+    const t = setup()
+    const clicks: number[] = []
+    t.controller.subscribeClicks(() => clicks.push(1))
+    await t.begin()
+    for (let sequence = 1; sequence <= 4; sequence++)
+      await t.send(sequence, sequence * 33, [hand({ tip: CENTER, pose: 'open', pinch: 1 })])
+    for (let sequence = 5; sequence <= 8; sequence++)
+      await t.send(sequence, sequence * 33, [hand({ tip: CENTER, pose: 'open', pinch: 0.2 })])
+    expect(clicks).toEqual([])
+  })
+
+  it('a listener that throws does not stop the click', async () => {
+    const t = setup()
+    t.controller.subscribeClicks(() => {
+      throw new Error('observer')
+    })
+    await t.begin()
+    const next = await approach(t, [1, 1, 1])
+    await approach(t, [0.2], next)
+    expect(t.clicks()).toHaveLength(1)
   })
 })
 

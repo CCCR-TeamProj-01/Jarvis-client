@@ -1,0 +1,190 @@
+@import 'pretendard/dist/web/variable/pretendardvariable.css';
+@import '../ui/fonts.css';
+@import '../ui/tokens.css';
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  color: var(--color-text-primary);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.slot {
+  position: absolute;
+  display: flex;
+}
+.slot-voice {
+  top: 18px;
+  left: 0;
+  right: 0;
+  justify-content: center;
+}
+.slot-gesture {
+  right: 24px;
+  bottom: 24px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 18px 0 8px;
+  border-radius: var(--radius-full);
+  background: rgb(255 255 255 / 90%);
+  border: 1px solid rgb(255 255 255 / 95%);
+  box-shadow:
+    0 8px 28px rgb(41 65 109 / 22%),
+    inset 0 1px 0 #fff;
+  backdrop-filter: blur(var(--blur-overlay)) saturate(var(--glass-saturation));
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  animation: pill-in var(--motion-compact) var(--ease-out);
+}
+
+.badge {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.badge svg {
+  width: 15px;
+  height: 15px;
+}
+.kind-listening .badge {
+  background: #e6f8f4;
+  color: #0f766e;
+}
+.kind-thinking .badge {
+  background: var(--gradient-orb);
+  animation: spin var(--motion-orb) linear infinite;
+}
+.kind-speaking .badge,
+.kind-clicking .badge {
+  background: var(--color-secondary-soft);
+  color: #6d28d9;
+}
+.kind-done .badge {
+  background: #ecfdf5;
+  color: var(--color-success-text);
+}
+.kind-error .badge {
+  background: var(--color-error-surface);
+  color: var(--color-danger-text);
+}
+.kind-pointing .badge {
+  background: var(--color-primary-soft);
+  color: var(--color-action-hover);
+}
+.kind-holding .badge,
+.kind-searching .badge,
+.kind-paused .badge {
+  background: #eef2f7;
+  color: #475569;
+}
+
+.wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+}
+.wave i {
+  display: block;
+  width: 3px;
+  border-radius: 2px;
+  background: #0f9b8a;
+  animation: wave 900ms ease-in-out infinite;
+}
+.wave i:nth-child(1) {
+  height: 8px;
+}
+.wave i:nth-child(2) {
+  height: 16px;
+  animation-delay: 120ms;
+}
+.wave i:nth-child(3) {
+  height: 11px;
+  animation-delay: 240ms;
+}
+.wave i:nth-child(4) {
+  height: 18px;
+  animation-delay: 360ms;
+}
+.wave i:nth-child(5) {
+  height: 9px;
+  animation-delay: 480ms;
+}
+
+.stop {
+  margin-left: 2px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--color-divider);
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.stop:hover {
+  background: var(--color-border);
+}
+.stop:focus-visible {
+  outline: 2px solid var(--color-action);
+  outline-offset: 2px;
+}
+.stop svg {
+  width: 12px;
+  height: 12px;
+}
+
+@keyframes pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes wave {
+  50% {
+    transform: scaleY(0.45);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill,
+  .kind-thinking .badge,
+  .wave i {
+    animation: none;
+  }
+}

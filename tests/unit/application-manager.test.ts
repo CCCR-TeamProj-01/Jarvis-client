@@ -134,18 +134,34 @@ vi.mock('electron', async () => {
   }
 })
 
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, Tray } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  Menu,
+  nativeTheme,
+  Tray
+} from 'electron'
 import type { IpcMainInvokeEvent } from 'electron'
 import {
   ApplicationManager,
   DEFAULT_CALL_SHORTCUT,
   GESTURE_TOGGLE_SHORTCUT,
-  startApplication
+  startApplication,
+  trayClickOpensWindow
 } from '../../src/main/application/application-manager'
+import { authGeneration, authUser } from '../fixtures/contracts'
 import { UI_CHANNELS } from '../../src/shared/ipc/channels'
 
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve))
 const managers: ApplicationManager[] = []
+
+const realPlatform = process.platform
+function setPlatform(platform: NodeJS.Platform) {
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+}
 
 beforeEach(() => {
   app.removeAllListeners()
@@ -160,6 +176,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  setPlatform(realPlatform)
   for (const manager of managers.splice(0)) manager.dispose()
   app.emit('before-quit', {})
   vi.restoreAllMocks()
@@ -212,6 +229,106 @@ describe('native application lifecycle', () => {
     expect(BrowserWindow.getAllWindows()).toEqual([window])
   })
 
+  describe('when signed in', () => {
+    async function signedInManager() {
+      const manager = makeManager()
+      manager.start()
+      await flush()
+      vi.spyOn(manager.auth, 'isSignedIn').mockReturnValue(true)
+      vi.spyOn(manager.tools.restoreTracker, 'capture').mockResolvedValue()
+      manager.interaction.setAuthSnapshot({
+        phase: 'signed_in',
+        generation: authGeneration,
+        user: authUser
+      })
+      const window = BrowserWindow.getAllWindows()[0]
+      window.close()
+      expect(window.isVisible()).toBe(false)
+      return { manager, window, dispatch: vi.spyOn(manager.interaction, 'dispatch') }
+    }
+
+    it('opens the window from the tray icon (Windows) and menu without starting a conversation', async () => {
+      setPlatform('win32')
+      const { window, dispatch } = await signedInManager()
+      const tray = vi.mocked(Tray).mock.results[0].value as Tray
+      tray.emit('click')
+      await flush()
+      expect(window.isVisible()).toBe(true)
+      window.close()
+      const menu = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0] as {
+        label?: string
+        click?: () => void
+      }[]
+      menu.find((item) => item.label === '자비스 열기')?.click?.()
+      await flush()
+      expect(window.isVisible()).toBe(true)
+      expect(dispatch).not.toHaveBeenCalledWith({ type: 'conversation.start' }, undefined)
+      expect(dispatch.mock.calls.some(([command]) => command.type === 'conversation.start')).toBe(
+        false
+      )
+    })
+
+    it('on macOS clicking the menu-bar icon only opens its menu, not the window', async () => {
+      setPlatform('darwin')
+      const { window } = await signedInManager()
+      const tray = vi.mocked(Tray).mock.results[0].value as Tray
+      expect(tray.listenerCount('click')).toBe(0)
+      tray.emit('click')
+      await flush()
+      expect(window.isVisible()).toBe(false)
+    })
+
+    it('decides by platform whether an icon click opens the window', () => {
+      expect(trayClickOpensWindow('darwin')).toBe(false)
+      expect(trayClickOpensWindow('win32')).toBe(true)
+      expect(trayClickOpensWindow('linux')).toBe(true)
+    })
+
+    it('opens the window when the Dock icon is clicked or Jarvis is launched again', async () => {
+      const { manager, window, dispatch } = await signedInManager()
+      manager.showWindow()
+      await flush()
+      expect(window.isVisible()).toBe(true)
+      expect(dispatch.mock.calls.some(([command]) => command.type === 'conversation.start')).toBe(
+        false
+      )
+    })
+
+    it('notes where the user was before the window takes the foreground', async () => {
+      const { manager } = await signedInManager()
+      manager.showWindow()
+      await flush()
+      expect(manager.tools.restoreTracker.capture).toHaveBeenCalledOnce()
+    })
+
+    it('the menu offers starting a conversation separately from opening the window', async () => {
+      const { dispatch, window } = await signedInManager()
+      const menu = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0] as {
+        label?: string
+        click?: () => void
+      }[]
+      menu.find((item) => item.label === '대화 시작')?.click?.()
+      await flush()
+      expect(dispatch.mock.calls.some(([command]) => command.type === 'conversation.start')).toBe(
+        true
+      )
+      expect(window.isVisible()).toBe(false)
+    })
+
+    it('the call shortcut starts a conversation and leaves the window alone', async () => {
+      const { window, dispatch } = await signedInManager()
+      const call = vi
+        .mocked(globalShortcut.register)
+        .mock.calls.find(([accelerator]) => accelerator === DEFAULT_CALL_SHORTCUT)
+      call?.[1]()
+      await flush()
+      expect(dispatch.mock.calls.some(([command]) => command.type === 'conversation.start')).toBe(
+        true
+      )
+      expect(window.isVisible()).toBe(false)
+    })
+  })
+
   it('releases its shortcut, tray and IPC handlers when explicitly quitting', async () => {
     startApplication()
     await flush()
@@ -242,8 +359,14 @@ describe('native application lifecycle', () => {
     const window = BrowserWindow.getAllWindows()[0]
     window.close()
     const tray = vi.mocked(Tray).mock.results[0].value as Tray
-    tray.emit('click')
+    // The tray menu is the fallback way to the window.
+    const menu = vi.mocked(Menu.buildFromTemplate).mock.calls[0][0] as {
+      label?: string
+      click?: () => void
+    }[]
+    menu.find((item) => item.label === '자비스 열기')?.click?.()
     expect(window.isVisible()).toBe(true)
+    expect(tray.listenerCount('click')).toBe(trayClickOpensWindow(process.platform) ? 1 : 0)
     expect(Tray).toHaveBeenCalledOnce()
     manager.dispose()
     expect(globalShortcut.unregister).not.toHaveBeenCalled()
@@ -285,7 +408,7 @@ describe('native application lifecycle', () => {
     manager.dispose()
     const window = BrowserWindow.getAllWindows()[0]
     window.close()
-    manager.activate('tray')
+    manager.showWindow()
     expect(BrowserWindow.getAllWindows()).toHaveLength(0)
     expect(tray.destroy).toHaveBeenCalledOnce()
     expect(ipcMain.removeHandler).toHaveBeenCalledWith(UI_CHANNELS.snapshot)

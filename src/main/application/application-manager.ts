@@ -13,6 +13,7 @@ import { registerMediaIpc } from '../ipc/media-ipc'
 import { registerUiIpc } from '../ipc/ui-ipc'
 import { createSensorStack, isFakeMediaEnabled } from '../sensors/create-sensors'
 import type { SensorStack } from '../sensors/create-sensors'
+import { createOverlay } from '../overlay/create-overlay'
 import { createGestureController } from '../gesture/create-gesture'
 import type { GestureController } from '../gesture/gesture-controller'
 import { startHandSelfTest } from '../gesture/dev-hand-selftest'
@@ -32,6 +33,12 @@ import type { ToolStack } from '../tools/create-tools'
 import { startToolSelfTest } from '../tools/dev-tool-selftest'
 import { createTrayIcon } from './tray-icon'
 import { UiWindow } from './ui-window'
+
+/**
+ * On macOS a menu-bar icon opens its menu when clicked and the window is opened from the menu's
+ * "자비스 열기"; on Windows a click on the notification-area icon opens the window directly.
+ */
+export const trayClickOpensWindow = (platform: NodeJS.Platform): boolean => platform !== 'darwin'
 
 export const DEFAULT_CALL_SHORTCUT = 'CommandOrControl+Shift+Space'
 /** Turns gesture control on or off; the way to stop it at once without touching the pointer. */
@@ -86,6 +93,7 @@ export class ApplicationManager {
   private disposeSpeechSelfTest: (() => void) | null = null
   private disposeHandSelfTest: (() => void) | null = null
   private disposeSpeechSync: (() => void) | null = null
+  private disposeOverlay: (() => void) | null = null
   private readonly window: UiWindow
   private tray: Tray | null = null
   private shortcutRegistered = false
@@ -249,6 +257,17 @@ export class ApplicationManager {
     const stopGestureProblems = this.gesture.subscribeProblems((error) =>
       this.interaction.publishNotice({ type: 'problem', error })
     )
+    // The status overlay watches the same state; it can be switched off while developing.
+    if (app.isPackaged || process.env.JARVIS_NO_OVERLAY !== '1')
+      this.disposeOverlay = createOverlay({
+        entryUrl: entryUrl.replace(/\/ui\/index\.html$/, '/overlay/index.html'),
+        preloadPath: preloadPath.replace(/ui\.js$/, 'overlay.js'),
+        interaction: this.interaction,
+        conversation,
+        speech: speechSession,
+        gesture: this.gesture,
+        stopConversation: () => void this.interaction.dispatch({ type: 'conversation.stop' })
+      }).dispose
     const stopConversationState = conversation.subscribe((snapshot) => {
       this.interaction.setConversationState(snapshot)
       // Without a conversation there is nothing to listen for. A reply being worked on or spoken
@@ -310,11 +329,29 @@ export class ApplicationManager {
     void this.auth.start()
   }
 
+  /** The call: start a conversation with the voice side (hotkey). It does not open the window. */
   activate(source: ActivationSource): void {
     if (this.quitting) return
     // Record where the user was before Jarvis takes the foreground, so "go back" has a target.
     if (this.auth.isSignedIn()) void this.tools.restoreTracker.capture()
     void this.interaction.activateConversation(source)
+  }
+
+  /**
+   * Brings the window up: a second launch, the Dock icon, the tray icon or its menu. Opening the
+   * app is a different thing from calling it, so this never starts a conversation. Where the user
+   * was is noted first, because the window takes the foreground.
+   */
+  showWindow(): void {
+    if (this.quitting) return
+    if (!this.auth.isSignedIn()) {
+      this.window.open()
+      return
+    }
+    void this.tools.restoreTracker
+      .capture()
+      .catch(() => undefined)
+      .finally(() => this.window.open())
   }
 
   hasTray(): boolean {
@@ -348,6 +385,8 @@ export class ApplicationManager {
     this.disposeHandSelfTest = null
     const releaseSpeechSync = this.disposeSpeechSync
     this.disposeSpeechSync = null
+    const releaseOverlay = this.disposeOverlay
+    this.disposeOverlay = null
     const releaseShortcut = this.shortcutRegistered
     this.shortcutRegistered = false
     const releaseGestureShortcut = this.gestureShortcutRegistered
@@ -369,6 +408,7 @@ export class ApplicationManager {
       () => releaseSpeechSelfTest?.(),
       () => releaseHandSelfTest?.(),
       () => releaseSpeechSync?.(),
+      () => releaseOverlay?.(),
       () => releaseSensorSync?.(),
       () => releaseMediaIpc?.(),
       () => {
@@ -406,7 +446,8 @@ export class ApplicationManager {
       this.tray.setToolTip('자비스')
       this.tray.setContextMenu(
         Menu.buildFromTemplate([
-          { label: '자비스 열기', click: () => this.activate('tray') },
+          { label: '자비스 열기', click: () => this.showWindow() },
+          { label: '대화 시작', click: () => this.activate('tray') },
           {
             label: '설정',
             click: () => {
@@ -442,7 +483,7 @@ export class ApplicationManager {
           { label: '앱 종료', click: () => app.quit() }
         ])
       )
-      this.tray.on('click', () => this.activate('tray'))
+      if (trayClickOpensWindow(process.platform)) this.tray.on('click', () => this.showWindow())
       this.interaction.setTrayState({ status: 'ready' })
     } catch {
       if (this.tray && !this.tray.isDestroyed()) this.tray.destroy()
@@ -508,8 +549,8 @@ export function startApplication(): void {
   }
   let manager: ApplicationManager | null = null
   let quitting = false
-  app.on('second-instance', () => manager?.activate('hotkey'))
-  app.on('activate', () => manager?.activate('hotkey'))
+  app.on('second-instance', () => manager?.showWindow())
+  app.on('activate', () => manager?.showWindow())
   app.on('before-quit', () => {
     quitting = true
     manager?.dispose()

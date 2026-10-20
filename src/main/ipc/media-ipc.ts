@@ -1,4 +1,5 @@
 import type { IpcMain, IpcMainEvent, WebContents } from 'electron'
+import { isTrustedSender } from './trusted-sender'
 import { MediaEventSchema } from '../../shared/ipc/media-api'
 import { MEDIA_CHANNELS } from '../../shared/ipc/channels'
 import type { MediaBridge } from '../sensors/media-bridge'
@@ -11,24 +12,7 @@ interface MediaIpcOptions {
 }
 
 /** Same trust rule as the UI IPC: the one media window, its top frame and its entry document. */
-export function isTrustedMediaSender(
-  event: Pick<IpcMainEvent, 'sender' | 'senderFrame'>,
-  contents: WebContents | null,
-  entryUrl: string
-): boolean {
-  try {
-    return (
-      contents !== null &&
-      !contents.isDestroyed() &&
-      event.sender === contents &&
-      event.senderFrame !== null &&
-      event.senderFrame === contents.mainFrame &&
-      event.senderFrame.url === entryUrl
-    )
-  } catch {
-    return false
-  }
-}
+export const isTrustedMediaSender = isTrustedSender
 
 /** Receives Media Renderer events; anything from another sender or in a wrong shape is dropped. */
 export function registerMediaIpc({

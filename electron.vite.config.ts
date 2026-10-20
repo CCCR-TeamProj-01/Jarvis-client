@@ -22,7 +22,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           ui: resolve(__dirname, 'src/preload/ui.ts'),
-          media: resolve(__dirname, 'src/preload/media.ts')
+          media: resolve(__dirname, 'src/preload/media.ts'),
+          overlay: resolve(__dirname, 'src/preload/overlay.ts')
         }
       }
     }
@@ -35,7 +36,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           ui: resolve(__dirname, 'src/renderer/ui/index.html'),
-          media: resolve(__dirname, 'src/renderer/media/index.html')
+          media: resolve(__dirname, 'src/renderer/media/index.html'),
+          overlay: resolve(__dirname, 'src/renderer/overlay/index.html')
         }
       }
     }
