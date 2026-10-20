@@ -44,6 +44,10 @@
 
 참고: [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage), [OWASP Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
 
+### 카메라·마이크 권한 경계
+
+Electron session의 권한 처리기는 기본 거부다. 카메라·마이크는 비표시 Media Renderer가 Main이 센서를 시작하는 중이거나 사용 중인 종류에 대해서만 허용하며, UI 창·다른 문서·그 밖의 모든 권한 요청은 거부한다. Chromium의 가짜 UI 승인 스위치는 처리기를 우회하므로 개발용 가짜 장치에서도 쓰지 않는다. macOS 사용 목적 문구는 패키징 설정에 둔다.
+
 ### 실행과 UI 경계
 
 Renderer는 `contextIsolation`과 제한된 `contextBridge` API를 사용하고 Node.js 직접 접근을 허용하지 않는 구성을 기본으로 한다. Main은 IPC 발신 창·인자·기능 범위를 검증한다. 외부 콘텐츠나 LLM 출력은 실행 권한이 되지 않으며, 등록 도구·허용된 앱·검증된 URL 범위 안에서만 실행한다.

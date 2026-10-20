@@ -6,6 +6,7 @@ import {
   resultSchema
 } from '../contracts/common'
 import type { Unsubscribe } from '../contracts/common'
+import { SensorDeviceSchema, SensorKindSchema } from '../contracts/sensors'
 import {
   AudioCaptureStartSchema,
   CompletedUtteranceSchema,
@@ -17,11 +18,14 @@ import {
 
 export const CameraStartSchema = z.strictObject({
   generation: GenerationSchema,
-  leaseId: IdentifierSchema
+  leaseId: IdentifierSchema,
+  /** Omitted selects the system default device. */
+  deviceId: IdentifierSchema.optional()
 })
 export type CameraStart = z.infer<typeof CameraStartSchema>
 
 export const MediaCommandSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('devices.list'), kind: SensorKindSchema }),
   z.strictObject({ type: z.literal('camera.start'), request: CameraStartSchema }),
   z.strictObject({ type: z.literal('camera.stop'), generation: GenerationSchema }),
   z.strictObject({ type: z.literal('audio.capture.start'), request: AudioCaptureStartSchema }),
@@ -49,6 +53,17 @@ export const MediaEventSchema = z
       type: z.literal('media.command_result'),
       commandId: IdentifierSchema,
       result: resultSchema(z.null())
+    }),
+    z.strictObject({
+      type: z.literal('media.devices'),
+      commandId: IdentifierSchema,
+      result: resultSchema(z.array(SensorDeviceSchema))
+    }),
+    /** Hot-plug notification: the devices of one kind changed. */
+    z.strictObject({
+      type: z.literal('media.devices_changed'),
+      kind: SensorKindSchema,
+      devices: z.array(SensorDeviceSchema)
     }),
     z.strictObject({
       type: z.literal('camera.state'),

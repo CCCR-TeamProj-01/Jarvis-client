@@ -10,6 +10,7 @@ export const PermissionStateSchema = z.enum([
   'restricted',
   'unsupported'
 ])
+export type PermissionState = z.infer<typeof PermissionStateSchema>
 export const SensorOwnerSchema = z.enum([
   'voice_wake',
   'speech_session',

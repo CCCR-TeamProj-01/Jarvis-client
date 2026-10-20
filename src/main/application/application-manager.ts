@@ -1,4 +1,4 @@
-import { app, dialog, globalShortcut, ipcMain, Menu, Tray } from 'electron'
+import { app, dialog, globalShortcut, ipcMain, Menu, session, Tray } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -7,7 +7,14 @@ import { createDefaultAuth } from '../auth/create-auth'
 import { InteractionManager } from '../interaction/interaction-manager'
 import type { ActivationSource } from '../interaction/ports'
 import { registerAuthIpc } from '../ipc/auth-ipc'
+import { registerMediaIpc } from '../ipc/media-ipc'
 import { registerUiIpc } from '../ipc/ui-ipc'
+import { createSensorStack, isFakeMediaEnabled } from '../sensors/create-sensors'
+import type { SensorStack } from '../sensors/create-sensors'
+import { startSensorSelfTest } from '../sensors/dev-selftest'
+import { installMediaPermissionPolicy } from '../sensors/media-permissions'
+import { createSensorGate } from '../sensors/sensor-gate'
+import type { SensorManager } from '../sensors/sensor-manager'
 import { createTrayIcon } from './tray-icon'
 import { UiWindow } from './ui-window'
 
@@ -15,11 +22,19 @@ export const DEFAULT_CALL_SHORTCUT = 'CommandOrControl+Shift+Space'
 
 export interface ApplicationDependencies {
   auth?: AuthManager
+  /** Defaults are derived from the UI entry URL and preload path (`/ui/` -> `/media/`). */
+  media?: { entryUrl: string; preloadPath: string }
 }
 
 export class ApplicationManager {
   readonly interaction: InteractionManager
   readonly auth: AuthManager
+  readonly sensors: SensorManager
+  private readonly sensorStack: SensorStack
+  private recognitionWasPaused = false
+  private disposeMediaIpc: (() => void) | null = null
+  private disposeSensorSync: (() => void) | null = null
+  private disposeSelfTest: (() => void) | null = null
   private readonly window: UiWindow
   private tray: Tray | null = null
   private shortcutRegistered = false
@@ -67,10 +82,57 @@ export class ApplicationManager {
       entryUrl,
       auth: this.auth
     })
+    const mediaEntryUrl =
+      dependencies.media?.entryUrl ?? entryUrl.replace(/\/ui\/index\.html$/, '/media/index.html')
+    const mediaPreloadPath =
+      dependencies.media?.preloadPath ?? preloadPath.replace(/ui\.js$/, 'media.js')
+    this.sensorStack = createSensorStack({
+      mediaEntryUrl,
+      mediaPreloadPath,
+      isQuitting: () => this.quitting,
+      gate: createSensorGate(this.auth, () => this.interaction.getSnapshot().recognitionPaused)
+    })
+    this.sensors = this.sensorStack.sensors
+    const stack = this.sensorStack
+    this.disposeMediaIpc = registerMediaIpc({
+      ipc: ipcMain,
+      getContents: () => stack.window.getContents(),
+      entryUrl: mediaEntryUrl,
+      bridge: stack.bridge
+    })
+    installMediaPermissionPolicy({
+      session: session.defaultSession,
+      getMediaContents: () => stack.window.getContents(),
+      entryUrl: mediaEntryUrl,
+      isKindPermitted: (kind) => this.sensors.permits(kind)
+    })
     // Main's authentication state is the source for the snapshot the UI and every entry point see.
-    this.disposeAuthSync = this.auth.onGenerationChange((snapshot) =>
+    // Any change of generation (sign-out, expiry re-check, account switch) also ends sensor use.
+    this.disposeAuthSync = this.auth.onGenerationChange((snapshot) => {
       this.interaction.setAuthSnapshot(snapshot)
-    )
+      void this.sensors.revokeAll({
+        code: 'authentication_required',
+        message: '로그인 상태가 변경되어 센서를 해제했습니다.'
+      })
+    })
+    const stopSensorSnapshots = this.sensors.subscribe((event) => {
+      if (event.type === 'sensor.state_changed')
+        this.interaction.setSensors(this.sensors.getSnapshots())
+    })
+    const stopPauseWatch = this.interaction.subscribe((event) => {
+      if (event.type !== 'state.changed') return
+      const paused = event.snapshot.recognitionPaused
+      if (paused && !this.recognitionWasPaused)
+        void this.sensors.revokeAll({
+          code: 'cancelled',
+          message: '인식이 일시 중지되어 센서를 해제했습니다.'
+        })
+      this.recognitionWasPaused = paused
+    })
+    this.disposeSensorSync = () => {
+      stopSensorSnapshots()
+      stopPauseWatch()
+    }
   }
 
   start(): void {
@@ -79,6 +141,8 @@ export class ApplicationManager {
     this.createTray()
     this.registerShortcut()
     this.window.open()
+    if (!app.isPackaged && process.env.JARVIS_SENSOR_SELFTEST === '1')
+      this.disposeSelfTest = startSensorSelfTest(this.auth, this.sensors)
     void this.auth.start()
   }
 
@@ -101,6 +165,12 @@ export class ApplicationManager {
     this.disposeAuthIpc = null
     const releaseAuthSync = this.disposeAuthSync
     this.disposeAuthSync = null
+    const releaseMediaIpc = this.disposeMediaIpc
+    this.disposeMediaIpc = null
+    const releaseSensorSync = this.disposeSensorSync
+    this.disposeSensorSync = null
+    const releaseSelfTest = this.disposeSelfTest
+    this.disposeSelfTest = null
     const releaseShortcut = this.shortcutRegistered
     this.shortcutRegistered = false
     // A failed release must not prevent remaining resources from being released.
@@ -111,6 +181,16 @@ export class ApplicationManager {
       () => releaseIpc?.(),
       () => releaseAuthIpc?.(),
       () => releaseAuthSync?.(),
+      () => releaseSelfTest?.(),
+      () => releaseSensorSync?.(),
+      () => releaseMediaIpc?.(),
+      () => {
+        // Releases devices through the media window, then the window itself goes away.
+        void this.sensors.dispose()
+        this.sensorStack.window.dispose()
+        this.sensorStack.bridge.dispose()
+        this.sensorStack.hardware.dispose()
+      },
       () => this.auth.dispose(),
       () => this.window.dispose(),
       () => {
@@ -202,6 +282,11 @@ export class ApplicationManager {
 
 export function startApplication(): void {
   app.setName('Jarvis')
+  if (isFakeMediaEnabled()) {
+    // Development only: synthetic camera/microphone. The permission handler stays authoritative;
+    // Chromium's fake-UI switch is deliberately not used because it would bypass that handler.
+    app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+  }
   if (!app.requestSingleInstanceLock()) {
     app.quit()
     return

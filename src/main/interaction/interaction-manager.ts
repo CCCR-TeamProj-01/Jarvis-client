@@ -12,6 +12,7 @@ import type {
   UiCommand,
   UiEvent
 } from '../../shared/contracts/interaction'
+import type { SensorSnapshot } from '../../shared/contracts/sensors'
 import type { ActivationSource, InteractionPort } from './ports'
 import type { LocalExecutionOptions } from '../ports'
 
@@ -91,6 +92,14 @@ export class InteractionManager implements InteractionPort {
       case 'recognition.pause':
         if (!this.snapshot.recognitionPaused) this.update({ recognitionPaused: true })
         return this.accepted()
+      case 'recognition.resume':
+        // Resuming is a protected action: before sign-in it leads to the login screen instead.
+        if (this.snapshot.auth.phase === 'signed_in') {
+          if (this.snapshot.recognitionPaused) this.update({ recognitionPaused: false })
+          return this.accepted()
+        }
+        this.open('login')
+        return this.failure('authentication_required', '로그인이 필요합니다.')
       default:
         if (this.snapshot.auth.phase !== 'signed_in') {
           this.open('login')
@@ -132,6 +141,13 @@ export class InteractionManager implements InteractionPort {
       screen: authScreen ? this.snapshot.screen : 'login'
     })
     this.options.showWindow()
+  }
+
+  /** Published by the sensor layer; Main is the only writer. */
+  setSensors(sensors: SensorSnapshot[]): void {
+    if (this.disposed) return
+    if (JSON.stringify(this.snapshot.sensors) === JSON.stringify(sensors)) return
+    this.update({ sensors })
   }
 
   setShortcutState(shortcut: ShortcutSnapshot): void {

@@ -1,8 +1,4 @@
-import { contextBridge } from 'electron'
-import type { BootstrapMediaApi } from '../shared/ipc/media-api'
+import { contextBridge, ipcRenderer } from 'electron'
+import { createMediaBridge } from './media-bridge'
 
-const api = {
-  platform: process.platform
-} satisfies BootstrapMediaApi
-
-contextBridge.exposeInMainWorld('jarvisMedia', api)
+contextBridge.exposeInMainWorld('jarvisMedia', createMediaBridge(ipcRenderer, process.platform))

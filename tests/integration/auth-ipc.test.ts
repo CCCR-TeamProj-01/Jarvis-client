@@ -7,6 +7,7 @@ import { InteractionManager } from '../../src/main/interaction/interaction-manag
 import { registerAuthIpc } from '../../src/main/ipc/auth-ipc'
 import { createUiBridge } from '../../src/preload/ui-bridge'
 import type { AuthEvent } from '../../src/shared/contracts/auth'
+import type { UiEvent } from '../../src/shared/contracts/interaction'
 import type { Generation } from '../../src/shared/contracts/common'
 import { AUTH_CHANNELS } from '../../src/shared/ipc/channels'
 
@@ -256,5 +257,40 @@ describe('entry-point enforcement', () => {
     await interaction.dispatch({ type: 'auth.open', screen: 'signup' })
     await auth.handleSessionRejected({ code: 'session_expired', message: '만료' })
     expect(interaction.getSnapshot().screen).toBe('signup')
+  })
+
+  it('resumes recognition only for a signed-in user and sends others to sign-in', async () => {
+    const { auth, interaction, showWindow } = setup()
+    await auth.start()
+    await interaction.dispatch({ type: 'recognition.pause' })
+    expect(await interaction.dispatch({ type: 'recognition.resume' })).toMatchObject({
+      ok: false,
+      error: { code: 'authentication_required' }
+    })
+    expect(interaction.getSnapshot().recognitionPaused).toBe(true)
+    expect(showWindow).toHaveBeenCalled()
+
+    await auth.signIn({
+      requestId: 'r',
+      generation: auth.getSnapshot().generation,
+      input: { loginId: DEV_ACCOUNT.loginId, password: DEV_ACCOUNT.password }
+    })
+    expect(await interaction.dispatch({ type: 'recognition.resume' })).toMatchObject({ ok: true })
+    expect(interaction.getSnapshot().recognitionPaused).toBe(false)
+  })
+
+  it('publishes sensor snapshots only when they change', async () => {
+    const { auth, interaction } = setup()
+    await auth.start()
+    const listener = vi.fn<(event: UiEvent) => void>()
+    interaction.subscribe(listener)
+    const sensors = [
+      { kind: 'camera', permission: 'granted', state: 'idle', leaseCount: 0 },
+      { kind: 'microphone', permission: 'granted', state: 'idle', leaseCount: 0 }
+    ] as const
+    interaction.setSensors([...sensors])
+    interaction.setSensors([...sensors])
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(interaction.getSnapshot().sensors).toEqual(sensors)
   })
 })

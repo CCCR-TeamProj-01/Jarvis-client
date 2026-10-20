@@ -8,5 +8,8 @@ files:
 asar: true
 mac:
   target: dmg
+  extendInfo:
+    NSCameraUsageDescription: 손 동작으로 컴퓨터를 제어하기 위해 카메라를 사용합니다. 영상은 이 기기에서만 처리되며 서버로 전송되지 않습니다.
+    NSMicrophoneUsageDescription: 호출어를 듣고 음성 명령을 받기 위해 마이크를 사용합니다. 호출 후 완료된 명령 발화만 서버로 전송됩니다.
 win:
   target: nsis
