@@ -1,8 +1,4 @@
-import { contextBridge } from 'electron'
-import type { BootstrapUiApi } from '../shared/ipc/ui-api'
+import { contextBridge, ipcRenderer } from 'electron'
+import { createUiBridge } from './ui-bridge'
 
-const api = {
-  platform: process.platform
-} satisfies BootstrapUiApi
-
-contextBridge.exposeInMainWorld('jarvis', api)
+contextBridge.exposeInMainWorld('jarvis', createUiBridge(ipcRenderer, process.platform))

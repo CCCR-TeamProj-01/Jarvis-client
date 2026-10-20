@@ -11,6 +11,10 @@ export const authUser: AuthUser = { userId: 'user-1', loginId: 'tester' }
 export function clientSnapshot(overrides: Partial<ClientSnapshot> = {}): ClientSnapshot {
   return {
     revision: 0,
+    application: {
+      shortcut: { status: 'registered', accelerator: 'CommandOrControl+Shift+Space' },
+      tray: { status: 'ready' }
+    },
     auth: { phase: 'signed_in', generation: authGeneration, user: authUser },
     recognitionPaused: false,
     conversation: { phase: 'idle', generation: null },

@@ -1,16 +1,24 @@
 import type { Result, Unsubscribe } from '../contracts/common'
+import { resultSchema } from '../contracts/common'
 import type { ClientSnapshot, CommandReceipt, UiCommand, UiEvent } from '../contracts/interaction'
+import { ClientSnapshotSchema, CommandReceiptSchema } from '../contracts/interaction'
 import type { AuthApi } from './auth-api'
 
-/** The API actually available in the initial app; do not expose unimplemented methods. */
+/** The minimal API before IPC is connected. */
 export interface BootstrapUiApi {
   readonly platform: string
 }
 
-/** Implement the IPC handlers and sender validation before exposing this full API. */
-export interface UiApi extends BootstrapUiApi {
-  readonly auth: AuthApi
+export const UiCommandResponseSchema = resultSchema(CommandReceiptSchema)
+export const UiSnapshotResponseSchema = resultSchema(ClientSnapshotSchema)
+
+/** Currently implemented API; authentication methods are exposed after their handlers exist. */
+export interface InteractionUiApi extends BootstrapUiApi {
   dispatch(command: UiCommand): Promise<Result<CommandReceipt>>
   getSnapshot(): Promise<Result<ClientSnapshot>>
   subscribe(listener: (event: UiEvent) => void): Unsubscribe
+}
+
+export interface UiApi extends InteractionUiApi {
+  readonly auth: AuthApi
 }
