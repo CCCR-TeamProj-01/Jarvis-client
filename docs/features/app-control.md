@@ -30,7 +30,7 @@ F-014([#14](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/14))에서 
 macOS 동작 기준은 다음과 같다.
 
 - 앱 ID는 번들 ID다. 앱 목록은 `/Applications`·`/System/Applications`·사용자 `Applications`의 번들과 실행 중인 일반 앱을 합쳐 만들며, 자동화(Apple Events) 권한이 필요 없는 Foundation·AppKit 조회만 쓴다. 실행·전환 대상은 이 목록에 있는 ID만 허용하고 `open -b <번들 ID>`로 전달한다. ID 형식이 맞지 않거나 목록에 없으면 명령을 실행하지 않는다.
-- 실행: 이미 실행 중이면 다시 열지 않고 `confirmed`. 아니면 `open` 후 프로세스가 나타나는지 5초까지 확인해 `confirmed`, 못 보면 `dispatched`.
+- 실행: 이미 실행 중이면 새로 시작하지 않고 `open -b`로 앞으로 가져온 뒤 전면 앱이 바뀌었는지 확인해 `confirmed`, OS가 포커스를 넘기지 않으면 `dispatched`(창이 없는 앱은 macOS의 기본 동작대로 창이 열린다). 아니면 `open` 후 프로세스가 나타나는지 5초까지 확인해 `confirmed`, 못 보면 `dispatched`.
 - 전환: 실행 중인 앱만 대상이다(실행 중이 아니면 `not_found`이며 앱을 새로 시작하지 않는다). 전면 앱이 바뀌었는지 확인해 `confirmed`, 아니면 `dispatched`.
 - 복귀: 기록한 앱을 전환한다. 창 단위 복귀는 접근성 권한이 필요해 macOS에서는 앱 단위까지만 지원한다.
 - URL 열기: http·https만 허용하고 Electron `shell.openExternal`로 기본 브라우저에 전달한다. 결과는 `dispatched`다.
