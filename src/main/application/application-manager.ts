@@ -155,6 +155,7 @@ export class ApplicationManager {
     this.conversation = new ConversationManager({
       gate: sensorGate,
       assistant: server.assistant,
+      tools: { executor: this.tools.executor, registry: this.tools.registry },
       clock: { now: () => performance.now() },
       createId: randomUUID,
       schedule: (callback, delayMs) => {

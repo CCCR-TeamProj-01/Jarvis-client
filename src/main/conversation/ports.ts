@@ -1,4 +1,5 @@
 import type { ClientError, Result, Unsubscribe } from '../../shared/contracts/common'
+import type { Capability, ToolExecutionReport } from '../../shared/contracts/tools'
 import type { LocalExecutionOptions } from '../ports'
 
 /** Identifies one request inside a conversation, so late answers can be told apart and dropped. */
@@ -15,6 +16,31 @@ export interface AssistantReply {
   endConversation?: boolean
 }
 
+/** One tool the assistant wants run on this device while it works on a request. */
+export interface ToolRequest {
+  /** Chosen by the assistant. The same ID is never run twice, so a repeat gets the first result. */
+  executionId: string
+  /** Not trusted until validated; anything outside the known tools is refused. */
+  command: unknown
+  /** How long the request stays worth running, counted from the moment it arrives. */
+  expiresInMs?: number
+  /** The device view it was made against; availability is rechecked right before running anyway. */
+  capabilityRevision?: number
+}
+
+/**
+ * What the assistant can do on this device during one request. It stops working when the request
+ * ends: a call after that, or after the conversation was cancelled, is refused without running.
+ */
+export interface AssistantTools {
+  capabilities(): { revision: number; capabilities: Capability[] }
+  execute(request: ToolRequest): Promise<ToolExecutionReport>
+}
+
+export interface AssistantRespondOptions extends LocalExecutionOptions {
+  tools?: AssistantTools
+}
+
 /**
  * The server's answer to something the user said or typed. It does not matter to the server (or
  * to this boundary) whether the words arrived by voice or by keyboard.
@@ -23,7 +49,7 @@ export interface AssistantPort {
   respond(
     turn: TurnContext,
     text: string,
-    options?: LocalExecutionOptions
+    options?: AssistantRespondOptions
   ): Promise<Result<AssistantReply>>
 }
 
@@ -41,6 +67,7 @@ export interface ConversationSnapshot {
 export type ConversationNotice =
   | { type: 'user'; requestId: string; text: string; modality: TurnModality }
   | { type: 'assistant'; requestId: string; text: string }
+  | { type: 'tool'; requestId: string; executionId: string; text: string; ok: boolean }
   | { type: 'problem'; error: ClientError }
 
 export interface TurnResult {

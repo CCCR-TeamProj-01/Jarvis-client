@@ -1,7 +1,13 @@
 import type { ClientError, Result } from '../../../shared/contracts/common'
 import type { CompletedUtterance } from '../../../shared/contracts/speech'
 import type { LocalExecutionOptions } from '../../ports'
-import type { AssistantPort, AssistantReply, TurnContext } from '../../conversation/ports'
+import type {
+  AssistantPort,
+  AssistantReply,
+  AssistantRespondOptions,
+  TurnContext
+} from '../../conversation/ports'
+import { runDevIntent } from './dev-intents'
 import type { RemoteSpeechPort, SpeechTurn, Transcription } from './ports'
 import { createToneWav } from './tone'
 
@@ -55,17 +61,21 @@ export class DevRemoteSpeech implements RemoteSpeechPort, AssistantPort {
   async respond(
     turn: TurnContext,
     text: string,
-    execution?: LocalExecutionOptions
+    execution?: AssistantRespondOptions
   ): Promise<Result<AssistantReply>> {
     this.calls.push({ step: 'respond', turn })
     const early = await this.enter('respond', execution)
     if (early) return early
+    // With tools available, plain requests ("사파리 열어줘") are carried out and answered from the results.
+    const performed = execution?.tools ? await runDevIntent(text, execution.tools) : null
+    if (execution?.signal?.aborted)
+      return { ok: false, error: { code: 'cancelled', message: '요청이 취소되었습니다.' } }
     this.turns += 1
     const end = this.options.endAfterTurns !== undefined && this.turns >= this.options.endAfterTurns
     return {
       ok: true,
       value: {
-        text: `(개발용 응답) "${text}"을 받았어요.`,
+        text: performed ?? `(개발용 응답) "${text}"을 받았어요.`,
         ...(this.options.withoutAudio
           ? {}
           : { audio: { mimeType: 'audio/wav', bytes: createToneWav({}) } }),

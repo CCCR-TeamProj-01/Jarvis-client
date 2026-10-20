@@ -1,5 +1,7 @@
 import type { ClientError, Result, Unsubscribe } from '../../shared/contracts/common'
 import type { LocalExecutionOptions, MonotonicClock } from '../ports'
+import type { CapabilityRegistryPort, ToolExecutorPort } from '../tools/ports'
+import { TurnTools } from './turn-tools'
 import type {
   AssistantPort,
   AssistantReply,
@@ -32,6 +34,8 @@ interface ConversationManagerOptions {
   /** Returns a cancel function. Injected so timeouts can be tested without real timers. */
   schedule(callback: () => void, delayMs: number): () => void
   policy?: Partial<ConversationPolicy>
+  /** What the assistant may run on this device while it works on a request. */
+  tools?: { executor: ToolExecutorPort; registry: CapabilityRegistryPort }
 }
 
 interface Conversation {
@@ -187,11 +191,21 @@ export class ConversationManager implements ConversationPort {
       timedOut = true
       limit.abort()
     }, this.policy.responseTimeoutMs)
+    const tools = this.options.tools
+      ? new TurnTools({
+          ...this.options.tools,
+          clock: this.options.clock,
+          requestId,
+          signal: limit.signal,
+          notify: (notice) => this.notice(notice)
+        })
+      : undefined
     try {
       return await Promise.race([
         this.options.assistant.respond({ conversationId: conversation.id, requestId }, text, {
           signal: limit.signal,
-          deadlineMs: this.options.clock.now() + this.policy.responseTimeoutMs
+          deadlineMs: this.options.clock.now() + this.policy.responseTimeoutMs,
+          ...(tools ? { tools } : {})
         }),
         new Promise<Result<never>>((resolve) =>
           limit.signal.addEventListener(
@@ -207,6 +221,9 @@ export class ConversationManager implements ConversationPort {
         )
       ])
     } finally {
+      // The request is over: a tool call arriving later is refused, and one still running is stopped.
+      tools?.close()
+      limit.abort()
       cancelTimer()
       conversation.abort.signal.removeEventListener('abort', forward)
       execution?.signal?.removeEventListener('abort', forward)
