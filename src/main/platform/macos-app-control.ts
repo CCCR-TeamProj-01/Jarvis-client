@@ -131,7 +131,8 @@ export class MacAppControl implements AppControlPort {
   async launch(appId: string, options?: LocalExecutionOptions): Promise<Result<AppObservation>> {
     const checked = await this.resolve(appId, options)
     if (!checked.ok) return checked
-    if (checked.value.running) return observed(appId, 'confirmed')
+    // "Open" an app that is already running means bringing it to the front, not leaving it as it is.
+    if (checked.value.running) return this.bringForward(appId, options)
 
     const opened = await this.open(appId, options)
     if (!opened.ok) return opened
@@ -152,7 +153,14 @@ export class MacAppControl implements AppControlPort {
     if (!checked.ok) return checked
     if (!checked.value.running)
       return failure('not_found', '앱이 실행 중이 아니라서 전환할 수 없습니다.')
+    return this.bringForward(appId, options)
+  }
 
+  /** Asks the OS to put a running app in front and says whether it did. */
+  private async bringForward(
+    appId: string,
+    options?: LocalExecutionOptions
+  ): Promise<Result<AppObservation>> {
     const opened = await this.open(appId, options)
     if (!opened.ok) return opened
     // The OS may decline to move focus (for example while another app holds it); say so honestly.

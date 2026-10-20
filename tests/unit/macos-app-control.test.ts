@@ -134,13 +134,49 @@ describe('MacAppControl.launch', () => {
     expect(opens()).toEqual([{ file: '/usr/bin/open', args: ['-b', 'com.apple.calculator'] }])
   })
 
-  it('does not relaunch an app that is already running', async () => {
-    const { control, opens } = fakeMac()
+  it('brings an app that is already running to the front instead of leaving it as it is', async () => {
+    const { control, opens } = fakeMac({
+      running: ['com.apple.Safari', 'com.apple.calculator'],
+      front: 'com.apple.Safari'
+    })
+    expect(await control.launch('com.apple.calculator')).toEqual({
+      ok: true,
+      value: { kind: 'app', appId: 'com.apple.calculator', status: 'confirmed' }
+    })
+    expect(opens()).toEqual([{ file: '/usr/bin/open', args: ['-b', 'com.apple.calculator'] }])
+  })
+
+  it('does not start a second copy of a running app', async () => {
+    const { control, running } = fakeMac({ running: ['com.apple.Safari', 'com.apple.calculator'] })
+    await control.launch('com.apple.calculator')
+    expect([...running].filter((id) => id === 'com.apple.calculator')).toHaveLength(1)
+  })
+
+  it('confirms an app that is already in front', async () => {
+    const { control } = fakeMac({ running: ['com.apple.Safari'], front: 'com.apple.Safari' })
     expect(await control.launch('com.apple.Safari')).toMatchObject({
       ok: true,
       value: { status: 'confirmed' }
     })
-    expect(opens()).toHaveLength(0)
+  })
+
+  it('says dispatched when a running app cannot be brought forward', async () => {
+    const { control } = fakeMac({
+      running: ['com.apple.Safari', 'com.apple.calculator'],
+      ignoreOpen: true
+    })
+    expect(await control.launch('com.apple.calculator')).toMatchObject({
+      ok: true,
+      value: { status: 'dispatched' }
+    })
+  })
+
+  it('reports a failed request to bring a running app forward', async () => {
+    const { control } = fakeMac({
+      running: ['com.apple.Safari', 'com.apple.calculator'],
+      openCode: 1
+    })
+    expect(await control.launch('com.apple.calculator')).toMatchObject({ ok: false })
   })
 
   it('says dispatched, not confirmed, when the app never appears', async () => {
