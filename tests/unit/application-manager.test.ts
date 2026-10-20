@@ -100,7 +100,19 @@ vi.mock('electron', async () => {
     },
     ipcMain: {
       handle: vi.fn<(channel: string, listener: unknown) => void>(),
-      removeHandler: vi.fn<(channel: string) => void>()
+      removeHandler: vi.fn<(channel: string) => void>(),
+      on: vi.fn<(channel: string, listener: unknown) => void>(),
+      removeListener: vi.fn<(channel: string, listener: unknown) => void>()
+    },
+    session: {
+      defaultSession: {
+        setPermissionRequestHandler: vi.fn<(handler: unknown) => void>(),
+        setPermissionCheckHandler: vi.fn<(handler: unknown) => void>()
+      }
+    },
+    systemPreferences: {
+      getMediaAccessStatus: vi.fn<(type: string) => string>(() => 'granted'),
+      askForMediaAccess: vi.fn<(type: string) => Promise<boolean>>(async () => true)
     },
     Menu: { buildFromTemplate: vi.fn<(items: unknown) => unknown>((items) => items) },
     dialog: { showErrorBox: vi.fn<(title: string, content: string) => void>() },

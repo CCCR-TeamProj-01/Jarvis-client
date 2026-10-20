@@ -53,6 +53,8 @@ export type CompletedUtterance = z.infer<typeof CompletedUtteranceSchema>
 export const AudioCaptureStartSchema = z.strictObject({
   generation: GenerationSchema,
   leaseId: IdentifierSchema,
+  /** Omitted selects the system default device. */
+  deviceId: IdentifierSchema.optional(),
   format: PcmFormatSchema
 })
 export type AudioCaptureStart = z.infer<typeof AudioCaptureStartSchema>

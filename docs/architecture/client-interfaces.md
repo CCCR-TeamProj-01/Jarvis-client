@@ -73,11 +73,32 @@ sandbox Preload는 각 진입점을 독립 번들로 만들고 Zod를 포함한�
 
 센서 종류는 camera·microphone이고 소비 기능은 voice_wake·speech_session·gesture_call·gesture_control·diagnostics다. 음성 기능은 microphone, 제스처 기능은 camera를 요청한다. diagnostics는 필요한 센서 종류를 명시한다.
 
-`SensorPort.acquire`는 장치 선택과 권한 확인 후 leaseId·소유 기능·실제 deviceId를 반환한다. `release(leaseId)`는 released 또는 already_released를 반환한다. 한 기능의 반납은 다른 사용권을 취소하지 않으며 마지막 사용권이 반납되면 장치를 해제한다. 장치 오류·권한 철회는 해당 사용권의 revoked 이벤트로 전달한다. 실제 자원 관리는 후속 SensorManager 구현의 책임이다.
+`SensorPort.acquire`는 장치 선택과 권한 확인 후 leaseId·소유 기능·실제 deviceId를 반환한다. `release(leaseId)`는 released 또는 already_released를 반환한다. 한 기능의 반납은 다른 사용권을 취소하지 않으며 마지막 사용권이 반납되면 장치를 해제한다. 장치 오류·권한 철회는 해당 사용권의 revoked 이벤트로 전달한다. 실제 자원 관리는 `SensorManager`가 맡는다([구현](#센서-구현)).
 
 장치·권한·사용 상태는 구분한다. MediaStream·MediaStreamTrack·장치 핸들은 캡처 실행 공간에 유지하며 공유 데이터에는 넣지 않는다.
 
 센서 사용 상태는 idle·starting·active·stopping·unavailable·error다. active는 권한·장치·사용권을 모두 필요로 하고, 마지막 사용권 반납 후 비동기 장치 정리 중에는 stopping으로 표현한다.
+
+### 센서 구현
+
+F-013([#12](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/12))에서 Main의 `SensorManager`와 비표시 Media Renderer를 구현했다. 영상 프레임 전달과 PCM 수집은 제스처·음성 구현에서 이 위에 더한다.
+
+| 위치 | 책임 |
+| --- | --- |
+| `src/main/sensors/sensor-manager.ts` | 센서별 권한·장치·사용권 상태, 첫 사용권에서 장치 열기·마지막 반납에서 해제, 경쟁(동시 요청·취소·기한·시작 중 반납) 처리 |
+| `src/main/sensors/hardware.ts` | 캡처 쪽 `SensorHardwarePort`, OS 권한 `MediaPermissionPort`, 인증·일시 중지 `SensorGate` 포트 |
+| `src/main/sensors/media-bridge.ts`, `media-window.ts`, `src/main/ipc/media-ipc.ts` | Media Renderer와의 명령/응답(타임아웃·연결 불가·렌더러 종료 처리), 첫 사용 시 생성되는 비표시 창, 발신 창·프레임·URL·스키마 검증 |
+| `src/main/sensors/media-permissions.ts` | OS 권한 상태 매핑과 session 권한 정책 |
+| `src/preload/media-bridge.ts`, `src/renderer/media/media-controller.ts` | 허용된 명령·이벤트만 중계하는 Preload, 장치 목록·`MediaStream` 열기·닫기·트랙 종료와 장치 변경 감지 |
+
+동작 기준은 다음과 같다.
+
+- 시작 조건: `SensorGate`가 Main의 인증 상태(`signed_in`)와 인식 일시 중지 여부를 요청 시점에 확인한다. 장치 목록 조회도 같은 조건을 따른다. 반납은 항상 허용한다.
+- 첫 사용권만 권한 확인(`not_determined`이면 macOS에서 OS 요청)·장치 선택(요청한 `deviceId`, 없으면 목록의 첫 장치)·장치 열기를 수행한다. 같은 센서의 추가 사용권은 열린 장치를 공유하며 다른 장치를 요청하면 `conflict`다. 해제 중인 센서는 해제가 끝난 뒤에 다시 연다.
+- 인증 세대가 바뀌거나(로그아웃·만료 재확인·계정 전환) 인식을 일시 중지하면 모든 사용권을 철회하고 `sensor.lease_revoked`로 알린 뒤 장치를 해제한다. 장치 분리·트랙 종료·권한 철회·렌더러 종료도 해당 사용권을 철회한다. 오래된 스트림에 대한 늦은 이벤트는 무시한다.
+- Media 명령의 `deviceId`는 `camera.start`·`audio.capture.start`에 추가했고, `devices.list` 명령과 `media.devices`·`media.devices_changed` 이벤트를 추가했다. 스트림 식별은 `SensorManager`가 만든 streamId를 세대의 `sessionId`로 사용한다.
+- `recognition.resume`을 구현했다. 로그인 전에는 로그인 화면으로 안내한다.
+- 개발용: 패키징되지 않은 앱에서 `JARVIS_FAKE_MEDIA=1`은 Chromium 가짜 장치를 쓴다. `JARVIS_SENSOR_SELFTEST=1`은 로그인 후 진단 사용권을 잡고 센서 이벤트를 `SENSOR_SELFTEST` 줄로 출력해 실제 Electron 경로를 확인한다. 둘 다 운영 동작을 바꾸지 않는다.
 
 ## 손 관측·제스처·입력
 
