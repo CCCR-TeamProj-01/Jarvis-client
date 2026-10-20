@@ -1,7 +1,7 @@
 /** Compile-time examples: clients can supply these ports without Electron, devices or a server. */
 import type { PointerInputPort } from '../../src/main/platform/ports'
 import type { SensorPort } from '../../src/main/sensors/ports'
-import type { AudioPlaybackPort } from '../../src/renderer/media/audio-playback/ports'
+import type { AudioPlaybackPort } from '../../src/shared/ports/audio-playback'
 import type { AuthGatewayPort, CredentialStorePort } from '../../src/main/auth/ports'
 
 const unavailable = {

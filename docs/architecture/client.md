@@ -100,7 +100,7 @@ WakeWordDetector의 입력은 AudioCaptureManager가 정규화한 PCM 프레임�
 
 ### 앱 실행 기반 구현
 
-`main/application/`은 단일 인스턴스·앱 이벤트·트레이·단축키·UiWindow의 수명을 관리하고, `main/interaction/interaction-manager.ts`는 초기 미로그인 상태와 화면·명령을 관리한다. `main/ipc/ui-ipc.ts`는 소유 UI 창의 검증된 호출만 받아 상태와 결과를 전달한다. 현재 미구현 주요 기능은 시작하지 않으며 인증 없이 허용할 중지·종료를 구분한다.
+`main/application/`은 단일 인스턴스·앱 이벤트·UiWindow의 수명을 관리하며 `ApplicationManager`는 각 기능을 조립만 한다. 트레이(`tray.ts`)·단축키(`shortcuts.ts`)·앱 상태와 명령의 연결(`state-sync.ts`)·개발용 셀프테스트(`dev-selftests.ts`)는 별도 모듈이고 각각 정리 함수를 돌려주며 `release-all.ts`가 한 해제의 실패가 나머지를 막지 않도록 묶는다. 여러 계층이 함께 쓰는 포트는 `shared/ports/`에 두어 `main`·`workers`가 `renderer`를 가져오지 않는다. `main/interaction/interaction-manager.ts`는 초기 미로그인 상태와 화면·명령을 관리한다. `main/ipc/ui-ipc.ts`는 소유 UI 창의 검증된 호출만 받아 상태와 결과를 전달한다. 현재 미구현 주요 기능은 시작하지 않으며 인증 없이 허용할 중지·종료를 구분한다.
 
 창은 명시적 사용자 호출 시에만 표시·복원·포커스한다. 닫기는 트레이 숨김으로 처리하고 종료가 시작되면 숨김을 해제해 실제 창 닫기를 허용한다. 트레이가 없으면 창 닫기로 유일한 접근 경로를 잃지 않는다. 앱 종료는 소유 단축키·트레이·IPC·구독을 한 번만 해제하며 종료 중 재호출로 창을 만들지 않는다. 자세한 동작은 [호출과 화면](../features/interaction-ui.md#앱-실행-기반)을 따른다.
 

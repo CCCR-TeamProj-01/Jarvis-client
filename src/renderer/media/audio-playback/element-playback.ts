@@ -1,7 +1,7 @@
 import type { ClientError, Generation, Result, Unsubscribe } from '../../../shared/contracts/common'
 import { sameGeneration } from '../../../shared/contracts/common'
 import type { PlaybackEvent, PlaybackRequest } from '../../../shared/contracts/speech'
-import type { AudioPlaybackPort } from './ports'
+import type { AudioPlaybackPort } from '../../../shared/ports/audio-playback'
 
 /** The slice of HTMLAudioElement used here, so playback can be tested without a browser. */
 export interface AudioLike {

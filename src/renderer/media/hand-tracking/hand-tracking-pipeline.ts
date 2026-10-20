@@ -1,7 +1,7 @@
 import type { ClientError, Generation, Result } from '../../../shared/contracts/common'
 import { sameGeneration } from '../../../shared/contracts/common'
 import type { HandTrackingStart, MediaEvent } from '../../../shared/ipc/media-api'
-import type { HandTrackerPort } from '../../../workers/hand-tracking/ports'
+import type { HandTrackerPort } from './ports'
 import type { FrameSource } from './video-frame-source'
 
 const DEFAULT_FPS = 30

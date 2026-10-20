@@ -1,5 +1,5 @@
-import type { Generation, Result, Unsubscribe } from '../../../shared/contracts/common'
-import type { PlaybackEvent, PlaybackRequest } from '../../../shared/contracts/speech'
+import type { Generation, Result, Unsubscribe } from '../contracts/common'
+import type { PlaybackEvent, PlaybackRequest } from '../contracts/speech'
 
 export interface AudioPlaybackPort {
   /** Resolves when accepted; started/ended/failed events report actual playback. */

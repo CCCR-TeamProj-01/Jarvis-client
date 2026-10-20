@@ -9,7 +9,7 @@ import { SpeechSessionController } from '../../src/main/speech/session/speech-se
 import type { SessionPolicy } from '../../src/main/speech/session/speech-session'
 import type { RemoteSpeechPort } from '../../src/main/speech/remote-speech/ports'
 import type { ListenOutcome, VoiceInput } from '../../src/main/speech/voice-input'
-import type { AudioPlaybackPort } from '../../src/renderer/media/audio-playback/ports'
+import type { AudioPlaybackPort } from '../../src/shared/ports/audio-playback'
 import type { ClientError, Result } from '../../src/shared/contracts/common'
 import type {
   CompletedUtterance,
