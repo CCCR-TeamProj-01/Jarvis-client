@@ -16,14 +16,15 @@ export interface OverlayInputs {
   gesture: Pick<GestureSnapshot, 'phase' | 'pointing'>
 }
 
+/** Every phase of a conversation in progress can be stopped from its pill, as with "대화 중지". */
 const VOICE: Partial<Record<SpeechSnapshot['phase'], PillContent>> = {
-  wake_detected: { kind: 'listening', text: '부르셨어요', stoppable: false },
-  awaiting_speech: { kind: 'listening', text: '말씀하세요…', stoppable: false },
-  listening: { kind: 'listening', text: '듣고 있어요…', stoppable: false },
-  transcribing: { kind: 'thinking', text: '인식하고 있어요…', stoppable: false },
-  processing: { kind: 'thinking', text: '처리하고 있어요…', stoppable: false },
+  wake_detected: { kind: 'listening', text: '부르셨어요', stoppable: true },
+  awaiting_speech: { kind: 'listening', text: '말씀하세요…', stoppable: true },
+  listening: { kind: 'listening', text: '듣고 있어요…', stoppable: true },
+  transcribing: { kind: 'thinking', text: '인식하고 있어요…', stoppable: true },
+  processing: { kind: 'thinking', text: '처리하고 있어요…', stoppable: true },
   speaking: { kind: 'speaking', text: '답하고 있어요', stoppable: true },
-  awaiting_followup: { kind: 'listening', text: '이어서 말씀하세요…', stoppable: false }
+  awaiting_followup: { kind: 'listening', text: '이어서 말씀하세요…', stoppable: true }
 }
 
 /**
@@ -37,7 +38,7 @@ export function derivePersistent(inputs: OverlayInputs): {
   const voice =
     VOICE[inputs.speechPhase] ??
     (inputs.requestProcessing
-      ? { kind: 'thinking' as const, text: '처리하고 있어요…', stoppable: false }
+      ? { kind: 'thinking' as const, text: '처리하고 있어요…', stoppable: true }
       : null)
   return { voice, gesture: gesturePill(inputs.gesture) }
 }

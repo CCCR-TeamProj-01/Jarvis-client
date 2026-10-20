@@ -30,9 +30,25 @@ describe('derivePersistent', () => {
       expect(derivePersistent({ ...idle, speechPhase }).voice).toMatchObject({ kind })
   })
 
-  it('only the speaking pill has a stop button', () => {
-    expect(derivePersistent({ ...idle, speechPhase: 'speaking' }).voice?.stoppable).toBe(true)
-    expect(derivePersistent({ ...idle, speechPhase: 'listening' }).voice?.stoppable).toBe(false)
+  it('every phase of a conversation in progress can be stopped from its pill', () => {
+    for (const speechPhase of [
+      'wake_detected',
+      'awaiting_speech',
+      'listening',
+      'transcribing',
+      'processing',
+      'speaking',
+      'awaiting_followup'
+    ] as const)
+      expect(derivePersistent({ ...idle, speechPhase }).voice?.stoppable).toBe(true)
+    expect(derivePersistent({ ...idle, requestProcessing: true }).voice?.stoppable).toBe(true)
+  })
+
+  it('results, errors and gesture pills have no stop button', () => {
+    const gesture = (phase: 'tracking' | 'lost', pointing = false) =>
+      derivePersistent({ ...idle, gesture: { phase, pointing } }).gesture
+    expect(gesture('tracking', true)?.stoppable).toBe(false)
+    expect(gesture('lost')?.stoppable).toBe(false)
   })
 
   it('shows that a typed request is being worked on', () => {
