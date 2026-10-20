@@ -372,3 +372,50 @@ kbd {
     transition: none;
   }
 }
+
+.field-error,
+.field-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-caption);
+  line-height: 18px;
+}
+.field-error {
+  color: var(--color-danger-text);
+}
+.field-hint-ok {
+  color: var(--color-success-text);
+}
+.field-error svg,
+.field-hint svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+}
+input[aria-invalid='true'] {
+  border-color: var(--color-danger-text);
+}
+.signed-in {
+  display: grid;
+  gap: var(--space-3);
+}
+.signed-in-name {
+  margin: 0;
+  font-weight: 600;
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}

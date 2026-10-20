@@ -17,7 +17,8 @@
     "typescript/no-explicit-any": "error",
     "react/rules-of-hooks": "error",
     "react/exhaustive-deps": "warn",
-    "import/no-unassigned-import": "off"
+    "import/no-unassigned-import": "off",
+    "react/react-in-jsx-scope": "off"
   },
   "overrides": [
     {

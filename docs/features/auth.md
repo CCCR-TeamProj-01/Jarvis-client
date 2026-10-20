@@ -57,15 +57,19 @@
 
 ## 클라이언트 계약과 구조
 
-F-008에서 아래 데이터·API·Main 포트 계약을 구현했다. F-009에서 로그인/회원가입 화면 틀과 일반 UI IPC를 연결했다. AuthManager·입력/제출·인증 IPC 핸들러·서버/보호 저장소 구현은 후속 작업이다. 현재 Preload는 InteractionUiApi만 노출하며 auth 영역은 아직 노출하지 않는다.
+F-008에서 아래 데이터·API·Main 포트 계약을, F-009에서 화면 틀과 일반 UI IPC를, F-012([#10](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/10))에서 AuthManager·인증 IPC 핸들러·Preload `auth` API·입력/제출 화면·보호 저장소·개발용 인증 대역을 구현했다. 실제 서버 인증 어댑터만 후속 서버 연동 단계에 남아 있다.
 
 | 위치 | 책임 | 상태 |
 | --- | --- | --- |
 | `src/shared/contracts/auth.ts` | 로그인·가입 입력, 아이디 사용 가능 결과, 공개 사용자 정보, 인증 스냅샷·이벤트·로그인 유지 결과 | 계약 구현 |
 | `src/shared/ipc/auth-api.ts` | UI 전용 인증 API와 응답 스키마. 로그인·가입·중복 확인·복구 재시도·로그아웃·상태 조회·구독 | 계약 구현 |
 | `src/main/auth/ports.ts` | 인증 서버 어댑터와 보호 자격 증명 저장소의 Main 내부 포트 | 계약 구현 |
-| `src/main/auth/auth-manager.ts` | 인증 상태·세대·유지·복구·만료·로그아웃과 기능 차단 조정 | 후속 구현 |
-| `src/renderer/ui/features/auth/` | 로그인·회원가입 입력/제출, 비밀번호 재입력 검증, 요청별 진행·오류 표시. 현재 화면 틀은 UI main.tsx에 위치 | 후속 구현 |
+| `src/main/auth/auth-manager.ts` | 인증 상태·세대·유지·복구·만료·로그아웃과 기능 차단 조정 | 구현 |
+| `src/main/ipc/auth-ipc.ts`, `src/preload/ui-bridge.ts` | 인증 IPC 핸들러(발신자·인자·응답 검증)와 Preload `auth` API | 구현 |
+| `src/main/auth/safe-storage-credential-store.ts` | Electron safeStorage 기반 보호 저장소. 보호 불가 시 평문 대체 없이 실패 | 구현 |
+| `src/main/auth/dev-auth-gateway.ts`, `unavailable-auth-gateway.ts`, `create-auth-gateway.ts` | 개발용 인증 대역과 기본(연결 불가) 어댑터, 선택 규칙 | 구현 |
+| `src/renderer/ui/features/auth/` | 로그인·회원가입 입력/제출, 비밀번호 재입력 검증, 중복 확인 상태, 요청별 진행·오류 표시 | 구현 |
+| 실제 서버 인증 어댑터 | HTTPS 인증·최종 중복 판정·세션 검증/갱신·로그아웃 | 후속(서버 연동) |
 
 UI 공개 API 계약은 `UiApi.auth` 아래 `checkLoginId`, `signUp`, `signIn`, `restore`, `signOut`, `getSnapshot`, `subscribe`로 구성한다. `restore`는 통신 장애 후 Main에 보관된 자격 증명으로 복구를 재시도하며 UI에서 토큰을 받지 않는다. 실제 핸들러 구현 시 입력값은 제한된 Preload API를 거쳐 Main에 전달하고 인증 요청은 Main이 HTTPS로 수행한다. `AuthGatewayPort`는 인증 서버 작업을, `CredentialStorePort`는 자격 증명 읽기·저장·제거를 추상화한다. 토큰 형식과 자격 증명 객체는 Main 내부 계약이다.
 
@@ -75,7 +79,16 @@ UI 공개 API 계약은 `UiApi.auth` 아래 `checkLoginId`, `signUp`, `signIn`, 
 
 결과는 기존 `Result<T>` 형식을 사용한다. `ClientError`에 authentication_required·invalid_credentials·login_id_taken·session_expired·rate_limited·credential_unavailable을 추가했다. 로그인·복구 성공 결과는 signed_in 스냅샷과 persistence를 분리한다. persistence가 unavailable이면 credential_unavailable 오류가 필수이며 로그인 유지 성공으로 표시하지 않는다.
 
-개발용 인증 대역은 같은 포트 뒤에 두고 개발 환경에서 명시적으로 선택한다. 운영 빌드가 대역으로 인증을 통과해서는 안 된다. 실제 인증 어댑터가 없어도 폼·복구·만료·기능 차단·계정 전환을 검증할 수 있어야 한다.
+개발용 인증 대역은 같은 포트 뒤에 두고 개발 환경에서 명시적으로 선택한다. 운영 빌드가 대역으로 인증을 통과해서는 안 된다. 구현은 패키징되지 않은 앱에서 `JARVIS_DEV_AUTH=1`일 때만 대역을 쓰고, 그 외에는 모든 인증 요청이 `unavailable`로 실패하는 어댑터를 쓴다. 대역에는 `demo` / `demo1234` 계정이 있고 실행 중 만든 계정은 재실행 후 사라진다.
+
+구현에서 확정한 동작은 다음과 같다.
+
+- 앱 시작은 `checking`이며 저장된 자격 증명이 없으면 `signed_out`, 있으면 서버 확인 후에만 `signed_in`이 된다. 일시 장애(`unavailable` 등)는 자격 증명을 유지한 채 `checking`에 머물고 재시도·다른 계정 로그인을 허용한다. `session_expired`·`invalid_credentials`·`authentication_required`는 자격 증명을 제거하고 `signed_out`이 된다.
+- 로그인·가입·복구는 한 번에 하나만 실행한다. 아이디 중복 확인은 겹칠 수 있으며 세대가 바뀌면 응답을 버린다.
+- 로그인은 자격 증명 저장을 시도한 뒤 `signed_in`을 게시한다. 저장 실패는 `persistence: unavailable`로 알리고, 다른 계정의 자격 증명이 남지 않도록 제거를 시도한다.
+- 세션 만료 시각에 `checking`으로 전환해 다시 검증하고 성공하면 `signed_in`(새 세대)으로 돌아온다.
+- `signOut`은 인증 세대 불일치와 무관하게 허용한다. 로컬 차단 후 서버 폐기는 기다리지 않는다.
+- 세대가 바뀌면 `InteractionManager`가 대화·요청·음성·제스처·센서 스냅샷을 비우고 인증 화면으로 되돌린다. 실제 인증 어댑터가 없어도 폼·복구·만료·기능 차단·계정 전환을 검증할 수 있어야 한다.
 
 ## 저장·서버 연동과 합의 항목
 

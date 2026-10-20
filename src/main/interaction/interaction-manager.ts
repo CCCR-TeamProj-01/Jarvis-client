@@ -24,6 +24,20 @@ interface InteractionOptions {
   quit(): void
 }
 
+/** No conversation, request, speech, gesture or sensor is running. */
+function idleSubsystems(): Pick<
+  ClientSnapshot,
+  'conversation' | 'request' | 'speech' | 'gesture' | 'sensors'
+> {
+  return {
+    conversation: { phase: 'idle', generation: null },
+    request: { requestId: null, phase: 'idle' },
+    speech: { phase: 'idle', generation: null },
+    gesture: { phase: 'off', generation: null, activeHandId: null, displayId: null },
+    sensors: []
+  }
+}
+
 export class InteractionManager implements InteractionPort {
   private snapshot: ClientSnapshot
   private readonly listeners = new Set<(event: UiEvent) => void>()
@@ -39,11 +53,7 @@ export class InteractionManager implements InteractionPort {
       },
       auth: options.auth,
       recognitionPaused: false,
-      conversation: { phase: 'idle', generation: null },
-      request: { requestId: null, phase: 'idle' },
-      speech: { phase: 'idle', generation: null },
-      gesture: { phase: 'off', generation: null, activeHandId: null, displayId: null },
-      sensors: [],
+      ...idleSubsystems(),
       screen: options.auth.phase === 'signed_in' ? 'hidden' : 'login',
       connection: 'offline'
     })
@@ -101,6 +111,27 @@ export class InteractionManager implements InteractionPort {
     return () => {
       this.listeners.delete(receive)
     }
+  }
+
+  /**
+   * Main-owned authentication state. Leaving `signed_in` drops everything tied to the previous
+   * account, so nothing from it can be shown to or acted on by the next one.
+   */
+  setAuthSnapshot(auth: AuthSnapshot): void {
+    if (this.disposed) return
+    const previous = this.snapshot.auth
+    if (JSON.stringify(previous) === JSON.stringify(auth)) return
+    const authScreen = this.snapshot.screen === 'login' || this.snapshot.screen === 'signup'
+    if (auth.phase === 'signed_in') {
+      this.update({ auth, screen: authScreen ? 'status' : this.snapshot.screen })
+      return
+    }
+    this.update({
+      auth,
+      ...idleSubsystems(),
+      screen: authScreen ? this.snapshot.screen : 'login'
+    })
+    this.options.showWindow()
   }
 
   setShortcutState(shortcut: ShortcutSnapshot): void {
