@@ -10,7 +10,8 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           // Runs in a utilityProcess, so it is its own bundle next to the main one.
-          'vad-worker': resolve(__dirname, 'src/inference/vad/vad-worker.ts')
+          'vad-worker': resolve(__dirname, 'src/inference/vad/vad-worker.ts'),
+          'wake-worker': resolve(__dirname, 'src/inference/wake-word/wake-worker.ts')
         }
       }
     }
