@@ -2,7 +2,7 @@
 
 현재 기준은 2026-10-19 통합 명세 v0.2에서 분리한 뒤 갱신한 아래 문서다. 기능별 요구사항 ID를 유지했다. [통합 원문](archive/jarvis-functional-spec-architecture-v0.2.md)은 이력 보관용이며 현재 설계 변경은 아래 문서에 반영한다.
 
-2026-10-21 서버 ERD 수정 방향과 사용자 이용 흐름을 [#43](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/43)에서 반영했다. 서버 대화 생성·명령/결과 연결·수집 설정·자체/Google 일정 저장은 목표 명세이며 현재 코드의 구현 완료를 뜻하지 않는다. 미확정 정책은 [서버 ERD 결정 목록](delivery/validation.md#서버-erd-반영-후-결정-목록)에서 관리한다.
+2026-10-21 서버 ERD 수정 방향과 사용자 이용 흐름을 [#43](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/43)에서 반영했고, 최종 ERD로 확정된 정책을 [#47](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/47)에서 보완했다. 서버 대화 생성·명령/결과 연결·인증·수집 설정·자체/Google 일정 저장은 목표 명세이며 현재 코드의 구현 완료를 뜻하지 않는다. 확정 내용의 원본 링크와 미확정 정책·ERD 내부 불일치는 [서버 ERD 결정 목록](delivery/validation.md#서버-erd-반영-후-결정-목록)에서 관리한다.
 
 F-023([#45](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/45))의 설치 식별자·기기 설정 저장 기반은 구현했다. 파일 형식·실패 처리·음성 출력 적용의 원본은 [기기 로컬 저장 형식](architecture/data-security.md#기기-로컬-저장-형식)이며 서버 기기 등록·설정 편집 UI는 후속이다.
 
