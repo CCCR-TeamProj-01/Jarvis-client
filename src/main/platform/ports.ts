@@ -3,6 +3,7 @@ import type { DesktopPoint, DisplayBounds, InputObservation } from '../../shared
 import type {
   AppDescriptor,
   AppObservation,
+  AudioObservation,
   FolderAlias,
   FolderObservation,
   TaskSwitchObservation,
@@ -41,4 +42,12 @@ export interface AppControlPort {
 export interface FolderOpenPort {
   /** Reports the handoff to the file manager, not that a window opened. */
   open(alias: FolderAlias, options?: LocalExecutionOptions): Promise<Result<FolderObservation>>
+}
+
+/** The computer's output volume and mute state; each call reports the state read back afterwards. */
+export interface SystemAudioPort {
+  setVolume(level: number, options?: LocalExecutionOptions): Promise<Result<AudioObservation>>
+  /** Moves the volume by `delta` percentage points, staying within 0 to 100. */
+  adjustVolume(delta: number, options?: LocalExecutionOptions): Promise<Result<AudioObservation>>
+  setMuted(muted: boolean, options?: LocalExecutionOptions): Promise<Result<AudioObservation>>
 }

@@ -5,7 +5,7 @@ import type {
   AssistantTools,
   ConversationNotice
 } from '../../src/main/conversation/ports'
-import type { AppControlPort, FolderOpenPort } from '../../src/main/platform/ports'
+import type { AppControlPort, FolderOpenPort, SystemAudioPort } from '../../src/main/platform/ports'
 import { DevRemoteSpeech } from '../../src/main/speech/remote-speech/dev-remote-speech'
 import { CapabilityRegistry, platformCapabilities } from '../../src/main/tools/capability-registry'
 import { ToolExecutor } from '../../src/main/tools/tool-executor'
@@ -80,11 +80,21 @@ function setup(
       value: { kind: 'folder', alias, status: 'dispatched' }
     }))
   }
+  const audioResult = (level: number | null, muted: boolean) =>
+    ({ ok: true, value: { kind: 'audio', level, muted, status: 'confirmed' } }) as const
+  const audio = {
+    setVolume: vi.fn<SystemAudioPort['setVolume']>(async (level) => audioResult(level, false)),
+    adjustVolume: vi.fn<SystemAudioPort['adjustVolume']>(async (delta) =>
+      audioResult(30 + delta, false)
+    ),
+    setMuted: vi.fn<SystemAudioPort['setMuted']>(async (muted) => audioResult(30, muted))
+  }
   const registry = new CapabilityRegistry(platformCapabilities('darwin'))
   const executor = new ToolExecutor({
     registry,
     appControl: app.control,
     folders,
+    audio,
     auth: {
       requireSignedIn: () =>
         options.signedIn === false
@@ -116,7 +126,7 @@ function setup(
   })
   const notices: ConversationNotice[] = []
   manager.subscribeNotices((notice) => notices.push(notice))
-  return { manager, app, folders, notices, timers, executor }
+  return { manager, app, folders, audio, notices, timers, executor }
 }
 
 describe('conversation with tools (stand-in assistant)', () => {
@@ -158,6 +168,34 @@ describe('conversation with tools (stand-in assistant)', () => {
       text: '다운로드 폴더를 열도록 요청했어요.',
       ok: true
     })
+  })
+
+  it('sets, steps and mutes the volume from plain requests', async () => {
+    const { manager, audio } = setup(new DevRemoteSpeech())
+    const say = async (text: string) => {
+      const result = await manager.submit({ text, modality: 'text' })
+      return result.ok ? result.value.reply?.text : undefined
+    }
+    expect(await say('볼륨 40으로 맞춰줘')).toBe('볼륨을 40%로 맞췄어요.')
+    expect(audio.setVolume).toHaveBeenCalledWith(40, expect.anything())
+    expect(await say('볼륨 올려줘')).toBe('볼륨을 40%로 맞췄어요.')
+    expect(audio.adjustVolume).toHaveBeenLastCalledWith(10, expect.anything())
+    await say('소리 좀 줄여줘')
+    expect(audio.adjustVolume).toHaveBeenLastCalledWith(-10, expect.anything())
+    expect(await say('음소거 해줘')).toBe('음소거했어요.')
+    expect(audio.setMuted).toHaveBeenLastCalledWith(true, expect.anything())
+    expect(await say('음소거 해제해줘')).toBe('음소거를 해제했어요.')
+    expect(audio.setMuted).toHaveBeenLastCalledWith(false, expect.anything())
+  })
+
+  it('does not pass an out-of-range level to the audio adapter', async () => {
+    const { manager, audio } = setup(new DevRemoteSpeech())
+    const result = await manager.submit({ text: '볼륨 1000으로 해줘', modality: 'text' })
+    expect(result).toMatchObject({
+      ok: true,
+      value: { reply: { text: '볼륨을 바꾸지 못했어요.' } }
+    })
+    expect(audio.setVolume).not.toHaveBeenCalled()
   })
 
   it('does not take a plain app request for a folder request', async () => {

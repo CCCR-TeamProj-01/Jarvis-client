@@ -1,4 +1,8 @@
-import type { FolderAlias, ToolExecutionReport } from '../../shared/contracts/tools'
+import type {
+  AudioObservation,
+  FolderAlias,
+  ToolExecutionReport
+} from '../../shared/contracts/tools'
 
 /** What a report means to the user, in words, and whether it counts as having worked. */
 export interface ReportSummary {
@@ -29,7 +33,9 @@ const TOOL_LABEL: Record<ToolExecutionReport['tool'], string> = {
   'apps.activate': '앱 전환',
   'apps.restore': '이전 작업으로 돌아가기',
   'browser.open': '주소 열기',
-  'folder.open': '폴더 열기'
+  'folder.open': '폴더 열기',
+  'system.volume': '볼륨 조절',
+  'system.mute': '음소거'
 }
 
 const FOLDER_LABEL: Record<FolderAlias, string> = {
@@ -74,6 +80,7 @@ export function describeToolReport(
               ? `${FOLDER_LABEL[observation.alias]} 폴더를 열도록 요청했어요.`
               : `${FOLDER_LABEL[observation.alias]} 폴더를 열었는지 확인하지 못했어요.`
         }
+      if (observation.kind === 'audio') return describeAudio(report.tool, observation)
       const app = name(observation.appId)
       if (report.tool === 'apps.restore')
         return {
@@ -124,5 +131,36 @@ export function describeToolReport(
       }
     case 'unknown':
       return { ok: false, text: `${TOOL_LABEL[report.tool]} 결과를 확인하지 못했어요.` }
+  }
+}
+
+/** What the volume or mute change led to, using the state read back from the OS. */
+function describeAudio(
+  tool: ToolExecutionReport['tool'],
+  observation: AudioObservation
+): ReportSummary {
+  const ok = observation.status !== 'unknown'
+  if (tool === 'system.mute') {
+    if (observation.status === 'confirmed')
+      return { ok, text: observation.muted ? '음소거했어요.' : '음소거를 해제했어요.' }
+    return {
+      ok,
+      text:
+        observation.status === 'dispatched'
+          ? '음소거 변경을 요청했어요.'
+          : '음소거 상태를 확인하지 못했어요.'
+    }
+  }
+  if (observation.status === 'confirmed')
+    return {
+      ok,
+      text: `볼륨을 ${observation.level}%로 맞췄어요.${observation.muted ? ' 지금은 음소거 상태예요.' : ''}`
+    }
+  return {
+    ok,
+    text:
+      observation.status === 'dispatched'
+        ? '볼륨 변경을 요청했어요.'
+        : `볼륨을 바꿨는지 확인하지 못했어요.${observation.level === null ? '' : ` 지금은 ${observation.level}%예요.`}`
   }
 }

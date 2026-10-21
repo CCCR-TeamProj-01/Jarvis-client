@@ -9,7 +9,7 @@ import type {
   ToolOutcome,
   WindowReference
 } from '../../shared/contracts/tools'
-import type { AppControlPort, FolderOpenPort } from '../platform/ports'
+import type { AppControlPort, FolderOpenPort, SystemAudioPort } from '../platform/ports'
 import type { LocalExecutionOptions, MonotonicClock } from '../ports'
 import type { CapabilityRegistryPort, ToolExecutorPort } from './ports'
 
@@ -18,6 +18,7 @@ interface ToolExecutorOptions {
   appControl: AppControlPort
   /** Main's own authentication state, read again right before anything runs. */
   folders: FolderOpenPort
+  audio: SystemAudioPort
   auth: { requireSignedIn(): Result<unknown> }
   clock: MonotonicClock
   /** Where "go back" returns to; null when no earlier work was recorded. */
@@ -32,7 +33,9 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<ToolName> = new Set([
   'apps.activate',
   'apps.restore',
   'browser.open',
-  'folder.open'
+  'folder.open',
+  'system.volume',
+  'system.mute'
 ])
 
 /** Failures after which nothing on the desktop has happened. */
@@ -223,6 +226,12 @@ export class ToolExecutor implements ToolExecutorPort {
         return appControl.openUrl(command.arguments.url, execution)
       case 'folder.open':
         return this.options.folders.open(command.arguments.alias, execution)
+      case 'system.volume':
+        return command.arguments.mode === 'set'
+          ? this.options.audio.setVolume(command.arguments.level, execution)
+          : this.options.audio.adjustVolume(command.arguments.delta, execution)
+      case 'system.mute':
+        return this.options.audio.setMuted(command.arguments.muted, execution)
     }
   }
 

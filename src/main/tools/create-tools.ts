@@ -3,9 +3,11 @@ import { stat } from 'node:fs/promises'
 import type { Result } from '../../shared/contracts/common'
 import { nodeCommandRunner } from '../platform/command-runner'
 import { createFolderOpener } from '../platform/folder-opener'
+import { MacSystemAudio } from '../platform/macos-system-audio'
 import { MacAppControl } from '../platform/macos-app-control'
 import type { AppControlPort } from '../platform/ports'
 import { createUnsupportedAppControl } from '../platform/unsupported-app-control'
+import { unsupportedSystemAudio } from '../platform/unsupported-system-audio'
 import { CapabilityRegistry, platformCapabilities } from './capability-registry'
 import { RestoreTargetTracker } from './restore-target'
 import { ToolExecutor } from './tool-executor'
@@ -52,12 +54,17 @@ export function createToolStack(auth: { requireSignedIn(): Result<unknown> }): T
     isDirectory: async (path) => (await stat(path)).isDirectory(),
     openPath: (path) => shell.openPath(path)
   })
+  const audio =
+    platform === 'darwin'
+      ? new MacSystemAudio({ runner: nodeCommandRunner })
+      : unsupportedSystemAudio
   const registry = new CapabilityRegistry(platformCapabilities(platform))
   const restoreTracker = new RestoreTargetTracker(appControl)
   const executor = new ToolExecutor({
     registry,
     appControl,
     folders,
+    audio,
     auth,
     clock: { now },
     restoreTarget: () => restoreTracker.current()

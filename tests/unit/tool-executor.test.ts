@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AppControlPort, FolderOpenPort } from '../../src/main/platform/ports'
+import type { AppControlPort, FolderOpenPort, SystemAudioPort } from '../../src/main/platform/ports'
 import { CapabilityRegistry, platformCapabilities } from '../../src/main/tools/capability-registry'
 import { RestoreTargetTracker } from '../../src/main/tools/restore-target'
 import { ToolExecutor } from '../../src/main/tools/tool-executor'
@@ -17,6 +17,15 @@ const fakeFolders = () => ({
     ok: true,
     value: { kind: 'folder', alias, status: 'dispatched' }
   }))
+})
+
+const audioState = (status: 'confirmed' | 'dispatched' | 'unknown' = 'confirmed') =>
+  ({ ok: true, value: { kind: 'audio', level: 40, muted: false, status } }) as const
+
+const fakeAudio = () => ({
+  setVolume: vi.fn<SystemAudioPort['setVolume']>(async () => audioState()),
+  adjustVolume: vi.fn<SystemAudioPort['adjustVolume']>(async () => audioState()),
+  setMuted: vi.fn<SystemAudioPort['setMuted']>(async () => audioState())
 })
 
 /** An app control whose calls can be held open and inspected. */
@@ -78,6 +87,7 @@ function fakeAppControl() {
 function setup(options: { signedIn?: boolean; restoreTarget?: { appId: string } | null } = {}) {
   const app = fakeAppControl()
   const folders = fakeFolders()
+  const audio = fakeAudio()
   const registry = new CapabilityRegistry(platformCapabilities('darwin'))
   let signedIn = options.signedIn ?? true
   let nowMs = 1_000
@@ -85,6 +95,7 @@ function setup(options: { signedIn?: boolean; restoreTarget?: { appId: string } 
     registry,
     appControl: app.control,
     folders,
+    audio,
     auth: {
       requireSignedIn: () =>
         signedIn
@@ -102,6 +113,7 @@ function setup(options: { signedIn?: boolean; restoreTarget?: { appId: string } 
     registry,
     app,
     folders,
+    audio,
     setSignedIn: (value: boolean) => {
       signedIn = value
     },
@@ -171,12 +183,87 @@ describe('execution and reporting', () => {
     expect(folders.open).not.toHaveBeenCalled()
   })
 
+  it('sets, steps and mutes the volume through the audio port', async () => {
+    const { executor, audio } = setup()
+    const run = (command: ToolInvocation['command']) =>
+      executor.execute({ requestId: 'r', executionId: `e-${++counter}`, command })
+    expect(
+      await run({ tool: 'system.volume', arguments: { mode: 'set', level: 40 } })
+    ).toMatchObject({
+      tool: 'system.volume',
+      outcome: {
+        status: 'observed',
+        observation: { kind: 'audio', level: 40, muted: false, status: 'confirmed' }
+      }
+    })
+    expect(audio.setVolume).toHaveBeenCalledWith(40, expect.anything())
+    await run({ tool: 'system.volume', arguments: { mode: 'adjust', delta: -10 } })
+    expect(audio.adjustVolume).toHaveBeenCalledWith(-10, expect.anything())
+    expect(await run({ tool: 'system.mute', arguments: { muted: true } })).toMatchObject({
+      tool: 'system.mute',
+      outcome: { status: 'observed', observation: { kind: 'audio' } }
+    })
+    expect(audio.setMuted).toHaveBeenCalledWith(true, expect.anything())
+  })
+
+  it('rejects out-of-range volume requests before touching the OS', async () => {
+    const { executor, audio } = setup()
+    for (const command of [
+      { tool: 'system.volume', arguments: { mode: 'set', level: 101 } },
+      { tool: 'system.volume', arguments: { mode: 'set', level: -1 } },
+      { tool: 'system.volume', arguments: { mode: 'set', level: 40.5 } },
+      { tool: 'system.volume', arguments: { mode: 'set', level: '40' } },
+      { tool: 'system.volume', arguments: { mode: 'adjust', delta: 500 } },
+      { tool: 'system.volume', arguments: { mode: 'raise', level: 10 } },
+      { tool: 'system.volume', arguments: { level: 10 } },
+      { tool: 'system.volume', arguments: { mode: 'set', level: 10, delta: 5 } },
+      { tool: 'system.mute', arguments: { muted: 'yes' } },
+      { tool: 'system.mute', arguments: {} }
+    ])
+      expect(
+        await executor.execute({
+          requestId: 'r',
+          executionId: `e-${++counter}`,
+          command: command as never
+        })
+      ).toMatchObject({
+        outcome: { status: 'not_started', reason: 'rejected', error: { code: 'invalid_input' } }
+      })
+    expect(audio.setVolume).not.toHaveBeenCalled()
+    expect(audio.adjustVolume).not.toHaveBeenCalled()
+    expect(audio.setMuted).not.toHaveBeenCalled()
+  })
+
+  it('does not change the volume where there is no audio adapter', async () => {
+    const audio = fakeAudio()
+    const executor = new ToolExecutor({
+      registry: new CapabilityRegistry(platformCapabilities('win32')),
+      appControl: fakeAppControl().control,
+      folders: fakeFolders(),
+      audio,
+      auth: { requireSignedIn: () => ({ ok: true, value: undefined }) },
+      clock: { now: () => 0 },
+      restoreTarget: () => null
+    })
+    expect(
+      await executor.execute({
+        requestId: 'r',
+        executionId: 'e-win',
+        command: { tool: 'system.mute', arguments: { muted: true } }
+      })
+    ).toMatchObject({
+      outcome: { status: 'not_started', reason: 'rejected', error: { code: 'unsupported' } }
+    })
+    expect(audio.setMuted).not.toHaveBeenCalled()
+  })
+
   it('does not open a folder where the file manager is not supported', async () => {
     const folders = fakeFolders()
     const executor = new ToolExecutor({
       registry: new CapabilityRegistry(platformCapabilities('linux')),
       appControl: fakeAppControl().control,
       folders,
+      audio: fakeAudio(),
       auth: { requireSignedIn: () => ({ ok: true, value: undefined }) },
       clock: { now: () => 0 },
       restoreTarget: () => null
@@ -361,6 +448,7 @@ describe('duplicate execution IDs', () => {
       registry: new CapabilityRegistry(platformCapabilities('darwin')),
       appControl: app.control,
       folders: fakeFolders(),
+      audio: fakeAudio(),
       auth: { requireSignedIn: () => ({ ok: true, value: undefined }) },
       clock: { now: () => 0 },
       restoreTarget: () => null,
@@ -527,12 +615,16 @@ describe('CapabilityRegistry', () => {
     expect(byTool('darwin')).toMatchObject({
       'apps.launch': 'available',
       'browser.open': 'available',
-      'folder.open': 'available'
+      'folder.open': 'available',
+      'system.volume': 'available',
+      'system.mute': 'available'
     })
     expect(byTool('win32')).toMatchObject({
       'apps.launch': 'unsupported',
       'browser.open': 'available',
-      'folder.open': 'available'
+      'folder.open': 'available',
+      'system.volume': 'unsupported',
+      'system.mute': 'unsupported'
     })
     expect(byTool('linux')['apps.list']).toBe('unsupported')
     expect(byTool('linux')['folder.open']).toBe('unsupported')

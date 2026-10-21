@@ -66,6 +66,27 @@ export const FolderObservationSchema = z.strictObject({
 })
 export type FolderObservation = z.infer<typeof FolderObservationSchema>
 
+const VolumeLevelSchema = z.number().int().min(0).max(100)
+
+/** A volume change is either an absolute level or a relative step, never a free-form value. */
+export const VolumeChangeSchema = z.discriminatedUnion('mode', [
+  z.strictObject({ mode: z.literal('set'), level: VolumeLevelSchema }),
+  z.strictObject({ mode: z.literal('adjust'), delta: z.number().int().min(-100).max(100) })
+])
+export type VolumeChange = z.infer<typeof VolumeChangeSchema>
+
+/**
+ * The output volume and mute state read back from the OS after a change. A value is null when the
+ * OS could not report it (for example an output device without a volume control).
+ */
+export const AudioObservationSchema = z.strictObject({
+  kind: z.literal('audio'),
+  level: VolumeLevelSchema.nullable(),
+  muted: z.boolean().nullable(),
+  status: z.enum(['confirmed', 'dispatched', 'unknown'])
+})
+export type AudioObservation = z.infer<typeof AudioObservationSchema>
+
 export const TaskSwitchObservationSchema = z.strictObject({
   status: z.enum(['confirmed', 'dispatched', 'unknown'])
 })
@@ -77,7 +98,9 @@ export const ToolNameSchema = z.enum([
   'apps.activate',
   'apps.restore',
   'browser.open',
-  'folder.open'
+  'folder.open',
+  'system.volume',
+  'system.mute'
 ])
 export type ToolName = z.infer<typeof ToolNameSchema>
 
@@ -99,6 +122,11 @@ export const ToolCommandSchema = z.discriminatedUnion('tool', [
   z.strictObject({
     tool: z.literal('folder.open'),
     arguments: z.strictObject({ alias: FolderAliasSchema })
+  }),
+  z.strictObject({ tool: z.literal('system.volume'), arguments: VolumeChangeSchema }),
+  z.strictObject({
+    tool: z.literal('system.mute'),
+    arguments: z.strictObject({ muted: z.boolean() })
   })
 ])
 export type ToolCommand = z.infer<typeof ToolCommandSchema>
@@ -122,7 +150,8 @@ const ToolObservationSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('app_list'), apps: z.array(AppDescriptorSchema) }),
   AppObservationSchema,
   UrlObservationSchema,
-  FolderObservationSchema
+  FolderObservationSchema,
+  AudioObservationSchema
 ])
 export const ToolOutcomeSchema = z.discriminatedUnion('status', [
   z.strictObject({
@@ -162,6 +191,8 @@ export const ToolExecutionReportSchema = z
       'apps.list': 'app_list',
       'browser.open': 'url',
       'folder.open': 'folder',
+      'system.volume': 'audio',
+      'system.mute': 'audio',
       'apps.launch': 'app',
       'apps.activate': 'app',
       'apps.restore': 'app'

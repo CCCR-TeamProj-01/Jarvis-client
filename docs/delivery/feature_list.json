@@ -158,6 +158,13 @@
       "description": "서버가 보낸 폴더 별칭만 받아 Main이 표준 폴더로 해석하고 기본 파일 관리자에 전달한다. 계약·FolderOpenPort·가용성·보고 문장·개발용 대역과 테스트를 추가한다.",
       "status": "done",
       "issue": 51
+    },
+    {
+      "id": "F-026",
+      "title": "시스템 볼륨·음소거 도구(system.volume·system.mute)",
+      "description": "범위를 검증한 볼륨 설정·상대 조절과 음소거를 macOS 어댑터로 실행하고 변경 뒤 OS 상태를 다시 읽어 보고한다. 계약·SystemAudioPort·가용성·보고 문장·개발용 대역과 테스트를 추가한다. Windows 어댑터는 제외한다.",
+      "status": "done",
+      "issue": 53
     }
   ]
 }
