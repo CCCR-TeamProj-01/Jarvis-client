@@ -110,6 +110,9 @@ function App(): React.JSX.Element {
             permissions={permissions}
             callKeys={callKeys}
             toggleKeys={toggleKeys}
+            onWakeWordChange={(enabled) =>
+              void dispatch({ type: 'wake_word.set_enabled', enabled })
+            }
           />
         )}
       </AppShell>

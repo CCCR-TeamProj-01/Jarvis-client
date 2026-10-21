@@ -9,7 +9,7 @@ import type { LocalExecutionOptions, MonotonicClock } from '../../ports'
 import type { SensorGate } from '../../sensors/hardware'
 import type { AssistantReply, ConversationPort } from '../../conversation/ports'
 import type { RemoteSpeechPort } from '../remote-speech/ports'
-import type { ListenOutcome, VoiceInput } from '../voice-input'
+import type { ListenOutcome, VoiceInput, WakeContinuation } from '../voice-input'
 import type { SpeechNotice, SpeechSessionPort } from './ports'
 
 /**
@@ -67,6 +67,7 @@ interface Session {
   conversationId: string
   /** Keeps the conversation from timing out while this session is using it. */
   releaseConversation: () => void
+  continuation?: WakeContinuation
 }
 
 const failure = (code: ClientError['code'], message: string): Result<never> => ({
@@ -109,22 +110,34 @@ export class SpeechSessionController implements SpeechSessionPort {
     }
   }
 
-  async activate(_source: ActivationSource): Promise<Result<Generation>> {
+  async activate(
+    _source: ActivationSource,
+    continuation?: WakeContinuation
+  ): Promise<Result<Generation>> {
+    if (this.session) continuation?.release()
     if (this.session) return { ok: true, value: this.generation(this.session) }
     const gate = this.options.gate.check()
-    if (!gate.ok) return gate
+    if (!gate.ok) {
+      continuation?.release()
+      return gate
+    }
     // Listening belongs to a conversation; start one if there is none.
     const conversation = this.options.conversation.start()
-    if (!conversation.ok) return conversation
+    if (!conversation.ok) {
+      continuation?.release()
+      return conversation
+    }
     const session: Session = {
       id: this.options.createId(),
       version: 0,
       abort: new AbortController(),
       playback: null,
       conversationId: conversation.value.conversationId,
-      releaseConversation: this.options.conversation.hold()
+      releaseConversation: this.options.conversation.hold(),
+      continuation
     }
     this.session = session
+    if (continuation) this.enter(session, 'wake_detected')
     // `run` enters its first state before its first await, so the caller already sees it.
     void this.run(session)
     return { ok: true, value: this.generation(session) }
@@ -147,6 +160,7 @@ export class SpeechSessionController implements SpeechSessionPort {
         let heard: Result<ListenOutcome> | null = await voice.listen(
           {
             generation: this.generation(session),
+            ...(session.continuation ? { continuation: session.continuation } : {}),
             policy: {
               ...policy.vad,
               startWaitMs: first ? policy.initialWaitMs : policy.followupWaitMs
@@ -157,6 +171,8 @@ export class SpeechSessionController implements SpeechSessionPort {
           },
           { signal: session.abort.signal }
         )
+        session.continuation?.release()
+        session.continuation = undefined
         if (!this.alive(session)) return
         if (!heard.ok) return this.problem(heard.error)
         // Nothing said in time: the voice session is simply over.
@@ -334,6 +350,8 @@ export class SpeechSessionController implements SpeechSessionPort {
     if (this.session !== session) return
     this.session = null
     session.abort.abort()
+    session.continuation?.release()
+    session.continuation = undefined
     if (session.playback)
       void this.options.playback.stop(session.playback.id, session.playback.generation)
     session.playback = null

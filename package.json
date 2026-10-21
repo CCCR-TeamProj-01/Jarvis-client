@@ -18,6 +18,7 @@
     "lint": "oxlint",
     "models:fetch": "node scripts/fetch-models.mjs && node scripts/fetch-wake-model.mjs",
     "models:wake:fetch": "node scripts/fetch-wake-model.mjs",
+    "wake:probe": "electron scripts/probe-wake-word.cjs",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "package:dir": "pnpm models:fetch && pnpm build && electron-builder --dir",

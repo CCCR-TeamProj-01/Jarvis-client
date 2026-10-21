@@ -189,6 +189,28 @@ function setup(policy: Partial<SessionPolicy> = {}, speechOutputEnabled?: () => 
 }
 
 describe('a normal voice session', () => {
+  it('passes wake audio only to the first listen and releases it on stop or rejected activation', async () => {
+    const t = setup()
+    const continuation = {
+      generation: { sessionId: 'capture', revision: 0 },
+      startSample: 100,
+      release: vi.fn<() => void>()
+    }
+    t.queue.push('hold')
+    await t.controller.activate('voice', continuation)
+    expect(t.listens[0].request.continuation).toBe(continuation)
+    const duplicate = { ...continuation, release: vi.fn<() => void>() }
+    await t.controller.activate('voice', duplicate)
+    expect(duplicate.release).toHaveBeenCalledOnce()
+    expect(t.listens).toHaveLength(1)
+    await t.controller.stop()
+    expect(continuation.release).toHaveBeenCalled()
+    await flush()
+    const rejected = { ...continuation, release: vi.fn<() => void>() }
+    t.closeGate({ code: 'authentication_required', message: 'signed out' })
+    expect(await t.controller.activate('voice', rejected)).toMatchObject({ ok: false })
+    expect(rejected.release).toHaveBeenCalledOnce()
+  })
   it('keeps text processing and follow-up listening when saved speech output is disabled', async () => {
     const t = setup({}, () => false)
     t.queue.push(heard(), empty())

@@ -151,6 +151,74 @@ const flush = () => new Promise<void>((resolve) => setImmediate(resolve))
 const policyless = { generation: feature }
 
 describe('VoiceInput.listen', () => {
+  it('replays only the command after the wake boundary before newly arriving audio', async () => {
+    const prefix = {
+      ...utterance,
+      startSample: 1200,
+      sampleCount: 2000,
+      audio: new Uint8Array(4000).fill(7)
+    }
+    const t = setup({ extract: { ok: true, value: prefix } })
+    const release = vi.fn<() => void>(() => {
+      t.log.push('wake.release')
+    })
+    const abort = new AbortController()
+    const pending = t.input.listen(
+      { ...policyless, continuation: { generation: capture, startSample: 1200, release } },
+      { signal: abort.signal }
+    )
+    await flush()
+    expect(t.log.slice(0, 2)).toEqual(['acquire', 'wake.release'])
+    t.pcm(chunk(2))
+    await flush()
+    expect(t.router.extractUtterance).toHaveBeenCalledWith(
+      expect.objectContaining({ generation: capture, startSample: 1200, sampleCount: 2000 }),
+      expect.anything()
+    )
+    expect(t.pushed.map((c) => c.startSample)).toEqual([1200, 2800, 3200])
+    expect(t.pushed[0].audio).toEqual(prefix.audio.slice(0, 3200))
+    expect(t.vad.start).toHaveBeenCalledWith(
+      capture,
+      format,
+      expect.objectContaining({ firstSample: 1200 })
+    )
+    abort.abort()
+    await pending
+  })
+
+  it('fails rather than dropping a command whose wake buffer was lost', async () => {
+    const t = setup({
+      extract: { ok: false, error: { code: 'not_found', message: 'buffer lost' } }
+    })
+    const release = vi.fn<() => void>()
+    const pending = t.input.listen({
+      ...policyless,
+      continuation: { generation: capture, startSample: 1200, release }
+    })
+    await flush()
+    t.pcm(chunk(2))
+    expect(await pending).toMatchObject({ ok: false, error: { code: 'not_found' } })
+    expect(t.vad.start).not.toHaveBeenCalled()
+    expect(t.pushed).toHaveLength(0)
+    expect(release).toHaveBeenCalled()
+  })
+
+  it('does not replay another capture or audio older than the handoff limit', async () => {
+    const t = setup()
+    const pending = t.input.listen({
+      ...policyless,
+      continuation: {
+        generation: { ...capture, revision: 99 },
+        startSample: 100,
+        release: vi.fn<() => void>()
+      }
+    })
+    await flush()
+    t.pcm(chunk(2))
+    expect(await pending).toMatchObject({ ok: false, error: { code: 'expired' } })
+    expect(t.router.extractUtterance).not.toHaveBeenCalled()
+  })
+
   it('opens the microphone, runs VAD on the audio and returns the extracted utterance', async () => {
     const t = setup()
     const pending = t.input.listen(policyless)

@@ -12,6 +12,14 @@ import type { AudioInputRouter } from './audio-input'
 /** About 15 s of 100 ms chunks: far more than starting the detector should ever take. */
 const MAX_WAITING_CHUNKS = 150
 
+/** Main-only transfer of a live microphone lease, never sent through IPC. */
+export interface WakeContinuation {
+  generation: Generation
+  startSample: number
+  /** Idempotent: keep wake capture alive until speech has acquired its own lease. */
+  release(): void
+}
+
 export type ListenOutcome =
   | { kind: 'utterance'; utterance: CompletedUtterance; reason: 'silence' | 'max_duration' }
   | { kind: 'empty'; reason: 'timeout' | 'silence' }
@@ -47,7 +55,12 @@ export class VoiceInput {
   constructor(private readonly options: VoiceInputOptions) {}
 
   async listen(
-    request: { generation: Generation; policy?: VadPolicy; onSpeechStarted?: () => void },
+    request: {
+      generation: Generation
+      policy?: VadPolicy
+      onSpeechStarted?: () => void
+      continuation?: WakeContinuation
+    },
     execution?: LocalExecutionOptions
   ): Promise<Result<ListenOutcome>> {
     if (this.busy) return failure('conflict', '이미 음성 입력을 받고 있습니다.')
@@ -62,6 +75,7 @@ export class VoiceInput {
       )
       if (!lease.ok) return lease
       cleanups.push(() => this.options.sensors.release(lease.value.leaseId))
+      request.continuation?.release()
       return await this.run(
         lease.value,
         request.policy ?? DEFAULT_VAD_POLICY,
@@ -70,9 +84,11 @@ export class VoiceInput {
         cleanups,
         (g) => {
           capture = g
-        }
+        },
+        request.continuation
       )
     } finally {
+      request.continuation?.release()
       // Always: stop VAD, throw away what was captured, return the microphone.
       await this.options.vad.stop()
       if (capture) await this.options.router.clearBuffer(capture).catch(() => undefined)
@@ -88,7 +104,8 @@ export class VoiceInput {
     onSpeechStarted: (() => void) | undefined,
     execution: LocalExecutionOptions | undefined,
     cleanups: (() => unknown)[],
-    onCapture: (generation: Generation) => void
+    onCapture: (generation: Generation) => void,
+    continuation?: WakeContinuation
   ): Promise<Result<ListenOutcome>> {
     const { sensors, router, vad, clock, schedule } = this.options
     return new Promise((resolve) => {
@@ -138,8 +155,48 @@ export class VoiceInput {
             capture = chunk.generation
             onCapture(chunk.generation)
             started = true
-            void vad
-              .start(chunk.generation, chunk.format, { policy, firstSample: chunk.startSample })
+            const firstSample = continuation?.startSample ?? chunk.startSample
+            const prepare = async (): Promise<Result<void>> => {
+              if (
+                continuation &&
+                (!sameGeneration(continuation.generation, chunk.generation) ||
+                  firstSample > chunk.startSample ||
+                  chunk.startSample - firstSample > 80_000)
+              )
+                return failure('expired', '호출 뒤 음성을 이어받지 못했습니다. 다시 말씀해 주세요.')
+              const prefix =
+                firstSample < chunk.startSample
+                  ? await router.extractUtterance(
+                      {
+                        utteranceId: `wake-${lease.leaseId}`,
+                        generation: chunk.generation,
+                        startSample: firstSample,
+                        sampleCount: chunk.startSample - firstSample
+                      },
+                      execution
+                    )
+                  : null
+              if (done) return failure('cancelled', '음성 입력이 중단되었습니다.')
+              if (prefix && !prefix.ok) return prefix
+              const result = await vad.start(chunk.generation, chunk.format, {
+                policy,
+                firstSample
+              })
+              if (!result.ok || done) return result
+              if (prefix?.ok) {
+                for (let offset = 0; offset < prefix.value.audio.byteLength; offset += 3_200) {
+                  if (done) break
+                  const pushed = vad.push({
+                    ...chunk,
+                    startSample: firstSample + offset / 2,
+                    audio: prefix.value.audio.slice(offset, offset + 3_200)
+                  })
+                  if (!pushed.ok) return pushed
+                }
+              }
+              return result
+            }
+            void prepare()
               .then((result) => {
                 if (done) return
                 if (!result.ok) return finish(result)
@@ -151,6 +208,7 @@ export class VoiceInput {
                   if (!pushed.ok) return finish(pushed)
                 }
               })
+              .catch(() => finish(failure('unavailable', '음성 입력을 준비하지 못했습니다.')))
           }
           if (!sameGeneration(capture, chunk.generation)) return
           if (!vadReady) {

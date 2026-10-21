@@ -27,6 +27,8 @@ export class UtilityProcessWake implements WakeWordDetectorPort {
   private process: WakeProcess | null = null
   private ready: Promise<Result<void>> | null = null
   private generation: Generation | null = null
+  private firstSample: number | null = null
+  private lastEnd = 0
   private readonly pending = new Set<number>()
   private readonly events = new Set<(event: WakeWordEvent) => void>()
   private readonly errors = new Set<(error: ClientError) => void>()
@@ -46,6 +48,8 @@ export class UtilityProcessWake implements WakeWordDetectorPort {
         error: { code: 'invalid_input', message: '호출어 오디오 형식이 올바르지 않습니다.' }
       }
     this.generation = generation
+    this.firstSample = null
+    this.lastEnd = 0
     this.pending.clear()
     const ready = await this.ensureProcess()
     if (!ready.ok) return ready
@@ -68,6 +72,8 @@ export class UtilityProcessWake implements WakeWordDetectorPort {
       return failure()
     }
     this.pending.add(chunk.sequence)
+    this.firstSample ??= chunk.startSample
+    this.lastEnd = chunk.startSample + chunk.audio.byteLength / 2
     try {
       this.process.postMessage({ type: 'pcm', chunk })
       return { ok: true, value: undefined }
@@ -137,6 +143,12 @@ export class UtilityProcessWake implements WakeWordDetectorPort {
           if (this.generation && sameGeneration(this.generation, value.generation))
             this.pending.delete(value.sequence)
         } else if (this.generation && sameGeneration(this.generation, value.event.generation)) {
+          if (
+            this.firstSample === null ||
+            value.event.keywordStartSample < this.firstSample ||
+            value.event.detectedAtSample > this.lastEnd
+          )
+            return this.fail()
           for (const listener of [...this.events]) listener(value.event)
         }
       })

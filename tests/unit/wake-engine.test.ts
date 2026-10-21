@@ -13,7 +13,11 @@ const chunk = (startSample = 16_000, sequence = 0): PcmChunk => ({
 })
 const word = (name = '자비스', conf = 0.95) => ({ word: name, start: 0.01, end: 0.08, conf })
 const setup = () => {
-  const recognizer = { accept: vi.fn<() => unknown>(() => ({})), reset: vi.fn(), dispose: vi.fn() }
+  const recognizer = {
+    accept: vi.fn<() => unknown>(() => ({})),
+    reset: vi.fn<() => void>(),
+    dispose: vi.fn<() => void>()
+  }
   const engine = new WakeEngine(recognizer)
   engine.start(generation)
   return { engine, recognizer }
