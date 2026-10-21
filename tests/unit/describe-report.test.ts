@@ -94,6 +94,40 @@ describe('describeToolReport', () => {
         })
       )
     ).toEqual({ ok: false, text: '문서 폴더를 열었는지 확인하지 못했어요.' })
+    const audio = (
+      tool: 'system.volume' | 'system.mute',
+      level: number | null,
+      muted: boolean | null,
+      status: 'confirmed' | 'dispatched' | 'unknown'
+    ) =>
+      describeToolReport(
+        report(tool, {
+          status: 'observed',
+          observation: { kind: 'audio', level, muted, status }
+        })
+      )
+    expect(audio('system.volume', 40, false, 'confirmed')).toEqual({
+      ok: true,
+      text: '볼륨을 40%로 맞췄어요.'
+    })
+    expect(audio('system.volume', 40, true, 'confirmed').text).toBe(
+      '볼륨을 40%로 맞췄어요. 지금은 음소거 상태예요.'
+    )
+    expect(audio('system.volume', null, null, 'dispatched')).toEqual({
+      ok: true,
+      text: '볼륨 변경을 요청했어요.'
+    })
+    expect(audio('system.volume', 12, false, 'unknown')).toEqual({
+      ok: false,
+      text: '볼륨을 바꿨는지 확인하지 못했어요. 지금은 12%예요.'
+    })
+    expect(audio('system.mute', 30, true, 'confirmed').text).toBe('음소거했어요.')
+    expect(audio('system.mute', 30, false, 'confirmed').text).toBe('음소거를 해제했어요.')
+    expect(audio('system.mute', null, null, 'dispatched').text).toBe('음소거 변경을 요청했어요.')
+    expect(audio('system.mute', 30, false, 'unknown')).toEqual({
+      ok: false,
+      text: '음소거 상태를 확인하지 못했어요.'
+    })
     expect(
       describeToolReport(
         report('apps.restore', {

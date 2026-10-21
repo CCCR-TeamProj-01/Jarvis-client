@@ -1,4 +1,4 @@
-import type { FolderAlias } from '../../../shared/contracts/tools'
+import type { AudioObservation, FolderAlias, ToolCommand } from '../../../shared/contracts/tools'
 import type { AssistantTools } from '../../conversation/ports'
 
 const SITES: { pattern: RegExp; url: string; name: string }[] = [
@@ -32,6 +32,60 @@ const FOLDERS: { pattern: RegExp; alias: FolderAlias; name: string }[] = [
   { pattern: /음악\s*폴더|music/i, alias: 'music', name: '음악' },
   { pattern: /홈\s*폴더|home/i, alias: 'home', name: '홈' }
 ]
+
+/** How far "올려줘" and "내려줘" move the volume. */
+const VOLUME_STEP = 10
+
+interface AudioIntent {
+  command: Extract<ToolCommand, { tool: 'system.volume' | 'system.mute' }>
+  reply(observation: AudioObservation): string
+  failure: string
+}
+
+/** Mute and volume requests. Unmuting is checked first because it contains the mute word. */
+function audioIntent(text: string): AudioIntent | null {
+  const muteReply = (observation: AudioObservation) =>
+    observation.muted ? '음소거했어요.' : '음소거를 해제했어요.'
+  if (/음소거\s*(해제|풀어)|소리\s*켜/.test(text))
+    return {
+      command: { tool: 'system.mute', arguments: { muted: false } },
+      reply: muteReply,
+      failure: '음소거를 해제하지 못했어요.'
+    }
+  if (/음소거|뮤트|소리\s*(꺼|끄)/.test(text))
+    return {
+      command: { tool: 'system.mute', arguments: { muted: true } },
+      reply: muteReply,
+      failure: '음소거하지 못했어요.'
+    }
+  if (!/볼륨|음량|소리/.test(text)) return null
+  const reply = (observation: AudioObservation) =>
+    observation.level === null
+      ? '볼륨을 바꾸도록 요청했어요.'
+      : `볼륨을 ${observation.level}%로 맞췄어요.`
+  const failure = '볼륨을 바꾸지 못했어요.'
+  // Out-of-range numbers are passed on as they are; the executor rejects them.
+  const level = /(\d+)/.exec(text)?.[1]
+  if (level !== undefined)
+    return {
+      command: { tool: 'system.volume', arguments: { mode: 'set', level: Number(level) } },
+      reply,
+      failure
+    }
+  if (/올려|높여|키워|크게/.test(text))
+    return {
+      command: { tool: 'system.volume', arguments: { mode: 'adjust', delta: VOLUME_STEP } },
+      reply,
+      failure
+    }
+  if (/내려|낮춰|줄여|작게/.test(text))
+    return {
+      command: { tool: 'system.volume', arguments: { mode: 'adjust', delta: -VOLUME_STEP } },
+      reply,
+      failure
+    }
+  return null
+}
 
 const OPEN_WORDS = /열어|실행|켜|띄워|보여|가줘|가 줘/
 const LAUNCH = /^(.+?)\s*(?:앱\s*)?(?:열어|실행|켜|띄워)/
@@ -68,6 +122,14 @@ export async function runDevIntent(text: string, tools: AssistantTools): Promise
     return report.outcome.status === 'observed'
       ? '이전 작업으로 돌아가도록 요청했어요.'
       : '이전 작업으로 돌아가지 못했어요.'
+  }
+
+  const audio = audioIntent(text)
+  if (audio) {
+    const report = await tools.execute({ executionId: nextId('audio'), command: audio.command })
+    return report.outcome.status === 'observed' && report.outcome.observation.kind === 'audio'
+      ? audio.reply(report.outcome.observation)
+      : audio.failure
   }
 
   // Only an explicit "folder" request: "음악 열어줘" still means the Music app.

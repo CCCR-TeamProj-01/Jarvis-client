@@ -61,12 +61,14 @@ export class CapabilityRegistry implements CapabilityRegistryPort {
   }
 }
 
+const AUDIO_TOOLS: readonly ToolName[] = ['system.volume', 'system.mute']
 const APP_TOOLS: readonly ToolName[] = ['apps.list', 'apps.launch', 'apps.activate', 'apps.restore']
 
 /** Tool availability for a platform: app tools need an OS adapter, the browser handoff does not, and the file manager exists on both supported desktops. */
 export function platformCapabilities(platform: NodeJS.Platform): Capability[] {
   const appsSupported = platform === 'darwin'
   const folderSupported = platform === 'darwin' || platform === 'win32'
+  const audioSupported = platform === 'darwin'
   return [
     ...APP_TOOLS.map<Capability>((tool) =>
       appsSupported
@@ -86,6 +88,16 @@ export function platformCapabilities(platform: NodeJS.Platform): Capability[] {
           version: 1,
           availability: 'unsupported',
           reason: '이 운영체제의 폴더 열기는 아직 지원하지 않습니다.'
-        }
+        },
+    ...AUDIO_TOOLS.map<Capability>((tool) =>
+      audioSupported
+        ? { tool, version: 1, availability: 'available' }
+        : {
+            tool,
+            version: 1,
+            availability: 'unsupported',
+            reason: '이 운영체제의 볼륨 제어는 아직 지원하지 않습니다.'
+          }
+    )
   ]
 }

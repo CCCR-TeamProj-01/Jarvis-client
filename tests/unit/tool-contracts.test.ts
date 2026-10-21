@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AudioObservationSchema,
   FolderObservationSchema,
   HttpUrlSchema,
   ToolCommandSchema,
@@ -114,6 +115,51 @@ describe('observed effects and cancellation', () => {
       false
     )
     expect(ToolExecutionReportSchema.safeParse({ ...completed, tool: 'folder.open' }).success).toBe(
+      false
+    )
+  })
+
+  it('accepts only bounded integer volume changes and boolean mute values', () => {
+    const parse = (value: unknown) => ToolCommandSchema.safeParse(value).success
+    expect(parse({ tool: 'system.volume', arguments: { mode: 'set', level: 0 } })).toBe(true)
+    expect(parse({ tool: 'system.volume', arguments: { mode: 'set', level: 100 } })).toBe(true)
+    expect(parse({ tool: 'system.volume', arguments: { mode: 'adjust', delta: -100 } })).toBe(true)
+    expect(parse({ tool: 'system.mute', arguments: { muted: false } })).toBe(true)
+    for (const bad of [
+      { mode: 'set', level: 101 },
+      { mode: 'set', level: -1 },
+      { mode: 'set', level: 1.5 },
+      { mode: 'set', level: '10' },
+      { mode: 'set', level: Number.NaN },
+      { mode: 'adjust', delta: 101 },
+      { mode: 'adjust', level: 10 },
+      { mode: 'set', delta: 10 },
+      { mode: 'set', level: 10, delta: 10 },
+      { mode: 'toggle' },
+      { level: 10 }
+    ])
+      expect(parse({ tool: 'system.volume', arguments: bad })).toBe(false)
+    for (const bad of [{ muted: 'true' }, { muted: 1 }, {}, { muted: true, extra: 1 }])
+      expect(parse({ tool: 'system.mute', arguments: bad })).toBe(false)
+  })
+
+  it('represents the audio state read back, never a bare request', () => {
+    const observation = { kind: 'audio', level: 40, muted: false, status: 'confirmed' }
+    expect(AudioObservationSchema.safeParse(observation).success).toBe(true)
+    expect(
+      AudioObservationSchema.safeParse({ ...observation, level: null, muted: null }).success
+    ).toBe(true)
+    expect(AudioObservationSchema.safeParse({ ...observation, level: 101 }).success).toBe(false)
+    expect(AudioObservationSchema.safeParse({ ...observation, status: 'done' }).success).toBe(false)
+    for (const tool of ['system.volume', 'system.mute'])
+      expect(
+        ToolExecutionReportSchema.safeParse({
+          ...completed,
+          tool,
+          outcome: { status: 'observed', observation }
+        }).success
+      ).toBe(true)
+    expect(ToolExecutionReportSchema.safeParse({ ...completed, tool: 'system.mute' }).success).toBe(
       false
     )
   })

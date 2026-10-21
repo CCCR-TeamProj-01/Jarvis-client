@@ -1,4 +1,4 @@
-import { ToolInvocationSchema } from '../../shared/contracts/tools'
+import { ToolInvocationSchema, ToolNameSchema } from '../../shared/contracts/tools'
 import type { ToolExecutionReport } from '../../shared/contracts/tools'
 import type { LocalExecutionOptions, MonotonicClock } from '../ports'
 import { describeToolReport } from '../tools/describe-report'
@@ -141,13 +141,6 @@ export class TurnTools implements AssistantTools {
 
 /** The tool a request names, when it names a known one; the report needs some tool to refer to. */
 function toolNameOf(command: unknown): ToolExecutionReport['tool'] {
-  const tool = (command as { tool?: unknown } | null)?.tool
-  return tool === 'apps.list' ||
-    tool === 'apps.launch' ||
-    tool === 'apps.activate' ||
-    tool === 'apps.restore' ||
-    tool === 'browser.open' ||
-    tool === 'folder.open'
-    ? tool
-    : 'apps.list'
+  const tool = ToolNameSchema.safeParse((command as { tool?: unknown } | null)?.tool)
+  return tool.success ? tool.data : 'apps.list'
 }
