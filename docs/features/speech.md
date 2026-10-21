@@ -96,7 +96,7 @@ SpeechSessionController는 모든 이벤트에 음성 세션 ID와 상태 버전
 
 ## 구현 현황: 로컬 음성 입력
 
-F-015([#16](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/16))에서 VOICE-01의 입력 쪽을 구현했다. 이후 음성 세션·서버 대역·응답 재생 구현은 [아래](#구현-현황-대화음성-세션응답-재생)에 둔다. 호출어(KWS) 엔진은 한국어 "자비스" 모델 검증이 남아 보류했고, `WakeWordDetectorPort` 뒤의 자리로 남겨 두었다.
+F-015([#16](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/16))에서 VOICE-01의 입력 쪽을 구현했다. 이후 음성 세션·서버 대역·응답 재생 구현은 [아래](#구현-현황-대화음성-세션응답-재생)에 둔다. F-024의 호출어 구현과 남은 검증은 [호출어 감지](#호출어-감지-구현과-검증)를 따른다.
 
 | 위치 | 책임 |
 | --- | --- |
@@ -113,6 +113,28 @@ F-015([#16](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/16))에서 
 - 발화 하나가 끝나면 VAD는 종료된다. 다음 발화는 새로 시작한다(후속 발화는 세션이 다시 `listen()`을 호출).
 - 모델은 저장소에 없다. `pnpm models:fetch`가 `resources/models/`에 내려받아 해시를 검증하고, 패키징은 `resources/models/*.onnx`를 포함한다.
 - 개발용: 패키징되지 않은 앱에서 `JARVIS_FAKE_MEDIA=1`과 `JARVIS_FAKE_AUDIO_FILE=<wav>`로 파일을 마이크 입력으로 쓰고, `JARVIS_VOICE_SELFTEST=<횟수>`로 로그인 후 그 횟수만큼 `listen()`한 결과(오디오 제외)를 `VOICE_SELFTEST` 줄로 출력한다. 가짜 마이크는 사용권을 다시 열 때마다 파일을 처음부터 재생한다.
+
+## 호출어 감지 구현과 검증
+
+F-024([#49](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/49))에서 `vosk-model-small-ko-0.22`를 호출어 용도로 연결한다. 명령의 텍스트 변환은 VOICE-02의 서버 STT, 응답 음성 생성은 VOICE-03의 서버 TTS를 유지한다. 로컬 Vosk 인식 본문은 화면·로그·디스크·서버에 전달하지 않는다.
+
+| 위치 | 책임 |
+| --- | --- |
+| `src/inference/wake-word/` | 고정 어휘·형식·시간 경계 검증과 Vosk C API 호출, 별도 utilityProcess 진입점 |
+| `src/main/speech/wake-process.ts` | 프로세스 시작/오류/종료·세대 검증·미처리 PCM 제한 |
+| `src/main/speech/wake-word.ts`, `create-wake-word.ts` | 로그인·수집 허용·옵트인에 따른 voice_wake 사용권, 대기/중지·첫 명령의 음성 세션 인계 |
+| `VoiceInput`, `SpeechSessionController` | 호출어 끝 이후 이미 수집된 구간을 VAD에 먼저 재생한 뒤 새 PCM에 연결. 음성 사용권 취득 후 대기 사용권 반납 |
+| 설정 탭·Main `wake_word.set_enabled` | 이번 실행의 음성 호출 켜기·끄기와 상태 표시. 기본 OFF, 계정 변경·재실행 후 OFF |
+
+모델은 `pnpm models:wake:fetch`로 설치하며 `pnpm models:fetch`에도 포함한다. 공식 ZIP·엔진 TGZ의 SHA-256을 고정하고 디렉터리와 현재 플랫폼의 네이티브 엔진을 패키지 resources에 넣는다. Koffi는 asar 밖에 둔다. 지원 자산은 macOS x64/arm64, Windows x64이며 실제 검증 결과는 PR과 진행 로그로 구분한다. 모델·네이티브 파일이 없거나 로딩이 실패하면 대기를 오류 상태로 중단하고 단축키·트레이 시작 경로를 유지한다.
+
+전체 어휘 그래프의 결과에서 정확히 `자비스`로 인식된 단어의 시각과 잠정 신뢰도 0.3 이상을 사용한다. 이 값은 브라우저 입력에서 인식 신뢰도가 낮아지는 합성 사례로 정한 초기 검증값이며 실제 화자로 보정해야 한다. 호출어와 `<UNK>`로만 후보를 좁히면 비호출 합성 문장에서 오탐이 재현돼 제한 문법은 사용하지 않는다. `자비스야`·유사 문자열은 자동 치환하지 않는다. 높은 신뢰도가 오탐 방지를 보장하지 않으므로 실제 화자·거리·잡음·영상 재생에서 별도 검증한다. 모델은 로컬 호출어 판별용 ASR이며 전용 KWS와 동일한 감지 지연을 가정하지 않는다.
+
+처리·응답 재생·후속 발화 중에는 호출어 감지를 중단한다. 일시 중지 후 재개는 현재 실행의 옵트인을 유지하지만 계정 세대 변경은 해제한다. 모델/입력 오류 후 자동 재시작 루프를 만들지 않으며 사용자가 OFF→ON으로 재시도한다. 호출어 인계 시 capture 세대가 바뀌거나 버퍼가 없어졌거나 인계 구간이 5초를 넘으면 명령 앞부분을 생략해 실행하지 않고 재입력을 안내한다. 대기·인계 오디오는 메모리·기존 Ring Buffer에만 있고 종료 시 폐기한다.
+
+합성 음성·가짜 마이크·단위 테스트의 성공과 실제 화자 오탐/미탐 검증을 구분한다. 사람 음성, 시간당 오탐·미탐·지연 및 OS별 실기기/패키지 확인 전에는 CALL-01 전체나 #1의 로컬 음성 처리를 완료로 표시하지 않는다.
+
+오프라인 모델 확인은 `pnpm build` 후 `pnpm wake:probe <mono-16k-pcm.wav>`로 실행한다. 이 도구는 명시한 짧은 WAV만 읽고 마이크를 열지 않으며 런타임·샘플 수·로드 시간·호출 이벤트만 출력한다. 감지 0건도 정상 종료하므로 호출/비호출 샘플의 예상 결과와 비교해야 한다. 오디오를 실제 시간보다 빠르게 처리하므로 도구의 실행 시간을 사용자 체감 감지 지연으로 간주하지 않는다.
 
 ## 대화와 음성 세션의 관계
 
@@ -133,7 +155,7 @@ F-015([#16](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/16))에서 
 
 ## 구현 현황: 대화·음성 세션·응답 재생
 
-F-016([#18](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/18))과 F-017([#19](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/19))에서 개발용 서버 대역 기반 음성 세션과 텍스트 입력 경로를 구현했고 F-020에서 로컬 도구 실행을 연결했다. 실제 서버 연동·대화 생성과 저장·새 요청 완료 계약, 호출어 엔진, 응답 중 끼어들기는 후속이다. 아래는 현재 코드 동작이며 위의 서버 연동 목표와 구분한다. 호출어 대신 단축키·트레이·화면의 `대화 시작`(`conversation.start`)으로 음성을 시작하고, 글은 화면의 입력창(`conversation.submit_text`)으로 보낸다.
+F-016([#18](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/18))과 F-017([#19](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/19))에서 개발용 서버 대역 기반 음성 세션과 텍스트 입력 경로를 구현했고 F-020에서 로컬 도구 실행을 연결했다. F-024에서 음성 호출 경로를 추가한다. 실제 서버 연동·대화 생성과 저장·새 요청 완료 계약, 응답 중 끼어들기는 후속이다. 아래는 현재 코드 동작이며 위의 서버 연동 목표와 구분한다. 음성 호출이 OFF여도 단축키·트레이·화면의 `대화 시작`(`conversation.start`)은 유지하고, 글은 화면의 입력창(`conversation.submit_text`)으로 보낸다.
 
 | 위치 | 책임 |
 | --- | --- |
@@ -144,7 +166,7 @@ F-016([#18](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/18))과 F-0
 
 동작 기준은 다음과 같다.
 
-- 음성 상태는 `idle → awaiting_speech → listening → transcribing → processing → speaking → awaiting_followup`로 전이하고 후속 발화는 호출어 없이 이어진다(`processing`은 대화가 응답을 만드는 동안). 호출어 엔진이 생기면 `wake_detected`가 그 앞에 붙는다. 단축키로 시작하면 곧바로 `awaiting_speech`다.
+- 음성 상태는 `idle → awaiting_speech → listening → transcribing → processing → speaking → awaiting_followup`로 전이하고 후속 발화는 호출어 없이 이어진다(`processing`은 대화가 응답을 만드는 동안). 호출어로 시작하면 `wake_detected`가 그 앞에 붙는다. 단축키로 시작하면 곧바로 `awaiting_speech`다.
 - 마이크 사용권은 `listen()` 동안에만 잡는다. 서버 처리와 응답 재생 중에는 마이크가 닫혀 있으므로 응답 소리가 인식 입력에 섞이지 않고, 후속 발화는 마이크를 다시 열어 받는다(재오픈 지연은 측정 후 검토).
 - 시간 제한(잠정값, 정책으로 주입): 첫 발화 대기 6초, 후속 발화 대기 8초, 서버 단계당 20초, 재생 안전 한도 60초, 대화 유휴 5분. 빈 인식·인식 실패·응답 실패는 안내하고 이어 가며, 음성에서 연속 2회 실패하면 음성 세션을 끝낸다.
 - 응답 텍스트는 재생을 기다리지 않고 바로 보여 준다. 음성이 없는 응답이나 재생 실패는 텍스트만 보여 준다.

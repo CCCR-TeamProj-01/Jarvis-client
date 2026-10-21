@@ -24,6 +24,13 @@ const setup = () => {
 }
 
 describe('local wake recognition', () => {
+  it('accepts the measured browser-path keyword score without accepting an unrelated word', () => {
+    const { engine, recognizer } = setup()
+    recognizer.accept.mockReturnValue({
+      partial_result: [word('오늘', 1), word('자비스', 0.340993)]
+    })
+    expect(engine.push(chunk())).toMatchObject({ keyword: '자비스' })
+  })
   it('maps timed partial words to absolute capture samples and detects once', () => {
     const { engine, recognizer } = setup()
     recognizer.accept.mockReturnValue({ partial_result: [word()] })
@@ -46,7 +53,7 @@ describe('local wake recognition', () => {
     const { engine, recognizer } = setup()
     recognizer.accept
       .mockReturnValueOnce({ partial: '자비스' })
-      .mockReturnValueOnce({ result: [word('자비스', 0.7)] })
+      .mockReturnValueOnce({ result: [word('자비스', 0.2)] })
       .mockReturnValueOnce({ result: [{ ...word(), end: 50 }] })
     expect(engine.push(chunk())).toBeNull()
     expect(engine.push(chunk(17_600, 1))).toBeNull()

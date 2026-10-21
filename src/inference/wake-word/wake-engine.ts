@@ -25,7 +25,7 @@ export class WakeEngine {
 
   constructor(
     private readonly recognizer: WakeRecognizer,
-    private readonly confidence = 0.85
+    private readonly confidence = 0.3
   ) {}
 
   start(generation: Generation): void {

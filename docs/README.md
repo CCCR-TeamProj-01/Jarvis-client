@@ -6,6 +6,8 @@
 
 F-023([#45](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/45))의 설치 식별자·기기 설정 저장 기반은 구현했다. 파일 형식·실패 처리·음성 출력 적용의 원본은 [기기 로컬 저장 형식](architecture/data-security.md#기기-로컬-저장-형식)이며 서버 기기 등록·설정 편집 UI는 후속이다.
 
+F-024([#49](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/49))에서 Vosk 기반 로컬 호출어와 이번 실행의 음성 호출 토글을 연결한다. 적용·전송 경계와 검증 잔여 조건은 [호출어 감지](features/speech.md#호출어-감지-구현과-검증)가 원본이다. 실제 화자·OS별 검증 완료 전까지 구현 현황은 진행 중으로 유지한다.
+
 | 문서 | 주요 내용과 요구사항 |
 | --- | --- |
 | [제품 범위](product/scope.md) | MVP·확장 범위, 처리 원칙, BASE·OPS·LIFE |
