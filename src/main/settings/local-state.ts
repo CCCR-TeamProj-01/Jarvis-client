@@ -101,6 +101,13 @@ export class LocalState implements LocalStatePort {
     if (this.snapshot) return { ok: true, value: structuredClone(this.snapshot) }
     try {
       let installation = await this.files.read('installation.json')
+      let preferences = await this.files.read('device-settings.json')
+      if (installation === null && preferences !== null) {
+        // Another initializer may have published both files after our first read.
+        installation = await this.files.read('installation.json')
+        // Existing preferences mean this is not a fresh installation. Do not silently re-key it.
+        if (installation === null) return unavailable()
+      }
       if (installation === null) {
         const generated = InstallationDocumentSchema.safeParse({
           version: 1,
@@ -115,7 +122,6 @@ export class LocalState implements LocalStatePort {
       const identity = decode(installation, InstallationDocumentSchema)
       if (!identity.ok) return identity
 
-      let preferences = await this.files.read('device-settings.json')
       if (preferences === null) {
         await this.files.create(
           'device-settings.json',

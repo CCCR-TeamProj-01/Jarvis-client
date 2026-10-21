@@ -23,6 +23,16 @@ afterEach(async () => {
 })
 
 describe('atomic local documents on disk', () => {
+  it('treats a missing installation beside existing settings as data loss, not a new install', async () => {
+    const path = await directory()
+    await new LocalState(new NodeLocalFiles(path)).initialize()
+    const preferences = await fs.readFile(join(path, 'device-settings.json'), 'utf8')
+    await fs.unlink(join(path, 'installation.json'))
+    expect(await new LocalState(new NodeLocalFiles(path)).initialize()).toMatchObject({ ok: false })
+    expect(await fs.readdir(path)).toEqual(['device-settings.json'])
+    expect(await fs.readFile(join(path, 'device-settings.json'), 'utf8')).toBe(preferences)
+  })
+
   it('converges across independent initializers and restores preferences after a fresh instance', async () => {
     const path = join(await directory(), 'profile')
     const states = Array.from({ length: 16 }, () => new LocalState(new NodeLocalFiles(path)))
@@ -39,10 +49,13 @@ describe('atomic local documents on disk', () => {
       value: { deviceKey: keys[0], settings: { speechOutputEnabled: false } }
     })
     expect((await fs.readdir(path)).sort()).toEqual(['device-settings.json', 'installation.json'])
-    if (process.platform !== 'win32') {
-      for (const name of ['installation.json', 'device-settings.json'])
-        expect((await fs.stat(join(path, name))).mode & 0o777).toBe(0o600)
-    }
+  })
+
+  it.skipIf(process.platform === 'win32')('uses owner-only file permissions on POSIX', async () => {
+    const path = await directory()
+    expect(await new LocalState(new NodeLocalFiles(path)).initialize()).toMatchObject({ ok: true })
+    for (const name of ['installation.json', 'device-settings.json'])
+      expect((await fs.stat(join(path, name))).mode & 0o777).toBe(0o600)
   })
 
   it('never replaces an existing identity with another initializer’s candidate', async () => {

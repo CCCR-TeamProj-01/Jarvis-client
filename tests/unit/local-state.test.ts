@@ -10,21 +10,31 @@ const preferences = (enabled: boolean) =>
 function setup() {
   const data = new Map<LocalFileName, string>()
   const files: LocalFilesPort = {
-    read: vi.fn(async (name) => data.get(name) ?? null),
-    create: vi.fn(async (name, contents) => {
+    read: vi.fn<LocalFilesPort['read']>(async (name) => data.get(name) ?? null),
+    create: vi.fn<LocalFilesPort['create']>(async (name, contents) => {
       if (data.has(name)) return 'exists' as const
       data.set(name, contents)
       return 'created' as const
     }),
-    replace: vi.fn(async (name, contents) => {
+    replace: vi.fn<LocalFilesPort['replace']>(async (name, contents) => {
       data.set(name, contents)
     })
   }
-  const createKey = vi.fn(() => KEY)
+  const createKey = vi.fn<() => string>(() => KEY)
   return { data, files, createKey, state: new LocalState(files, createKey) }
 }
 
 describe('LocalState', () => {
+  it('does not issue a new identity when only the installation file has been lost', async () => {
+    const { data, state, createKey, files } = setup()
+    data.set('device-settings.json', preferences(false))
+    expect(await state.initialize()).toMatchObject({ ok: false })
+    expect(await state.resetSettings()).toMatchObject({ ok: false })
+    expect(createKey).not.toHaveBeenCalled()
+    expect(files.create).not.toHaveBeenCalled()
+    expect(data.get('device-settings.json')).toBe(preferences(false))
+  })
+
   it('coalesces concurrent initialization and returns independent snapshots', async () => {
     const { state, createKey } = setup()
     expect(state.getSnapshot()).toBeNull()
