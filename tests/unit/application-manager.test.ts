@@ -1,5 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('../../src/main/settings/create-local-state', async () => {
+  const { LocalState } = await import('../../src/main/settings/local-state')
+  return {
+    createLocalState: () => {
+      const files = new Map<string, string>()
+      return new LocalState({
+        read: async (name) => files.get(name) ?? null,
+        create: async (name, contents) => {
+          if (files.has(name)) return 'exists'
+          files.set(name, contents)
+          return 'created'
+        },
+        replace: async (name, contents) => {
+          files.set(name, contents)
+        }
+      })
+    }
+  }
+})
+
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events')
   class Window extends EventEmitter {
@@ -190,6 +210,73 @@ function makeManager() {
 }
 
 describe('native application lifecycle', () => {
+  it('waits for local storage before showing the window, registering shortcuts or restoring auth', async () => {
+    const manager = makeManager()
+    let release!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const initialize = manager.localState.initialize.bind(manager.localState)
+    vi.spyOn(manager.localState, 'initialize').mockImplementation(async () => {
+      await waiting
+      return initialize()
+    })
+    const authStart = vi.spyOn(manager.auth, 'start')
+    const starting = manager.start()
+    expect(manager.start()).toBe(starting)
+    manager.showWindow()
+    manager.activate('hotkey')
+    await flush()
+    expect(BrowserWindow.getAllWindows()).toHaveLength(0)
+    expect(globalShortcut.register).not.toHaveBeenCalled()
+    expect(authStart).not.toHaveBeenCalled()
+    release()
+    await starting
+    expect(authStart).toHaveBeenCalledOnce()
+    expect(manager.localState.getSnapshot()?.deviceKey).toBeTruthy()
+    expect(BrowserWindow.getAllWindows()).toHaveLength(1)
+  })
+
+  it('reports local initialization failure and never starts authentication or media', async () => {
+    const manager = makeManager()
+    vi.spyOn(manager.localState, 'initialize').mockResolvedValue({
+      ok: false,
+      error: { code: 'unsupported', message: '지원하지 않는 기기 저장 형식입니다.' }
+    })
+    const authStart = vi.spyOn(manager.auth, 'start')
+    await manager.start()
+    expect(dialog.showErrorBox).toHaveBeenCalledWith(
+      '기기 정보를 준비하지 못했습니다',
+      '지원하지 않는 기기 저장 형식입니다.'
+    )
+    expect(app.quit).toHaveBeenCalledOnce()
+    expect(authStart).not.toHaveBeenCalled()
+    expect(globalShortcut.register).not.toHaveBeenCalled()
+    expect(BrowserWindow.getAllWindows()).toHaveLength(0)
+    expect(manager.sensors.getSnapshot('microphone').state).not.toBe('active')
+  })
+
+  it('does not start services after disposal during local initialization', async () => {
+    const manager = makeManager()
+    let release!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const initialize = manager.localState.initialize.bind(manager.localState)
+    vi.spyOn(manager.localState, 'initialize').mockImplementation(async () => {
+      await waiting
+      return initialize()
+    })
+    const authStart = vi.spyOn(manager.auth, 'start')
+    const starting = manager.start()
+    manager.dispose()
+    release()
+    await starting
+    expect(authStart).not.toHaveBeenCalled()
+    expect(globalShortcut.register).not.toHaveBeenCalled()
+    expect(BrowserWindow.getAllWindows()).toHaveLength(0)
+  })
+
   it('starts with an opaque native window and leaves experimental effects disabled by default', async () => {
     const manager = makeManager()
     manager.start()

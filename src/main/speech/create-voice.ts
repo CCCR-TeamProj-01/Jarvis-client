@@ -53,7 +53,8 @@ export function createVoiceStack(
   sensors: SensorStack,
   gate: SensorGate,
   conversation: ConversationPort,
-  remote: RemoteSpeechPort
+  remote: RemoteSpeechPort,
+  speechOutputEnabled: () => boolean = () => true
 ): VoiceStack {
   const router = new AudioInputRouter({ bridge: sensors.bridge, schedule })
   const vad = new UtilityProcessVad({
@@ -77,6 +78,7 @@ export function createVoiceStack(
     remote,
     conversation,
     playback,
+    speechOutputEnabled,
     clock: { now: () => performance.now() },
     createId: randomUUID,
     schedule

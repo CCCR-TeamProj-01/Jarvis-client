@@ -51,6 +51,8 @@ interface SpeechSessionOptions {
   /** Returns a cancel function. Injected so waits can be tested without real timers. */
   schedule(callback: () => void, delayMs: number): () => void
   policy?: Partial<SessionPolicy>
+  /** Read before each reply. Disabling output never suppresses the conversation's text. */
+  speechOutputEnabled?: () => boolean
 }
 
 type Phase = SpeechSnapshot['phase']
@@ -205,7 +207,8 @@ export class SpeechSessionController implements SpeechSessionPort {
         }
         failures = 0
         const { reply } = answered.value
-        if (reply.audio) await this.speak(session, reply)
+        if (reply.audio && (this.options.speechOutputEnabled?.() ?? true))
+          await this.speak(session, reply)
         if (!this.alive(session)) return
         // The assistant ended the conversation: nothing more to wait for.
         if (reply.endConversation || !conversation.isActive()) return
