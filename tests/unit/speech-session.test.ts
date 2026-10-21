@@ -53,7 +53,7 @@ function hold<T>(): Held<T> {
   return { promise, resolve }
 }
 
-function setup(policy: Partial<SessionPolicy> = {}) {
+function setup(policy: Partial<SessionPolicy> = {}, speechOutputEnabled?: () => boolean) {
   let gateError: ClientError | null = null
   const listens: {
     request: Parameters<VoiceInput['listen']>[0]
@@ -136,7 +136,8 @@ function setup(policy: Partial<SessionPolicy> = {}) {
         timer.cancelled = true
       }
     },
-    policy
+    policy,
+    speechOutputEnabled
   })
   const phases: SpeechSnapshot['phase'][] = []
   controller.subscribe((snapshot) => phases.push(snapshot.phase))
@@ -188,6 +189,34 @@ function setup(policy: Partial<SessionPolicy> = {}) {
 }
 
 describe('a normal voice session', () => {
+  it('keeps text processing and follow-up listening when saved speech output is disabled', async () => {
+    const t = setup({}, () => false)
+    t.queue.push(heard(), empty())
+    await t.controller.activate('ui')
+    await flush()
+    expect(t.submit).toHaveBeenCalledOnce()
+    expect(t.played).toHaveLength(0)
+    expect(t.phases).not.toContain('speaking')
+    expect(t.phases).toContain('awaiting_followup')
+    expect(t.phases.at(-1)).toBe('idle')
+    expect(t.notices).toEqual([])
+  })
+
+  it('reads output preferences for the next reply without changing an ongoing playback', async () => {
+    let enabled = true
+    const t = setup({}, () => enabled)
+    t.queue.push(heard(), heard(), empty())
+    await t.controller.activate('ui')
+    await flush()
+    enabled = false
+    expect(t.stopped).toHaveLength(0)
+    t.emitPlayback('playback.ended')
+    await flush()
+    expect(t.submit).toHaveBeenCalledTimes(2)
+    expect(t.played).toHaveLength(1)
+    expect(t.phases.at(-1)).toBe('idle')
+  })
+
   it('moves through every state in order, hands the words to the conversation and plays the reply', async () => {
     const t = setup()
     t.queue.push('hold', empty())

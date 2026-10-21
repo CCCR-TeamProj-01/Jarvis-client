@@ -20,6 +20,8 @@ import { createSensorStack, isFakeMediaEnabled } from '../sensors/create-sensors
 import type { SensorStack } from '../sensors/create-sensors'
 import { installMediaPermissionPolicy } from '../sensors/media-permissions'
 import { createSensorGate } from '../sensors/sensor-gate'
+import { createLocalState } from '../settings/create-local-state'
+import type { LocalStatePort } from '../settings/ports'
 import type { SensorManager } from '../sensors/sensor-manager'
 import { createVoiceStack } from '../speech/create-voice'
 import type { VoiceStack } from '../speech/create-voice'
@@ -38,6 +40,7 @@ export { trayClickOpensWindow } from './tray'
 
 export interface ApplicationDependencies {
   auth?: AuthManager
+  localState?: LocalStatePort
   /** Defaults are derived from the UI entry URL and preload path (`/ui/` -> `/media/`). */
   media?: { entryUrl: string; preloadPath: string }
 }
@@ -45,6 +48,7 @@ export interface ApplicationDependencies {
 export class ApplicationManager {
   readonly interaction: InteractionManager
   readonly auth: AuthManager
+  readonly localState: LocalStatePort
   readonly sensors: SensorManager
   readonly tools: ToolStack
   readonly voice: VoiceStack
@@ -62,10 +66,12 @@ export class ApplicationManager {
   private disposeShortcuts: (() => void) | null = null
   private disposeSelfTests: (() => void) | null = null
   private quitting = false
-  private started = false
+  private startPromise: Promise<void> | null = null
+  private ready = false
 
   constructor(entryUrl: string, preloadPath: string, dependencies: ApplicationDependencies = {}) {
     this.auth = dependencies.auth ?? createDefaultAuth()
+    this.localState = dependencies.localState ?? createLocalState()
     this.window = new UiWindow({
       entryUrl,
       preloadPath,
@@ -132,7 +138,13 @@ export class ApplicationManager {
         return () => clearTimeout(timer)
       }
     })
-    this.voice = createVoiceStack(stack, sensorGate, this.conversation, server.speech)
+    this.voice = createVoiceStack(
+      stack,
+      sensorGate,
+      this.conversation,
+      server.speech,
+      () => this.localState.getSnapshot()?.settings.speechOutputEnabled ?? false
+    )
     this.handTracking = new HandTrackingService({
       sensors: this.sensors,
       bridge: stack.bridge,
@@ -178,9 +190,20 @@ export class ApplicationManager {
       }).dispose
   }
 
-  start(): void {
-    if (this.started || this.quitting) return
-    this.started = true
+  start(): Promise<void> {
+    if (this.quitting) return this.startPromise ?? Promise.resolve()
+    return (this.startPromise ??= this.initializeAndStart())
+  }
+
+  private async initializeAndStart(): Promise<void> {
+    const initialized = await this.localState.initialize()
+    if (this.quitting) return
+    if (!initialized.ok) {
+      dialog.showErrorBox('기기 정보를 준비하지 못했습니다', initialized.error.message)
+      app.quit()
+      return
+    }
+    this.ready = true
     this.createTray()
     this.disposeShortcuts = registerShortcuts({
       call: () => this.activate('hotkey'),
@@ -206,7 +229,7 @@ export class ApplicationManager {
 
   /** The call: start a conversation with the voice side (hotkey). It does not open the window. */
   activate(source: ActivationSource): void {
-    if (this.quitting) return
+    if (this.quitting || !this.ready) return
     // Record where the user was before Jarvis takes the foreground, so "go back" has a target.
     if (this.auth.isSignedIn()) void this.tools.restoreTracker.capture()
     void this.interaction.activateConversation(source)
@@ -218,7 +241,7 @@ export class ApplicationManager {
    * was is noted first, because the window takes the foreground.
    */
   showWindow(): void {
-    if (this.quitting) return
+    if (this.quitting || !this.ready) return
     if (!this.auth.isSignedIn()) {
       this.window.open()
       return
@@ -340,14 +363,14 @@ export function startApplication(): void {
   })
   void app
     .whenReady()
-    .then(() => {
+    .then(async () => {
       if (quitting) return
       const devUrl = !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined
       const entryUrl = devUrl
         ? new URL('/ui/index.html', devUrl).href
         : pathToFileURL(join(__dirname, '../renderer/ui/index.html')).href
       manager = new ApplicationManager(entryUrl, join(__dirname, '../preload/ui.js'))
-      manager.start()
+      await manager.start()
     })
     .catch(() => {
       dialog.showErrorBox('자비스를 시작하지 못했습니다', '앱을 다시 실행해 주세요.')

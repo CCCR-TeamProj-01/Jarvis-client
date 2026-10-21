@@ -32,7 +32,7 @@ Main은 최초 실행 시 UUID인 `device_key`를 생성해 앱 데이터 폴더
 
 서버의 기기는 `(user_id, device_key)`로 구분한다. 같은 설치를 다른 계정이 사용하면 같은 키로 그 계정의 별도 `device_id`를 받으며, 이전 계정의 ID를 재사용하지 않는다. 등록에는 기기 이름·OS·클라이언트 버전을 연결하고 사용자 소유권은 인증 세션으로 확인한다. 서버가 반환한 기기 연결을 Main이 현재 인증 세대에만 적용한다.
 
-기기 등록 대기·실패·재시도를 인증 성공과 구분해 표시하고, 현재 사용자·기기 연결 확인 전에는 대화·음성 업로드·명령·계정 기록의 서버 연동을 시작하지 않는다. 등록 실패 시 로컬 기능을 허용할 범위와 로그인/등록을 하나의 연산으로 묶을지는 [결정 목록](../delivery/validation.md#서버-erd-반영-후-결정-목록)에서 확정한다. 이 절은 서버 연동 목표이며 현재 개발용 인증 대역에는 기기 등록이 없다.
+기기 등록 대기·실패·재시도를 인증 성공과 구분해 표시하고, 현재 사용자·기기 연결 확인 전에는 대화·음성 업로드·명령·계정 기록의 서버 연동을 시작하지 않는다. 등록 실패 시 로컬 기능을 허용할 범위와 로그인/등록을 하나의 연산으로 묶을지는 [결정 목록](../delivery/validation.md#서버-erd-반영-후-결정-목록)에서 확정한다. F-023에서 설치 식별자 저장·초기화까지 구현했으며 서버 기기 등록과 개발용 인증 대역의 기기 연결은 후속이다. 로컬 파일·실패 처리의 원본은 [기기 로컬 저장 형식](../architecture/data-security.md#기기-로컬-저장-형식)에 둔다.
 
 ### 입력 규칙
 
@@ -67,7 +67,7 @@ Main은 최초 실행 시 UUID인 `device_key`를 생성해 앱 데이터 폴더
 
 ## 클라이언트 계약과 구조
 
-F-008에서 아래 데이터·API·Main 포트 계약을, F-009에서 화면 틀과 일반 UI IPC를, F-012([#10](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/10))에서 AuthManager·인증 IPC 핸들러·Preload `auth` API·입력/제출 화면·보호 저장소·개발용 인증 대역을 구현했다. 실제 서버 인증 어댑터와 설치 식별자 저장·기기 등록 연동은 후속 구현이다.
+F-008에서 아래 데이터·API·Main 포트 계약을, F-009에서 화면 틀과 일반 UI IPC를, F-012([#10](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/10))에서 AuthManager·인증 IPC 핸들러·Preload `auth` API·입력/제출 화면·보호 저장소·개발용 인증 대역을 구현했다. F-023에서 설치 식별자 저장을 구현했고 실제 서버 인증 어댑터·기기 등록 연동은 후속이다.
 
 | 위치 | 책임 | 상태 |
 | --- | --- | --- |
@@ -77,6 +77,7 @@ F-008에서 아래 데이터·API·Main 포트 계약을, F-009에서 화면 틀
 | `src/main/auth/auth-manager.ts` | 인증 상태·세대·유지·복구·만료·로그아웃과 기능 차단 조정 | 구현 |
 | `src/main/ipc/auth-ipc.ts`, `src/preload/ui-bridge.ts` | 인증 IPC 핸들러(발신자·인자·응답 검증)와 Preload `auth` API | 구현 |
 | `src/main/auth/safe-storage-credential-store.ts` | Electron safeStorage 기반 보호 저장소. 보호 불가 시 평문 대체 없이 실패 | 구현 |
+| `src/main/settings/` | 인증 자격 증명과 분리한 설치 식별자·기기 설정 저장. 로그인/로그아웃과 독립 수명 | 구현(F-023) |
 | `src/main/auth/dev-auth-gateway.ts`, `unavailable-auth-gateway.ts`, `create-auth-gateway.ts` | 개발용 인증 대역과 기본(연결 불가) 어댑터, 선택 규칙 | 구현 |
 | `src/renderer/ui/features/auth/` | 로그인·회원가입 입력/제출, 비밀번호 재입력 검증, 중복 확인 상태, 요청별 진행·오류 표시 | 구현 |
 | 실제 서버 인증 어댑터 | HTTPS 인증·최종 중복 판정·세션 검증/갱신·로그아웃 | 후속(서버 연동) |

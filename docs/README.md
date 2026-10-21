@@ -4,6 +4,8 @@
 
 2026-10-21 서버 ERD 수정 방향과 사용자 이용 흐름을 [#43](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/43)에서 반영했다. 서버 대화 생성·명령/결과 연결·수집 설정·자체/Google 일정 저장은 목표 명세이며 현재 코드의 구현 완료를 뜻하지 않는다. 미확정 정책은 [서버 ERD 결정 목록](delivery/validation.md#서버-erd-반영-후-결정-목록)에서 관리한다.
 
+F-023([#45](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/45))의 설치 식별자·기기 설정 저장 기반은 구현했다. 파일 형식·실패 처리·음성 출력 적용의 원본은 [기기 로컬 저장 형식](architecture/data-security.md#기기-로컬-저장-형식)이며 서버 기기 등록·설정 편집 UI는 후속이다.
+
 | 문서 | 주요 내용과 요구사항 |
 | --- | --- |
 | [제품 범위](product/scope.md) | MVP·확장 범위, 처리 원칙, BASE·OPS·LIFE |
