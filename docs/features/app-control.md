@@ -1,6 +1,6 @@
 # 앱과 OS 제어
 
-요구사항 ID: APP-01~05.
+요구사항 ID: APP-01~06.
 
 ## 앱과 OS 제어
 
@@ -11,6 +11,7 @@
 | APP-03 | 앱 전환 | 실행 중인 대상 앱의 창 활성화 시도. 차단·권한 부족·창 없음 등을 결과에 반영 | MVP |
 | APP-04 | 호출 전 작업 복귀 | 호출 직전의 앱·창 식별자를 보관하고 복귀 요청 시 유효성을 확인해 전환 | MVP |
 | APP-05 | URL 열기 | 검증한 http·https URL을 기본 브라우저로 전달. 브라우저 전달 완료와 페이지 로딩 성공을 구분 | MVP |
+| APP-06 | 폴더 열기 | 서버가 보낸 폴더 별칭(`home`·`desktop`·`documents`·`downloads`·`pictures`·`music`·`videos`)만 받아 Main이 이 기기의 표준 폴더로 해석하고 기본 파일 관리자에 전달. 임의 경로·상대 경로·알 수 없는 별칭은 실행 전 거절. 파일 관리자 전달과 창 열림 확인을 구분하고 실제 경로는 보고·로그·서버 전송에 담지 않음 | MVP |
 
 서버가 보낸 임의 셸 명령이나 실행 파일 경로를 그대로 실행하지 않는다. 서버는 앱 ID와 등록된 도구 인자를 전달하고, 실제 실행 대상은 클라이언트의 앱 목록과 OS 어댑터에서 해석한다.
 
@@ -20,7 +21,7 @@
 
 서버의 `requested_app_code`(예: chrome)와 로컬의 OS 앱 ID(예: macOS 번들 ID)는 다른 식별자다. Main의 서버 어댑터와 앱 목록을 통해 검증된 로컬 대상으로 연결한다. 매핑이 없거나 후보가 여러 개면 임의 실행하지 않고 대상 없음·추가 선택 필요를 구분한다. 미설치·미지원·권한 부족·실행 오류는 [실행 보고 계약](../architecture/server-integration.md#명령-계획과-실행-결과)에 따라 보고한다. 정확한 앱 코드 목록과 매핑 교환 방식은 서버 연동 전에 확정한다.
 
-APP-01~05의 실제 관측 기준과 URL 검증은 유지한다. 서버 DB의 명령 ID·결과 행 ID를 OS 앱 식별자로 사용하지 않는다. 원래 요청과 추천 승인으로 생성된 명령 모두 같은 실행 검증을 거친다.
+APP-01~06의 실제 관측 기준과 URL 검증은 유지한다. 서버 DB의 명령 ID·결과 행 ID를 OS 앱 식별자로 사용하지 않는다. 원래 요청과 추천 승인으로 생성된 명령 모두 같은 실행 검증을 거친다.
 
 ## 구현 현황
 
@@ -34,6 +35,7 @@ F-014([#14](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/14))에서 
 | `src/main/platform/macos-app-control.ts` | macOS 앱 목록·실행·전환·전면 앱 조회·URL 전달 |
 | `src/main/platform/command-runner.ts` | 고정 실행 파일과 인자 배열로만 OS 명령을 실행(셸 없음) |
 | `src/main/platform/unsupported-app-control.ts` | 앱 어댑터가 없는 OS. 앱 도구는 `unsupported`, URL 전달만 동작 |
+| `src/main/platform/folder-opener.ts` | `FolderOpenPort`(APP-06). 별칭 검증, 표준 폴더 해석·존재 확인, 파일 관리자 전달 |
 
 macOS 동작 기준은 다음과 같다.
 
@@ -42,6 +44,7 @@ macOS 동작 기준은 다음과 같다.
 - 전환: 실행 중인 앱만 대상이다(실행 중이 아니면 `not_found`이며 앱을 새로 시작하지 않는다). 전면 앱이 바뀌었는지 확인해 `confirmed`, 아니면 `dispatched`.
 - 복귀: 기록한 앱을 전환한다. 창 단위 복귀는 접근성 권한이 필요해 macOS에서는 앱 단위까지만 지원한다.
 - URL 열기: http·https만 허용하고 Electron `shell.openExternal`로 기본 브라우저에 전달한다. 결과는 `dispatched`다.
+- 폴더 열기(APP-06, F-025): 별칭을 Electron `app.getPath`로 표준 폴더에 대응시키고, 폴더가 있는지 확인한 뒤 `shell.openPath`로 기본 파일 관리자(Finder·탐색기)에 전달한다. 해석한 경로는 보고·로그·오류 문구에 쓰지 않는다. 결과는 `dispatched`이며 창이 열렸는지 확인하지 못하므로 `confirmed`로 보고하지 않는다. 폴더가 없으면 `not_found`, 전달 실패는 `unavailable`이다. macOS와 Windows에서 `available`이고 그 밖의 OS는 `unsupported`다. 별칭 목록과 인자 이름은 서버 도구 계약 합의 전의 잠정 형식이다.
 - 최근 작업 전환은 입력 어댑터와 함께 구현하며 지금은 `unsupported`다. Windows 앱 어댑터도 후속 구현이다.
 - 개발용: 패키징되지 않은 앱에서 `JARVIS_TOOL_SELFTEST='[도구 요청 JSON 배열]'`을 주면 로그인 직후 순서대로 실행하고 `TOOL_SELFTEST` 줄로 보고를 출력한다.
 
@@ -56,7 +59,7 @@ F-020([#34](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/34))에서 
 | `src/main/conversation/ports.ts` | `AssistantPort.respond`가 받는 `AssistantTools`(가용 도구 스냅샷, 도구 실행)와 `ToolRequest` |
 | `src/main/conversation/turn-tools.ts` | 요청 하나 동안의 도구 호스트. 검증·실행·취소·보고·사용자 알림 |
 | `src/main/tools/describe-report.ts` | 실행 보고를 사용자 문장으로 바꿈 |
-| `src/main/speech/remote-speech/dev-intents.ts` | 개발용 대역이 평문 요청을 도구 호출로 바꿈 |
+| `src/main/speech/remote-speech/dev-intents.ts` | 개발용 대역이 평문 요청을 도구 호출로 바꿈(앱·주소·이전 작업·"○○ 폴더 열어줘") |
 
 - 도구 호스트는 요청마다 새로 만들어 `ConversationManager`가 어시스턴트에 넘긴다. 어시스턴트가 보내는 명령은 신뢰하지 않고 스키마로 검증한다(알 수 없는 도구·잘못된 인자·`http/https` 밖 주소는 실행하지 않고 `rejected`로 보고). 실행 직전 인증·가용 상태 재확인과 중복 방지는 `ToolExecutor`가 맡는다.
 - 어시스턴트가 정한 `executionId`는 요청 ID를 붙인 이름 공간으로 실행기에 전달하고 보고에는 받은 ID를 그대로 돌려준다. 같은 요청 안에서 같은 ID가 다시 오면 첫 결과를 돌려주고 다시 실행하지 않으며, 다른 요청의 같은 ID는 서로 영향을 주지 않는다.

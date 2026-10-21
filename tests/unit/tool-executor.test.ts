@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AppControlPort } from '../../src/main/platform/ports'
+import type { AppControlPort, FolderOpenPort } from '../../src/main/platform/ports'
 import { CapabilityRegistry, platformCapabilities } from '../../src/main/tools/capability-registry'
 import { RestoreTargetTracker } from '../../src/main/tools/restore-target'
 import { ToolExecutor } from '../../src/main/tools/tool-executor'
@@ -10,6 +10,13 @@ import { ToolExecutionReportSchema } from '../../src/shared/contracts/tools'
 const confirmed = (appId: string): Result<AppObservation> => ({
   ok: true,
   value: { kind: 'app', appId, status: 'confirmed' }
+})
+
+const fakeFolders = () => ({
+  open: vi.fn<FolderOpenPort['open']>(async (alias) => ({
+    ok: true,
+    value: { kind: 'folder', alias, status: 'dispatched' }
+  }))
 })
 
 /** An app control whose calls can be held open and inspected. */
@@ -70,12 +77,14 @@ function fakeAppControl() {
 
 function setup(options: { signedIn?: boolean; restoreTarget?: { appId: string } | null } = {}) {
   const app = fakeAppControl()
+  const folders = fakeFolders()
   const registry = new CapabilityRegistry(platformCapabilities('darwin'))
   let signedIn = options.signedIn ?? true
   let nowMs = 1_000
   const executor = new ToolExecutor({
     registry,
     appControl: app.control,
+    folders,
     auth: {
       requireSignedIn: () =>
         signedIn
@@ -92,6 +101,7 @@ function setup(options: { signedIn?: boolean; restoreTarget?: { appId: string } 
     executor,
     registry,
     app,
+    folders,
     setSignedIn: (value: boolean) => {
       signedIn = value
     },
@@ -137,6 +147,50 @@ describe('execution and reporting', () => {
     ).toMatchObject({
       outcome: { status: 'observed', observation: { kind: 'url', status: 'dispatched' } }
     })
+    expect(await run({ tool: 'folder.open', arguments: { alias: 'downloads' } })).toMatchObject({
+      tool: 'folder.open',
+      outcome: {
+        status: 'observed',
+        observation: { kind: 'folder', alias: 'downloads', status: 'dispatched' }
+      }
+    })
+  })
+
+  it('opens a folder only by alias and rejects paths before touching the OS', async () => {
+    const { executor, folders } = setup()
+    for (const alias of ['/etc', '../secret', 'Downloads', 'C:\\Windows', '', 'downloads/x'])
+      expect(
+        await executor.execute({
+          requestId: 'r',
+          executionId: `e-${++counter}`,
+          command: { tool: 'folder.open', arguments: { alias } } as never
+        })
+      ).toMatchObject({
+        outcome: { status: 'not_started', reason: 'rejected', error: { code: 'invalid_input' } }
+      })
+    expect(folders.open).not.toHaveBeenCalled()
+  })
+
+  it('does not open a folder where the file manager is not supported', async () => {
+    const folders = fakeFolders()
+    const executor = new ToolExecutor({
+      registry: new CapabilityRegistry(platformCapabilities('linux')),
+      appControl: fakeAppControl().control,
+      folders,
+      auth: { requireSignedIn: () => ({ ok: true, value: undefined }) },
+      clock: { now: () => 0 },
+      restoreTarget: () => null
+    })
+    expect(
+      await executor.execute({
+        requestId: 'r',
+        executionId: 'e-linux',
+        command: { tool: 'folder.open', arguments: { alias: 'downloads' } }
+      })
+    ).toMatchObject({
+      outcome: { status: 'not_started', reason: 'rejected', error: { code: 'unsupported' } }
+    })
+    expect(folders.open).not.toHaveBeenCalled()
   })
 
   it('produces reports that satisfy the shared contract', async () => {
@@ -306,6 +360,7 @@ describe('duplicate execution IDs', () => {
     const executor = new ToolExecutor({
       registry: new CapabilityRegistry(platformCapabilities('darwin')),
       appControl: app.control,
+      folders: fakeFolders(),
       auth: { requireSignedIn: () => ({ ok: true, value: undefined }) },
       clock: { now: () => 0 },
       restoreTarget: () => null,
@@ -471,13 +526,16 @@ describe('CapabilityRegistry', () => {
       Object.fromEntries(platformCapabilities(platform).map((c) => [c.tool, c.availability]))
     expect(byTool('darwin')).toMatchObject({
       'apps.launch': 'available',
-      'browser.open': 'available'
+      'browser.open': 'available',
+      'folder.open': 'available'
     })
     expect(byTool('win32')).toMatchObject({
       'apps.launch': 'unsupported',
-      'browser.open': 'available'
+      'browser.open': 'available',
+      'folder.open': 'available'
     })
     expect(byTool('linux')['apps.list']).toBe('unsupported')
+    expect(byTool('linux')['folder.open']).toBe('unsupported')
   })
 })
 

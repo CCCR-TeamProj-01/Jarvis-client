@@ -5,7 +5,7 @@ import type {
   AssistantTools,
   ConversationNotice
 } from '../../src/main/conversation/ports'
-import type { AppControlPort } from '../../src/main/platform/ports'
+import type { AppControlPort, FolderOpenPort } from '../../src/main/platform/ports'
 import { DevRemoteSpeech } from '../../src/main/speech/remote-speech/dev-remote-speech'
 import { CapabilityRegistry, platformCapabilities } from '../../src/main/tools/capability-registry'
 import { ToolExecutor } from '../../src/main/tools/tool-executor'
@@ -74,10 +74,17 @@ function setup(
   options: { signedIn?: boolean; timeoutMs?: number; withTools?: boolean } = {}
 ) {
   const app = fakeApps()
+  const folders = {
+    open: vi.fn<FolderOpenPort['open']>(async (alias) => ({
+      ok: true,
+      value: { kind: 'folder', alias, status: 'dispatched' }
+    }))
+  }
   const registry = new CapabilityRegistry(platformCapabilities('darwin'))
   const executor = new ToolExecutor({
     registry,
     appControl: app.control,
+    folders,
     auth: {
       requireSignedIn: () =>
         options.signedIn === false
@@ -109,7 +116,7 @@ function setup(
   })
   const notices: ConversationNotice[] = []
   manager.subscribeNotices((notice) => notices.push(notice))
-  return { manager, app, notices, timers, executor }
+  return { manager, app, folders, notices, timers, executor }
 }
 
 describe('conversation with tools (stand-in assistant)', () => {
@@ -137,6 +144,26 @@ describe('conversation with tools (stand-in assistant)', () => {
       value: { reply: { text: '포토샵 앱을 찾지 못했어요.' } }
     })
     expect(app.launched).toEqual([])
+  })
+
+  it('opens a standard folder by alias and answers from the result', async () => {
+    const { manager, folders, notices } = setup(new DevRemoteSpeech())
+    const result = await manager.submit({ text: '다운로드 폴더 열어줘', modality: 'text' })
+    expect(folders.open).toHaveBeenCalledWith('downloads', expect.anything())
+    expect(result).toMatchObject({
+      ok: true,
+      value: { reply: { text: '다운로드 폴더를 열도록 요청했어요.' } }
+    })
+    expect(notices.find((notice) => notice.type === 'tool')).toMatchObject({
+      text: '다운로드 폴더를 열도록 요청했어요.',
+      ok: true
+    })
+  })
+
+  it('does not take a plain app request for a folder request', async () => {
+    const { manager, folders } = setup(new DevRemoteSpeech())
+    await manager.submit({ text: '음악 열어줘', modality: 'text' })
+    expect(folders.open).not.toHaveBeenCalled()
   })
 
   it('opens a well-known site in the browser', async () => {

@@ -1,6 +1,8 @@
-import { shell } from 'electron'
+import { app, shell } from 'electron'
+import { stat } from 'node:fs/promises'
 import type { Result } from '../../shared/contracts/common'
 import { nodeCommandRunner } from '../platform/command-runner'
+import { createFolderOpener } from '../platform/folder-opener'
 import { MacAppControl } from '../platform/macos-app-control'
 import type { AppControlPort } from '../platform/ports'
 import { createUnsupportedAppControl } from '../platform/unsupported-app-control'
@@ -44,11 +46,18 @@ export function createToolStack(auth: { requireSignedIn(): Result<unknown> }): T
           now
         })
       : createUnsupportedAppControl(openUrl)
+  const folders = createFolderOpener({
+    // The aliases are Electron's own names for the standard folders.
+    resolve: (alias) => app.getPath(alias),
+    isDirectory: async (path) => (await stat(path)).isDirectory(),
+    openPath: (path) => shell.openPath(path)
+  })
   const registry = new CapabilityRegistry(platformCapabilities(platform))
   const restoreTracker = new RestoreTargetTracker(appControl)
   const executor = new ToolExecutor({
     registry,
     appControl,
+    folders,
     auth,
     clock: { now },
     restoreTarget: () => restoreTracker.current()

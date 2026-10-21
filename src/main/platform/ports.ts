@@ -3,6 +3,8 @@ import type { DesktopPoint, DisplayBounds, InputObservation } from '../../shared
 import type {
   AppDescriptor,
   AppObservation,
+  FolderAlias,
+  FolderObservation,
   TaskSwitchObservation,
   UrlObservation,
   WindowReference
@@ -34,4 +36,9 @@ export interface AppControlPort {
   switchRecentTask(options: InputExecutionOptions): Promise<Result<TaskSwitchObservation>>
   /** Reports browser handoff, not successful page loading. */
   openUrl(url: string, options?: LocalExecutionOptions): Promise<Result<UrlObservation>>
+}
+
+export interface FolderOpenPort {
+  /** Reports the handoff to the file manager, not that a window opened. */
+  open(alias: FolderAlias, options?: LocalExecutionOptions): Promise<Result<FolderObservation>>
 }

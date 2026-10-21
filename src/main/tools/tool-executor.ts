@@ -9,7 +9,7 @@ import type {
   ToolOutcome,
   WindowReference
 } from '../../shared/contracts/tools'
-import type { AppControlPort } from '../platform/ports'
+import type { AppControlPort, FolderOpenPort } from '../platform/ports'
 import type { LocalExecutionOptions, MonotonicClock } from '../ports'
 import type { CapabilityRegistryPort, ToolExecutorPort } from './ports'
 
@@ -17,6 +17,7 @@ interface ToolExecutorOptions {
   registry: CapabilityRegistryPort
   appControl: AppControlPort
   /** Main's own authentication state, read again right before anything runs. */
+  folders: FolderOpenPort
   auth: { requireSignedIn(): Result<unknown> }
   clock: MonotonicClock
   /** Where "go back" returns to; null when no earlier work was recorded. */
@@ -30,7 +31,8 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<ToolName> = new Set([
   'apps.launch',
   'apps.activate',
   'apps.restore',
-  'browser.open'
+  'browser.open',
+  'folder.open'
 ])
 
 /** Failures after which nothing on the desktop has happened. */
@@ -219,6 +221,8 @@ export class ToolExecutor implements ToolExecutorPort {
       }
       case 'browser.open':
         return appControl.openUrl(command.arguments.url, execution)
+      case 'folder.open':
+        return this.options.folders.open(command.arguments.alias, execution)
     }
   }
 

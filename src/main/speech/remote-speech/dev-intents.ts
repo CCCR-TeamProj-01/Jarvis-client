@@ -1,3 +1,4 @@
+import type { FolderAlias } from '../../../shared/contracts/tools'
 import type { AssistantTools } from '../../conversation/ports'
 
 const SITES: { pattern: RegExp; url: string; name: string }[] = [
@@ -20,6 +21,17 @@ const ALIASES: Record<string, string> = {
   파인더: 'finder',
   계산기: 'calculator'
 }
+
+/** Spoken names for the standard folders the folder tool can open. */
+const FOLDERS: { pattern: RegExp; alias: FolderAlias; name: string }[] = [
+  { pattern: /다운로드|download/i, alias: 'downloads', name: '다운로드' },
+  { pattern: /바탕\s*화면|desktop/i, alias: 'desktop', name: '바탕 화면' },
+  { pattern: /문서|documents/i, alias: 'documents', name: '문서' },
+  { pattern: /사진|pictures/i, alias: 'pictures', name: '사진' },
+  { pattern: /동영상|비디오|videos/i, alias: 'videos', name: '동영상' },
+  { pattern: /음악\s*폴더|music/i, alias: 'music', name: '음악' },
+  { pattern: /홈\s*폴더|home/i, alias: 'home', name: '홈' }
+]
 
 const OPEN_WORDS = /열어|실행|켜|띄워|보여|가줘|가 줘/
 const LAUNCH = /^(.+?)\s*(?:앱\s*)?(?:열어|실행|켜|띄워)/
@@ -56,6 +68,20 @@ export async function runDevIntent(text: string, tools: AssistantTools): Promise
     return report.outcome.status === 'observed'
       ? '이전 작업으로 돌아가도록 요청했어요.'
       : '이전 작업으로 돌아가지 못했어요.'
+  }
+
+  // Only an explicit "folder" request: "음악 열어줘" still means the Music app.
+  const folder = /폴더|folder/i.test(text)
+    ? FOLDERS.find((candidate) => candidate.pattern.test(text))
+    : undefined
+  if (folder && OPEN_WORDS.test(text)) {
+    const report = await tools.execute({
+      executionId: nextId('folder'),
+      command: { tool: 'folder.open', arguments: { alias: folder.alias } }
+    })
+    return report.outcome.status === 'observed'
+      ? `${folder.name} 폴더를 열도록 요청했어요.`
+      : `${folder.name} 폴더를 열지 못했어요.`
   }
 
   const link = /https?:\/\/\S+/.exec(text)?.[0]
