@@ -83,7 +83,7 @@ flowchart TB
 | ApplicationManager | 창·트레이·단축키·앱 생명주기 |
 | AuthManager | 로그인·가입·중복 확인, 인증 세대·상태, 보호 자격 증명 저장·복구·갱신·제거, 모든 진입점의 인증 확인과 로그아웃 정리 조정 |
 | LocalState(F-023) | 설치 식별자·기기 설정 저장과 앱 시작 초기화. 파일·실패 규칙은 [데이터와 보안](data-security.md#기기-로컬-저장-형식) 참조 |
-| 기기 등록 담당 Main 모듈(후속) | 로컬 설치 식별자를 이용해 인증된 사용자별 기기 등록·연결 확인. AuthManager와 세대를 연결하고 서버 기능의 준비 상태 제공 |
+| 인증 어댑터의 기기 연결(후속) | 로컬 설치 식별자를 로그인 요청에 포함하고 서버가 등록·연결한 현재 기기를 확인. AuthManager와 세대를 연결하고 서버 기능의 준비 상태 제공. 계약은 [계정 인증](server-integration.md#계정-인증-계약) 참조 |
 | SensorManager | 장치 선택, 권한, 기능별 사용 소유권, 센서 정리 |
 | PerceptionManager | 손 추적 등 비음성 인식 엔진 관리. 음성 엔진 상태 관리는 SpeechSessionController에 위임 |
 | AudioCaptureManager | 공통 마이크 PCM 수집·리샘플링·길이 제한 Ring Buffer·수명 관리. KWS와 VAD에 상태별 입력 제공 |

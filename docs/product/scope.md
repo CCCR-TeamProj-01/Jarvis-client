@@ -6,7 +6,7 @@
 
 표의 ID는 이 초안에서 사용할 요구사항 식별자다. MVP는 완료 필수 기능, 확장은 후속 개발 기능이다.
 
-2026-10-21 서버 ERD 수정 방향은 [#43](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/43)에서 반영한다. 기기 N:M 매핑 변경은 철회된 것으로 보고 기존 계정별 기기 연결을 사용한다. 앱 활동은 수정안의 상세 유지안을 채택해 명령 결과와 분리한다. 서버 테이블의 추가·통합이 클라이언트 기능의 구현 완료나 MVP 승격을 의미하지 않는다. 미확정 정책은 [결정 목록](../delivery/validation.md#서버-erd-반영-후-결정-목록)에 둔다.
+2026-10-21 서버 ERD 수정 방향([#43](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/43))과 최종 ERD([#47](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/47))를 반영했다. 기기 N:M 매핑 변경은 철회되어 계정별 기기 연결을 유지하며 앱 활동과 명령 결과를 분리한다. 최종 ERD 11절의 P0/P1 표기·확장 도구 목록은 이 문서의 클라이언트 MVP와 일치하지 않는 부분이 있다. 서버 테이블의 추가·통합만으로 구현 완료·MVP 승격·지원 도구 확대를 선언하지 않으며, 변경할 범위는 요구사항·완료 조건으로 별도 합의한다. 미확정 정책은 [결정 목록](../delivery/validation.md#서버-erd-반영-후-결정-목록)에 둔다.
 
 ## MVP 범위
 
