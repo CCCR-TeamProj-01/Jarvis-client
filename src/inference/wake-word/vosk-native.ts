@@ -34,7 +34,7 @@ export class VoskNative implements WakeRecognizer {
       this.model = bind('void *vosk_model_new(const char *path)')(modelPath)
       if (!this.model) throw new Error('model unavailable')
       const findWord = bind('int vosk_model_find_word(void *model, const char *word)')
-      if (findWord(this.model, WAKE_KEYWORD) < 0 || findWord(this.model, '<UNK>') < 0)
+      if (findWord(this.model, WAKE_KEYWORD) < 0)
         throw new Error('required wake vocabulary unavailable')
       this.createRecognizer()
     } catch (error) {
@@ -59,9 +59,12 @@ export class VoskNative implements WakeRecognizer {
   }
 
   private createRecognizer(): void {
-    this.recognizer = this.library.func(
-      'void *vosk_recognizer_new_grm(void *model, float rate, const char *grammar)'
-    )(this.model, WAKE_SAMPLE_RATE, JSON.stringify([WAKE_KEYWORD, '<UNK>']))
+    // Restricting this model to [keyword, <UNK>] produced a false wake on ordinary Korean.
+    // Decode with the full graph and let WakeEngine accept only an exact timed keyword.
+    this.recognizer = this.library.func('void *vosk_recognizer_new(void *model, float rate)')(
+      this.model,
+      WAKE_SAMPLE_RATE
+    )
     if (!this.recognizer) throw new Error('recognizer unavailable')
     this.library.func('void vosk_recognizer_set_words(void *recognizer, int enabled)')(
       this.recognizer,
