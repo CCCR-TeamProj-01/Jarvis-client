@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  FolderObservationSchema,
   HttpUrlSchema,
   ToolCommandSchema,
   ToolExecutionReportSchema,
@@ -37,6 +38,20 @@ describe('tool input boundary', () => {
       ToolCommandSchema.safeParse({
         tool: 'apps.launch',
         arguments: { appId: 'chrome', executablePath: '/bin/sh' }
+      }).success
+    ).toBe(false)
+    expect(
+      ToolCommandSchema.safeParse({ tool: 'folder.open', arguments: { alias: 'downloads' } })
+        .success
+    ).toBe(true)
+    for (const alias of ['/Users/me', '..', 'Downloads', '', 'downloads ', 'trash'])
+      expect(
+        ToolCommandSchema.safeParse({ tool: 'folder.open', arguments: { alias } }).success
+      ).toBe(false)
+    expect(
+      ToolCommandSchema.safeParse({
+        tool: 'folder.open',
+        arguments: { alias: 'downloads', path: '/etc' }
       }).success
     ).toBe(false)
     expect(
@@ -98,6 +113,27 @@ describe('observed effects and cancellation', () => {
     expect(ToolExecutionReportSchema.safeParse({ ...completed, tool: 'apps.list' }).success).toBe(
       false
     )
+    expect(ToolExecutionReportSchema.safeParse({ ...completed, tool: 'folder.open' }).success).toBe(
+      false
+    )
+  })
+
+  it('never represents a folder handoff as a confirmed window, and carries no path', () => {
+    const observation = { kind: 'folder', alias: 'downloads', status: 'dispatched' }
+    expect(FolderObservationSchema.safeParse(observation).success).toBe(true)
+    expect(FolderObservationSchema.safeParse({ ...observation, status: 'confirmed' }).success).toBe(
+      false
+    )
+    expect(FolderObservationSchema.safeParse({ ...observation, path: '/Users/me' }).success).toBe(
+      false
+    )
+    expect(
+      ToolExecutionReportSchema.safeParse({
+        ...completed,
+        tool: 'folder.open',
+        outcome: { status: 'observed', observation }
+      }).success
+    ).toBe(true)
   })
 
   it('never represents URL handoff as confirmed page loading', () => {

@@ -1,4 +1,4 @@
-import type { ToolExecutionReport } from '../../shared/contracts/tools'
+import type { FolderAlias, ToolExecutionReport } from '../../shared/contracts/tools'
 
 /** What a report means to the user, in words, and whether it counts as having worked. */
 export interface ReportSummary {
@@ -28,7 +28,18 @@ const TOOL_LABEL: Record<ToolExecutionReport['tool'], string> = {
   'apps.launch': '앱 실행',
   'apps.activate': '앱 전환',
   'apps.restore': '이전 작업으로 돌아가기',
-  'browser.open': '주소 열기'
+  'browser.open': '주소 열기',
+  'folder.open': '폴더 열기'
+}
+
+const FOLDER_LABEL: Record<FolderAlias, string> = {
+  home: '홈',
+  desktop: '바탕 화면',
+  documents: '문서',
+  downloads: '다운로드',
+  pictures: '사진',
+  music: '음악',
+  videos: '동영상'
 }
 
 /**
@@ -54,6 +65,14 @@ export function describeToolReport(
             observation.status === 'dispatched'
               ? `${hostOf(observation.url)} 주소를 브라우저로 전달했어요.`
               : `${hostOf(observation.url)} 주소를 열었는지 확인하지 못했어요.`
+        }
+      if (observation.kind === 'folder')
+        return {
+          ok: observation.status === 'dispatched',
+          text:
+            observation.status === 'dispatched'
+              ? `${FOLDER_LABEL[observation.alias]} 폴더를 열도록 요청했어요.`
+              : `${FOLDER_LABEL[observation.alias]} 폴더를 열었는지 확인하지 못했어요.`
         }
       const app = name(observation.appId)
       if (report.tool === 'apps.restore')

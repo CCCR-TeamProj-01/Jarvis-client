@@ -63,9 +63,10 @@ export class CapabilityRegistry implements CapabilityRegistryPort {
 
 const APP_TOOLS: readonly ToolName[] = ['apps.list', 'apps.launch', 'apps.activate', 'apps.restore']
 
-/** Tool availability for a platform: app tools need an OS adapter, the browser handoff does not. */
+/** Tool availability for a platform: app tools need an OS adapter, the browser handoff does not, and the file manager exists on both supported desktops. */
 export function platformCapabilities(platform: NodeJS.Platform): Capability[] {
   const appsSupported = platform === 'darwin'
+  const folderSupported = platform === 'darwin' || platform === 'win32'
   return [
     ...APP_TOOLS.map<Capability>((tool) =>
       appsSupported
@@ -77,6 +78,14 @@ export function platformCapabilities(platform: NodeJS.Platform): Capability[] {
             reason: '이 운영체제의 앱 제어는 아직 지원하지 않습니다.'
           }
     ),
-    { tool: 'browser.open', version: 1, availability: 'available' }
+    { tool: 'browser.open', version: 1, availability: 'available' },
+    folderSupported
+      ? { tool: 'folder.open', version: 1, availability: 'available' }
+      : {
+          tool: 'folder.open',
+          version: 1,
+          availability: 'unsupported',
+          reason: '이 운영체제의 폴더 열기는 아직 지원하지 않습니다.'
+        }
   ]
 }

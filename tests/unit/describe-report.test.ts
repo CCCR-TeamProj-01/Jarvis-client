@@ -80,6 +80,22 @@ describe('describeToolReport', () => {
     ).toBe('www.google.com 주소를 브라우저로 전달했어요.')
     expect(
       describeToolReport(
+        report('folder.open', {
+          status: 'observed',
+          observation: { kind: 'folder', alias: 'desktop', status: 'dispatched' }
+        })
+      )
+    ).toEqual({ ok: true, text: '바탕 화면 폴더를 열도록 요청했어요.' })
+    expect(
+      describeToolReport(
+        report('folder.open', {
+          status: 'observed',
+          observation: { kind: 'folder', alias: 'documents', status: 'unknown' }
+        })
+      )
+    ).toEqual({ ok: false, text: '문서 폴더를 열었는지 확인하지 못했어요.' })
+    expect(
+      describeToolReport(
         report('apps.restore', {
           status: 'observed',
           observation: { kind: 'app', appId: 'com.apple.Notes', status: 'confirmed' }

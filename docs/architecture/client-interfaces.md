@@ -118,11 +118,11 @@ Worker는 손 관측 결과를 만들고 Main의 GestureController가 활성 손
 
 ## 앱 도구와 실행 보고
 
-도구는 apps.list·apps.launch·apps.activate·apps.restore·browser.open을 식별자로 사용하고 인자를 도구별로 검증한다. 앱 ID는 로컬 앱 목록에서 해석하며 임의 셸·실행 파일 경로는 받지 않는다. URL은 http·https만 허용한다.
+도구는 apps.list·apps.launch·apps.activate·apps.restore·browser.open·folder.open을 식별자로 사용하고 인자를 도구별로 검증한다. 앱 ID는 로컬 앱 목록에서 해석하며 임의 셸·실행 파일 경로는 받지 않는다. URL은 http·https만 허용한다. folder.open은 폴더 별칭만 받고 경로는 Main 안에서만 해석한다.
 
-`AppControlPort`는 앱 조회·실행·활성화·호출 전 창 조회·복귀·최근 작업 전환·URL 전달을 정의한다. 복귀 참조는 appId와 선택적인 windowId이며 실행 시 유효성을 재확인한다. 플랫폼별 포커스 제약과 창·앱 전환 차이는 결과에 반영한다.
+`AppControlPort`는 앱 조회·실행·활성화·호출 전 창 조회·복귀·최근 작업 전환·URL 전달을 정의한다. 폴더 열기는 앱 제어와 책임이 달라 별도의 `FolderOpenPort`(별칭 → `FolderObservation`)가 담당한다. 복귀 참조는 appId와 선택적인 windowId이며 실행 시 유효성을 재확인한다. 플랫폼별 포커스 제약과 창·앱 전환 차이는 결과에 반영한다.
 
-`ToolExecutionReport`는 requestId·executionId·도구와 실제 outcome, cancelRequested·expired를 분리한다. outcome은 not_started·observed·failed·unknown이다. observed 내부에서도 실제 상태 확인과 단순 전달을 구분한다. URL의 브라우저 전달은 페이지 로딩 성공으로 기록하지 않는다.
+`ToolExecutionReport`는 requestId·executionId·도구와 실제 outcome, cancelRequested·expired를 분리한다. outcome은 not_started·observed·failed·unknown이다. observed 내부에서도 실제 상태 확인과 단순 전달을 구분한다. URL의 브라우저 전달은 페이지 로딩 성공으로, 폴더의 파일 관리자 전달은 창 열림 확인으로 기록하지 않는다.
 
 취소·만료 전에 시작하지 않은 작업은 not_started로 보고한다. 이미 실행한 동작은 결과를 보존한 채 취소 요청 여부를 별도로 기록한다. 결과 불명 시 unknown을 반환하며 동일 executionId로 부작용을 자동 재실행하지 않는다. 중복 방지와 실행 직전 재검증은 `ToolExecutor`가 담당한다([구현 현황](../features/app-control.md#구현-현황)).
 

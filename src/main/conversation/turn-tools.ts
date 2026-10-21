@@ -146,7 +146,8 @@ function toolNameOf(command: unknown): ToolExecutionReport['tool'] {
     tool === 'apps.launch' ||
     tool === 'apps.activate' ||
     tool === 'apps.restore' ||
-    tool === 'browser.open'
+    tool === 'browser.open' ||
+    tool === 'folder.open'
     ? tool
     : 'apps.list'
 }

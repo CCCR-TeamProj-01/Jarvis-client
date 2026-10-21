@@ -45,6 +45,27 @@ export const UrlObservationSchema = z.strictObject({
 })
 export type UrlObservation = z.infer<typeof UrlObservationSchema>
 
+/** Folders are addressed by alias only; the path is resolved by Main and never leaves it. */
+export const FOLDER_ALIASES = [
+  'home',
+  'desktop',
+  'documents',
+  'downloads',
+  'pictures',
+  'music',
+  'videos'
+] as const
+export const FolderAliasSchema = z.enum(FOLDER_ALIASES)
+export type FolderAlias = z.infer<typeof FolderAliasSchema>
+
+/** Handing the folder to the file manager says nothing about a window having opened. */
+export const FolderObservationSchema = z.strictObject({
+  kind: z.literal('folder'),
+  alias: FolderAliasSchema,
+  status: z.enum(['dispatched', 'unknown'])
+})
+export type FolderObservation = z.infer<typeof FolderObservationSchema>
+
 export const TaskSwitchObservationSchema = z.strictObject({
   status: z.enum(['confirmed', 'dispatched', 'unknown'])
 })
@@ -55,7 +76,8 @@ export const ToolNameSchema = z.enum([
   'apps.launch',
   'apps.activate',
   'apps.restore',
-  'browser.open'
+  'browser.open',
+  'folder.open'
 ])
 export type ToolName = z.infer<typeof ToolNameSchema>
 
@@ -73,6 +95,10 @@ export const ToolCommandSchema = z.discriminatedUnion('tool', [
   z.strictObject({
     tool: z.literal('browser.open'),
     arguments: z.strictObject({ url: HttpUrlSchema })
+  }),
+  z.strictObject({
+    tool: z.literal('folder.open'),
+    arguments: z.strictObject({ alias: FolderAliasSchema })
   })
 ])
 export type ToolCommand = z.infer<typeof ToolCommandSchema>
@@ -95,7 +121,8 @@ export type Capability = z.infer<typeof CapabilitySchema>
 const ToolObservationSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('app_list'), apps: z.array(AppDescriptorSchema) }),
   AppObservationSchema,
-  UrlObservationSchema
+  UrlObservationSchema,
+  FolderObservationSchema
 ])
 export const ToolOutcomeSchema = z.discriminatedUnion('status', [
   z.strictObject({
@@ -131,8 +158,14 @@ export const ToolExecutionReportSchema = z
       )
     }
     if (outcome.status !== 'observed') return true
-    const expected =
-      report.tool === 'apps.list' ? 'app_list' : report.tool === 'browser.open' ? 'url' : 'app'
+    const expected = {
+      'apps.list': 'app_list',
+      'browser.open': 'url',
+      'folder.open': 'folder',
+      'apps.launch': 'app',
+      'apps.activate': 'app',
+      'apps.restore': 'app'
+    }[report.tool]
     return outcome.observation.kind === expected
   }, 'Execution evidence and cancellation must agree with the tool report')
 export type ToolExecutionReport = z.infer<typeof ToolExecutionReportSchema>
