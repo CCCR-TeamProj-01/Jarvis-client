@@ -21,7 +21,7 @@ F-024([#49](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/49))에서 
 | [캘린더](features/calendar.md) | CAL, 자체/Google 일정 저장·조회·동기화·연결 해제 |
 | [클라이언트 아키텍처](architecture/client.md) | 실행 공간, 모듈, 기술 스택, 독립 상태 |
 | [클라이언트 공통 인터페이스](architecture/client-interfaces.md) | 내부 데이터·IPC·모듈 포트·좌표·취소·자원 정리 규약 |
-| [서버 연동과 실행 계약](architecture/server-integration.md) | 기기·대화·명령/시도 ID, 결과 보고·시각·오디오·WSS, 취소·만료·중복 실행 |
+| [서버 연동과 실행 계약](architecture/server-integration.md) | REST 전송·기기·대화·명령/시도 ID, 결과 보고·시각·오디오, 취소·만료·중복 실행 |
 | [데이터와 보안](architecture/data-security.md) | 저장·삭제·권한·UI 실행 경계 |
 | [배포와 검증](delivery/validation.md) | 완료 시나리오, 미확정 항목, 구현 순서, 참고 자료 |
 | [구현 현황](delivery/feature_list.json) | 코드 구현 단위의 ID·작업명·짧은 설명·상태·관련 이슈 번호 |
