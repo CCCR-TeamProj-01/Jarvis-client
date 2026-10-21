@@ -69,6 +69,10 @@ sandbox Preload는 각 진입점을 독립 번들로 만들고 Zod를 포함한�
 
 인증 세대는 대화·제스처 세대와 별도로 관리한다. 로그아웃·계정 전환·세션 무효화 시 인증 세대를 먼저 무효화하고 관련 로컬 세대·연결을 정리한다. 늦은 로그인·복구 결과와 이전 사용자의 서버 메시지를 폐기한다. 인증 서버·보호 저장소 포트는 Main 내부에 배치했다. `tests/typecheck/ports.ts`에 독립적인 포트 구현 예제를 추가했으며, 실제 상태 전이와 서버 호출은 후속 구현에서 명시적인 개발용 대역으로 검증한다.
 
+## 기기 로컬 저장
+
+F-023의 `main/settings/ports.ts`는 Main 전용 `LocalStatePort`와 파일 게시 포트를 정의한다. `initialize()`는 초기화 결과를 반환하고 `getSnapshot()`은 준비 전 null·준비 후 복사본을 반환한다. `updateSettings(unknown)`은 전체 설정의 엄격한 검증·저장을 수행하며 `resetSettings()`는 설치 키와 인증 자격 증명을 건드리지 않는다. Renderer/Preload의 공개 API는 추가하지 않는다. 실제 필드·버전·실패/적용 규칙은 [기기 로컬 저장 형식](data-security.md#기기-로컬-저장-형식)을 따른다.
+
 ## 센서 사용권
 
 센서 종류는 camera·microphone이고 소비 기능은 voice_wake·speech_session·gesture_call·gesture_control·diagnostics다. 음성 기능은 microphone, 제스처 기능은 camera를 요청한다. diagnostics는 필요한 센서 종류를 명시한다.
