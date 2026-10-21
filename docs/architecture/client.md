@@ -87,7 +87,7 @@ flowchart TB
 | SensorManager | 장치 선택, 권한, 기능별 사용 소유권, 센서 정리 |
 | PerceptionManager | 손 추적 등 비음성 인식 엔진 관리. 음성 엔진 상태 관리는 SpeechSessionController에 위임 |
 | AudioCaptureManager | 공통 마이크 PCM 수집·리샘플링·길이 제한 Ring Buffer·수명 관리. KWS와 VAD에 상태별 입력 제공 |
-| WakeWordDetector | 교체 가능한 KWS 인터페이스와 호출 이벤트. 음성 호출이 켜진 대기 상태에서만 지속 실행; sherpa-onnx는 검증 우선 후보 |
+| WakeWordDetector | F-024의 Vosk 별도 추론 프로세스와 교체 가능한 KWS 포트. 음성 호출이 켜진 대기 상태에서만 PCM 처리. 구현·한계는 [음성 원본](../features/speech.md#호출어-감지-구현과-검증) 참조 |
 | SpeechSessionController | 대기·호출·발화·서버 STT 대기·응답·후속 발화 상태 전이와 로컬 KWS/VAD 활성화. 버퍼 연계, 타임아웃, TTS 재생 중 입력 억제, 취소·마이크 중지·권한 철회 처리 |
 | VoiceActivityDetector | 호출 후 Silero VAD로 발화 시작·끝·무음 타임아웃 판단. 완료된 발화 구간만 음성 전송 대상으로 확정 |
 | RemoteSpeechClient | 완료 발화의 인증된 업로드, 서버 STT 결과·TTS 오디오 수신, 취소·기한·세션 버전 검증. 전송 구현은 ConnectionManager를 사용 |
@@ -121,7 +121,7 @@ F-023의 `ApplicationManager.start()`는 로컬 저장 초기화를 기다리는
 | 빌드·배포 | Vite·electron-builder·GitHub Actions | 기본안. OS·CPU별 산출물과 서명 검증 필요 |
 | 미디어 | getUserMedia·Web Audio API·AudioWorklet·PCM Ring Buffer | 공통 입력 기본안. 마이크 권한·백그라운드 유지·리샘플링·버퍼 상한 검증 |
 | 손 추적 | @mediapipe/tasks-vision | 기본안. Pinch·호출·전환 판정은 별도 규칙 구현 |
-| Wake Word | 교체 가능한 WakeWordDetector; sherpa-onnx KWS 우선 검증 후보 | “자비스” 한국어 모델·오탐/미탐·지연·OS/CPU·엔진과 모델/학습 데이터 라이선스 및 재배포 조건 검증 후 확정 |
+| Wake Word | WakeWordDetectorPort 뒤 Vosk 0.3.39·Koffi 3.3.3·vosk-model-small-ko-0.22 | 초기 호출어 구현. 실제 화자 오탐/미탐·지연과 OS별 실기기 검증은 완료 상태와 구분해 기록 |
 | VAD | Silero VAD | 호출 후 발화 시작·끝·무음 타임아웃 기본 후보. PCM 형식·실행 위치·지연·종료 무음 길이 검증 |
 | STT | 서버 Speech 서비스 | 로컬 VAD가 확정한 발화만 전송. 한국어 정확도·지연·동시 처리량·장애·비용과 서버 데이터 처리 정책 검증 |
 | TTS | 서버 Speech 서비스와 클라이언트 오디오 재생 | 서버 음성 품질·응답 지연·오디오 형식과 Media Renderer의 재생·중단 검증 |
@@ -132,7 +132,7 @@ F-023의 `ApplicationManager.start()`는 로컬 저장 초기화를 기다리는
 | 테스트 | Vitest | 단위·통합 테스트(`tests/unit`, `tests/integration`). 시계·OS 입력·인식 엔진·서버 연결은 인터페이스 뒤에 두고 가짜 객체나 로컬 테스트 서버로 대체. Electron 앱 E2E는 필요 시점에 별도 결정 |
 | OS 제어 | Electron API·Node.js·플랫폼별 네이티브 어댑터 | 입력·외부 창 제어 구현체는 기술 검증 후 확정 |
 
-TypeScript는 앱 제어 로직과 연결 계층의 주 언어다. MediaPipe·sherpa-onnx 후보·Silero VAD·OS 입력은 기존 엔진을 활용하며, 모든 내부 구현을 TypeScript로 다시 작성하지 않는다. KWS 엔진과 모델은 분리해 교체할 수 있게 하고 라이선스·배포 가능성 확인 전 특정 모델을 확정하지 않는다. 클라이언트에 STT·TTS 모델을 포함하지 않는다. 클라이언트의 MCP 서버는 MVP 필수가 아니며 기능 레지스트리·WSS·도구 실행기로 연동한다.
+TypeScript는 앱 제어 로직과 연결 계층의 주 언어다. MediaPipe·Silero VAD·Vosk·OS 입력은 기존 엔진을 활용한다. KWS 엔진과 모델은 교체 가능한 경계로 유지한다. 클라이언트의 Vosk ASR 모델은 호출어 판별에만 사용하며 일반 명령 STT·응답 TTS 모델은 서버가 담당한다. 오디오와 로컬 인식 본문은 추론 과정 뒤 폐기한다. 클라이언트의 MCP 서버는 MVP 필수가 아니며 기능 레지스트리·WSS·도구 실행기로 연동한다.
 
 ### 독립 상태
 

@@ -11,6 +11,7 @@ import {
 import { GestureSnapshotSchema } from './gesture'
 import { SensorSnapshotSchema } from './sensors'
 import { SpeechSnapshotSchema } from './speech'
+import { WakeWordSnapshotSchema } from './wake-word'
 
 /**
  * What the main window shows. Signed-out clients see `login` or `signup`; a signed-in one sees one of
@@ -47,6 +48,7 @@ export const UiCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('recognition.pause') }),
   z.strictObject({ type: z.literal('recognition.resume') }),
   z.strictObject({ type: z.literal('settings.open') }),
+  z.strictObject({ type: z.literal('wake_word.set_enabled'), enabled: z.boolean() }),
   z.strictObject({
     type: z.literal('confirmation.respond'),
     confirmationId: IdentifierSchema,
@@ -86,6 +88,7 @@ export const ClientSnapshotSchema = z
         'A non-idle request requires its identifier'
       ),
     speech: SpeechSnapshotSchema,
+    wakeWord: WakeWordSnapshotSchema.optional(),
     gesture: GestureSnapshotSchema,
     sensors: z.array(SensorSnapshotSchema).max(2),
     screen: ScreenSchema,

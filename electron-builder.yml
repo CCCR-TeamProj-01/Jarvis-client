@@ -6,12 +6,19 @@ files:
   - out/**/*
   - package.json
 asar: true
+asarUnpack:
+  - node_modules/koffi/**/*
+  - node_modules/@koromix/**/*
 extraResources:
   - from: resources/models
     to: models
     filter:
       - '*.onnx'
       - '*.task'
+      - 'vosk-model-small-ko-0.22/**/*'
+      - 'vosk-native/**/*'
+  - from: resources/licenses
+    to: licenses
 mac:
   target: dmg
   extendInfo:

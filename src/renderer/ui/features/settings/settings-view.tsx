@@ -9,6 +9,7 @@ interface SettingsViewProps {
   permissions: PermissionLine[]
   callKeys: string[]
   toggleKeys: string[]
+  onWakeWordChange?(enabled: boolean): void
 }
 
 /** The current settings, for reading. Changing and saving them comes later; this is where it will go. */
@@ -17,7 +18,8 @@ export function SettingsView({
   loginId,
   permissions,
   callKeys,
-  toggleKeys
+  toggleKeys,
+  onWakeWordChange
 }: SettingsViewProps) {
   const shortcut = snapshot.application.shortcut
   const tray = snapshot.application.tray
@@ -28,10 +30,51 @@ export function SettingsView({
       </header>
       <p className="notice notice-info">
         <Info aria-hidden="true" />
-        지금은 현재 상태를 보는 화면이에요. 설정을 바꾸고 저장하는 기능은 곧 추가돼요.
+        음성 호출은 이번 실행에만 적용돼요. 다른 설정의 편집·저장은 준비 중이에요.
       </p>
 
       <div className="panels">
+        <section className="panel" aria-labelledby="settings-wake-word">
+          <h2 id="settings-wake-word">음성 호출</h2>
+          <p className="hint-block">
+            켜 두면 이 기기에서 “자비스”를 듣고 대화를 시작해요. 로그아웃하거나 앱을 다시 실행하면
+            꺼져요.
+          </p>
+          <ul className="rows">
+            <li className="row">
+              <span>
+                “자비스”로 호출
+                <small>
+                  {snapshot.wakeWord?.phase === 'listening'
+                    ? '호출을 기다리고 있어요'
+                    : snapshot.wakeWord?.phase === 'starting'
+                      ? '마이크와 호출어를 준비하고 있어요'
+                      : snapshot.wakeWord?.phase === 'suspended'
+                        ? '현재 작업이 끝나거나 인식이 재개되면 다시 기다려요'
+                        : snapshot.wakeWord?.phase === 'error'
+                          ? '호출어 대기가 중단됐어요'
+                          : '꺼져 있어요'}
+                </small>
+              </span>
+              <button
+                className="button button-ghost"
+                type="button"
+                role="switch"
+                aria-label="자비스 음성 호출"
+                aria-checked={snapshot.wakeWord?.enabled ?? false}
+                disabled={!onWakeWordChange}
+                onClick={() => onWakeWordChange?.(!snapshot.wakeWord?.enabled)}
+              >
+                {snapshot.wakeWord?.enabled ? '끄기' : '켜기'}
+              </button>
+            </li>
+          </ul>
+          {snapshot.wakeWord?.error && (
+            <p className="hint-block" role="alert">
+              {snapshot.wakeWord.error.message}
+            </p>
+          )}
+        </section>
         <section className="panel" aria-labelledby="settings-shortcuts">
           <h2 id="settings-shortcuts">단축키</h2>
           <ul className="rows">

@@ -14,6 +14,7 @@ import type {
 } from '../../shared/contracts/interaction'
 import type { SensorSnapshot } from '../../shared/contracts/sensors'
 import type { SpeechSnapshot } from '../../shared/contracts/speech'
+import type { WakeWordSnapshot } from '../../shared/contracts/wake-word'
 import type { GestureSnapshot } from '../../shared/contracts/gesture'
 import type { ConversationNotice, ConversationSnapshot } from '../conversation/ports'
 import type { SpeechNotice } from '../speech/session/ports'
@@ -73,6 +74,7 @@ export class InteractionManager implements InteractionPort {
   private readonly listeners = new Set<(event: UiEvent) => void>()
   private conversation: ConversationHandlers | null = null
   private gesture: GestureHandlers | null = null
+  private wakeWord: ((enabled: boolean) => Result<void>) | null = null
   private disposed = false
 
   constructor(private readonly options: InteractionOptions) {
@@ -108,6 +110,13 @@ export class InteractionManager implements InteractionPort {
         return this.failure('expired', '요청 시간이 지났습니다.')
     }
     switch (command.type) {
+      case 'wake_word.set_enabled': {
+        if (this.snapshot.auth.phase !== 'signed_in')
+          return this.failure('authentication_required', '로그인이 필요합니다.')
+        if (!this.wakeWord) return this.failure('unsupported', '호출어 감지를 사용할 수 없습니다.')
+        const changed = this.wakeWord(command.enabled)
+        return changed.ok ? this.accepted() : changed
+      }
       case 'app.quit':
         this.options.quit()
         return this.accepted()
@@ -233,6 +242,15 @@ export class InteractionManager implements InteractionPort {
   /** Connect gesture control; until then the commands report themselves unsupported. */
   setGestureHandlers(handlers: GestureHandlers | null): void {
     this.gesture = handlers
+  }
+
+  setWakeWordHandler(handler: ((enabled: boolean) => Result<void>) | null): void {
+    this.wakeWord = handler
+  }
+
+  setWakeWordState(wakeWord: WakeWordSnapshot): void {
+    if (this.disposed || JSON.stringify(this.snapshot.wakeWord) === JSON.stringify(wakeWord)) return
+    this.update({ wakeWord })
   }
 
   /** The gesture mode as the controller reports it. */

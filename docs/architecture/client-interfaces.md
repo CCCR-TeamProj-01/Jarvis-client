@@ -141,6 +141,10 @@ Worker는 손 관측 결과를 만들고 Main의 GestureController가 활성 손
 
 ## 음성·미디어
 
+F-024에서 UI 명령 `wake_word.set_enabled`(boolean)과 선택적 공개 상태 `ClientSnapshot.wakeWord`를 추가했다. 상태는 enabled·off/starting/listening/suspended/error·안전한 오류만 포함한다. 토글은 Main에서 인증을 검사하고 현재 실행에만 적용한다. 설정의 제품 규칙은 [CALL-01](../features/interaction-ui.md)을 따른다.
+
+`WakeContinuation`은 Main 내부의 capture 세대·호출어 끝 샘플·멱등적인 사용권 반납 콜백이다. UI/서버 IPC에 전달하지 않는다. 첫 `VoiceInput.listen`에만 넘기고 같은 capture의 보관 구간을 VAD에 먼저 재생한다. 이후 새 PCM과 연속되지 않으면 오류로 종료한다. 원본은 [호출어 구현](../features/speech.md#호출어-감지-구현과-검증)에 둔다.
+
 로컬 오디오는 mono PCM signed 16-bit little endian과 sampleRateHz로 표현한다. 캡처 어댑터가 추론 엔진의 지원 샘플레이트에 맞춰 리샘플링한다. sampleRateHz를 서버 전송 형식으로 확정하는 것은 후속 통신 어댑터의 책임이다.
 
 - `PcmChunk`는 세대·sequence·startSample·format·audio를 담는다. 바이트 수는 16-bit 샘플에 맞아야 한다.

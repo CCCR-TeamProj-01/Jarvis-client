@@ -23,6 +23,32 @@ function setup(
 }
 
 describe('Main interaction state', () => {
+  it('routes wake opt-in through a Main handler only after authentication', async () => {
+    const { manager } = setup()
+    const handler = vi.fn<(enabled: boolean) => { ok: true; value: undefined }>(() => ({
+      ok: true,
+      value: undefined
+    }))
+    manager.setWakeWordHandler(handler)
+    expect(await manager.dispatch({ type: 'wake_word.set_enabled', enabled: true })).toMatchObject({
+      ok: false,
+      error: { code: 'authentication_required' }
+    })
+    expect(handler).not.toHaveBeenCalled()
+    manager.setAuthSnapshot({ phase: 'signed_in', generation: authGeneration, user: authUser })
+    expect(await manager.dispatch({ type: 'wake_word.set_enabled', enabled: true })).toMatchObject({
+      ok: true
+    })
+    expect(handler).toHaveBeenCalledWith(true)
+    manager.setWakeWordState({ enabled: true, phase: 'listening' })
+    const revision = manager.getSnapshot().revision
+    manager.setWakeWordState({ enabled: true, phase: 'listening' })
+    expect(manager.getSnapshot().revision).toBe(revision)
+    manager.setWakeWordHandler(null)
+    expect(await manager.dispatch({ type: 'wake_word.set_enabled', enabled: false })).toMatchObject(
+      { ok: false, error: { code: 'unsupported' } }
+    )
+  })
   it('persists the actual native material and publishes changes without changing authentication', () => {
     const { manager } = setup()
     const receive = vi.fn<(event: UiEvent) => void>()

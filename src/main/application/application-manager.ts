@@ -24,6 +24,7 @@ import { createLocalState } from '../settings/create-local-state'
 import type { LocalStatePort } from '../settings/ports'
 import type { SensorManager } from '../sensors/sensor-manager'
 import { createVoiceStack } from '../speech/create-voice'
+import { createWakeWord } from '../speech/create-wake-word'
 import type { VoiceStack } from '../speech/create-voice'
 import { createRemoteSpeech } from '../speech/remote-speech/create-remote-speech'
 import { createToolStack } from '../tools/create-tools'
@@ -65,6 +66,7 @@ export class ApplicationManager {
   private disposeOverlay: (() => void) | null = null
   private disposeShortcuts: (() => void) | null = null
   private disposeSelfTests: (() => void) | null = null
+  private disposeWakeWord: (() => void) | null = null
   private quitting = false
   private startPromise: Promise<void> | null = null
   private ready = false
@@ -204,6 +206,15 @@ export class ApplicationManager {
       return
     }
     this.ready = true
+    this.disposeWakeWord = createWakeWord({
+      auth: this.auth,
+      interaction: this.interaction,
+      sensors: this.sensors,
+      voice: this.voice,
+      capturePreviousApp: () => {
+        void this.tools.restoreTracker.capture().catch(() => undefined)
+      }
+    })
     this.createTray()
     this.disposeShortcuts = registerShortcuts({
       call: () => this.activate('hotkey'),
@@ -270,6 +281,7 @@ export class ApplicationManager {
         | 'disposeOverlay'
         | 'disposeShortcuts'
         | 'disposeSelfTests'
+        | 'disposeWakeWord'
     ) => {
       const release = this[name]
       this[name] = null
@@ -277,6 +289,7 @@ export class ApplicationManager {
     }
     // A failed release must not prevent remaining resources from being released.
     releaseAll([
+      take('disposeWakeWord'),
       take('disposeShortcuts'),
       take('disposeIpc'),
       take('disposeAuthIpc'),
