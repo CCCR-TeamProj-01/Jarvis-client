@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createCommandService } from '../../src/main/commands/create-command-service'
+import { createCommandService, runningAppIds } from '../../src/main/commands/create-command-service'
 import { runWhileSignedIn } from '../../src/main/auth/run-while-signed-in'
 import type { AuthManager } from '../../src/main/auth/auth-manager'
 import type { CommandServiceOptions } from '../../src/main/commands/command-service'
+import type { AppControlPort } from '../../src/main/platform/ports'
 import type { LocalFilesPort } from '../../src/main/settings/ports'
 import { ServerClient } from '../../src/main/connection/server-client'
 import type { AuthEvent, AuthSnapshot } from '../../src/shared/contracts/auth'
@@ -21,6 +22,7 @@ const base = {
     read: vi.fn<LocalFilesPort['read']>(),
     replace: vi.fn<LocalFilesPort['replace']>()
   },
+  appControl: { list: vi.fn<AppControlPort['list']>() },
   platform: 'darwin' as const
 }
 
@@ -126,5 +128,46 @@ describe('runWhileSignedIn', () => {
     for (const listener of listeners)
       listener({ type: 'auth.something_else' } as unknown as AuthEvent)
     expect(service.start).not.toHaveBeenCalled()
+  })
+})
+
+describe('runningAppIds', () => {
+  const listing = (apps: { appId: string; state: 'running' | 'stopped' | 'unknown' }[]) =>
+    vi.fn<AppControlPort['list']>(async () => ({
+      ok: true,
+      value: apps.map((app) => ({ ...app, displayName: app.appId }))
+    }))
+
+  it('is the apps the OS says are running, and no others', async () => {
+    const list = listing([
+      { appId: 'com.google.Chrome', state: 'running' },
+      { appId: 'com.apple.Terminal', state: 'stopped' },
+      { appId: 'com.microsoft.VSCode', state: 'running' },
+      { appId: 'com.tinyspeck.slackmacgap', state: 'unknown' }
+    ])
+    expect(await runningAppIds({ list })()).toEqual({
+      ok: true,
+      value: ['com.google.Chrome', 'com.microsoft.VSCode']
+    })
+  })
+
+  it('is an empty list, not a failure, when nothing is running', async () => {
+    expect(await runningAppIds({ list: listing([{ appId: 'a', state: 'stopped' }]) })()).toEqual({
+      ok: true,
+      value: []
+    })
+  })
+
+  it('is a failure when the apps cannot be listed', async () => {
+    const error = { code: 'unavailable', message: '앱 목록을 읽지 못했어요.' } as const
+    const list = vi.fn<AppControlPort['list']>(async () => ({ ok: false, error }))
+    expect(await runningAppIds({ list })()).toEqual({ ok: false, error })
+  })
+
+  it('hands the cancel signal on', async () => {
+    const list = listing([])
+    const abort = new AbortController()
+    await runningAppIds({ list })(abort.signal)
+    expect(list).toHaveBeenCalledWith({ signal: abort.signal })
   })
 })

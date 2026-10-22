@@ -195,6 +195,7 @@ export class ApplicationManager {
           api: login.api,
           executor: this.tools.executor,
           files: new NodeLocalFiles(app.getPath('userData')),
+          appControl: this.tools.appControl,
           platform: process.platform
         })
       : null
