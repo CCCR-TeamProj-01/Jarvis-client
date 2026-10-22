@@ -200,6 +200,13 @@
       "description": "서버가 확정한 아이디·비밀번호 규칙을 입력 계약(SignIn/SignUp/CheckLoginId 분리), 폼 오류 문구와 규칙 안내, 인증 IPC 검증에 같은 상수로 적용한다. 규칙에 맞지 않는 입력은 서버 호출 전에 거절하고 서버가 준 아이디는 형식으로 거부하지 않는다.",
       "status": "done",
       "issue": 66
+    },
+    {
+      "id": "F-032",
+      "title": "서버 명령 번역기와 결과 매핑",
+      "description": "서버 명령 항목 스키마 검증, 명령을 로컬 도구 요청으로 변환(앱 코드 14개의 macOS 번들 ID 매핑 포함, 미지원 명령은 rejected), (command_id, attempt_no)에서 안정적인 executionId 생성, 실행 보고를 서버 결과(status·observation_status·error_code·failure_stage·고정 문구)로 변환하는 순수 로직을 추가한다. 폴링·실행 저널·전송은 제외한다.",
+      "status": "done",
+      "issue": 69
     }
   ]
 }

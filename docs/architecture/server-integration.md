@@ -100,13 +100,22 @@ Main은 활성 대화가 없으면 인증된 현재 기기로 서버 대화를 �
 
 요청은 `POST /conversations/{conversation_id}/messages`로 제출한다. 글은 JSON(`request_id`·`input_method=text`·`content`), 음성은 multipart(`request_id`·`input_method=voice`·`audio`)이며 `202`로 접수된다. 한 대화에서는 한 번에 한 요청만 처리하며(처리 중이면 `CONVERSATION_BUSY`, 409) 같은 `request_id`와 같은 본문의 재전송은 기존 상태를 돌려준다(다른 본문은 `REQUEST_ID_CONFLICT`). 결과는 `GET /requests/{request_id}`를 폴링해 받는다. `processing_status`는 `queued` → `processing` → `success`·`failed`·`rejected`이고 `transcript`(음성의 인식 텍스트)·`assistant_messages`(응답 문장)·`commands[].latest_result`를 담는다. `success`는 서버 처리 완료(음성이면 STT, AI 분석, 답변 생성, 명령 생성, 서버가 실행하는 도구의 실행까지)이며 PC 명령의 실행 완료를 기다리지 않는다. PC 명령의 최종 결과는 `commands[].latest_result`(보고 전에는 null)나 `GET /commands/{command_id}`로 확인한다. `failed`는 서버 처리 오류(STT·AI·내부 오류), `rejected`는 정책상 거부(차단된 앱·허용되지 않은 요청)다(2026-10-22 명세).
 
+### 구현 현황: 명령 번역기와 결과 매핑
+
+F-032([#69](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/69))에서 서버 명령과 로컬 도구 사이의 변환을 `src/main/commands/`에 순수 로직으로 구현했다. 폴링·실행 저널·결과 전송은 아직 없다(후속).
+
+- `server-command.ts`: 명령 항목 스키마(`command_id`는 안전 정수, `requested_at`은 시간대가 있는 ISO 8601, 모르는 필드는 무시)와 `(command_id, attempt_no)`에서 만드는 안정적인 `executionId`.
+- `command-translator.ts`: 위 도구 인자 표대로 `ToolCommand`로 바꾸고 기존 도구 계약으로 다시 검증한다. 모르는 키·형식 오류는 `rejected`(`validation`, `invalid_input`), 허용 목록에 없는 앱 코드와 앱 명령의 `arguments`는 같은 검증 거절이다. 클라이언트가 실행하지 않는 명령(`apps.list`·`apps.close`·`browser.search`·`system.status`)과 모르는 `command_type`은 `rejected`(`capability`, `unsupported`)다.
+- `app-codes.ts`: 앱 코드 14개를 macOS 번들 ID로 매핑한다. 이 Mac에서 설치된 앱의 번들 ID를 읽어 확인한 것은 `chrome`·`vscode`·`notion`·`slack`·`kakaotalk`·`terminal`·`explorer`(Finder)·`notepad`(TextEdit)·`calculator`이고, `edge`·`whale`·`teams`·`outlook`·`spotify`는 제조사가 공개한 ID이며 기기에서 확인하지 못했다. 잘못된 ID는 "설치되어 있지 않음"으로만 나타난다(앱 제어가 OS가 알려 주는 앱 목록에서만 대상을 찾는다). Windows는 실행 파일 매핑이 없어 `rejected`(`capability`, `unsupported`)다.
+- `result-mapper.ts`: `ToolExecutionReport`를 위 결과 매핑 표와 `failure_stage` 표대로 서버 결과 본문으로 바꾼다. `result_message`는 도구 이름과 결과 종류로 만든 고정 문구라서 URL·경로·볼륨 수치·오류 원문이 들어가지 않는다. `app`은 앱 명령과 복귀(번들 ID가 고정 앱 코드 14개 중 하나일 때)에서만 붙는다.
+
 ### 구현 현황: 대화·요청 어댑터
 
 F-030([#62](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/62))에서 글 입력 대화의 서버 어댑터(`src/main/conversation/server-assistant.ts`)를 구현했다. 서버 주소가 유효하고 `JARVIS_DEV_SPEECH=1`이 아니면 `AssistantPort`로 선택된다(개발용 대역이 우선, 서버가 없으면 연결 불가). 음성 입력은 아직 서버로 보내지 않고(음성 포트는 연결 불가 유지) 명령도 실행하지 않는다. 실제 서버와의 통합은 아직 확인하지 못했다.
 
 - 서버 대화는 로컬 대화마다 한 번만 만든다(`POST /conversations`, 로컬 대화 ID에서 만든 `Idempotency-Key`). 응답이 유실되면 같은 키로 다시 보낸다. 서버 대화 ID와 요청 ID는 어댑터 안에서만 쓴다.
-- 입력은 `POST /conversations/<built-in function id>/messages`(`request_id`는 `req_` + ULID 26자, `input_method=text`)로 제출한다. 요청 ID는 턴마다 한 번 만들고 모든 시도에 같은 값을 쓴다. 응답이 유실되면 같은 ID와 본문으로 최대 2번 다시 보내고(서버가 멱등 처리), `CONVERSATION_BUSY`는 1초씩 기다려 최대 5번 다시 보내며, 서버 대화가 없어졌으면(404) 새로 만들어 한 번만 다시 시도한다.
-- 결과는 `GET /requests/<built-in function id>`를 0.5~1초 간격으로 폴링한다. 일시 오류(5xx·호출 제한·형식 오류)는 지수 백오프(최대 10초, 429는 `Retry-After` 이상)로 다시 시도하고 연속 5번 실패하면 오류를 돌려준다. 없는 요청·세션 종료 같은 오류는 바로 돌려준다. 어댑터 자신의 최대 대기는 60초이며 대화 관리자의 응답 제한(20초)과 취소가 먼저 적용된다.
+- 입력은 `POST /conversations/{conversation_id}/messages`(`request_id`는 `req_` + ULID 26자, `input_method=text`)로 제출한다. 요청 ID는 턴마다 한 번 만들고 모든 시도에 같은 값을 쓴다. 응답이 유실되면 같은 ID와 본문으로 최대 2번 다시 보내고(서버가 멱등 처리), `CONVERSATION_BUSY`는 1초씩 기다려 최대 5번 다시 보내며, 서버 대화가 없어졌으면(404) 새로 만들어 한 번만 다시 시도한다.
+- 결과는 `GET /requests/{request_id}`를 0.5~1초 간격으로 폴링한다. 일시 오류(5xx·호출 제한·형식 오류)는 지수 백오프(최대 10초, 429는 `Retry-After` 이상)로 다시 시도하고 연속 5번 실패하면 오류를 돌려준다. 없는 요청·세션 종료 같은 오류는 바로 돌려준다. 어댑터 자신의 최대 대기는 60초이며 대화 관리자의 응답 제한(20초)과 취소가 먼저 적용된다.
 - `success`는 어시스턴트 문장(비어 있지 않은 메시지를 줄바꿈으로 이어 붙임)을 화면 문장으로 쓴다. 명령이 포함된 응답에는 이 기기에서 명령을 아직 실행하지 않는다는 참고 문장을 덧붙인다. `rejected`는 `permission_denied`, `failed`는 `unavailable`로 바꾸며 서버의 오류 코드·문구는 쓰지 않는다. 알 수 없는 상태는 계속 기다린다. `success`는 서버 처리 완료로 취급하며 PC 명령의 실행 완료로 표시하지 않는다(명령 결과는 따로 확인한다).
 - 사용자 입력·응답 문장·토큰은 오류 문구와 로그에 남기지 않는다.
 
@@ -129,18 +138,22 @@ F-030([#62](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/62))에서 
 
 명령은 대화와 별개로 기기 단위의 폴러가 `GET /device/commands/pending`에서 받는다. 현재 토큰의 기기에 속한 명령만 생성 순서대로 내려오며 추천 승인으로 생긴 명령도 같은 경로다. 결과를 보고하기 전까지 같은 명령이 다시 내려올 수 있어, Main은 `(command_id, attempt_no)`를 키로 하는 실행 저널을 로컬에 영속 보관한다. 이미 실행한 명령을 다시 받으면 OS 명령을 재실행하지 않고 저장된 결과만 재전송한다. 명령에 만료 시각이 없으므로 `requested_at`을 서버 시각으로 보고 응답으로 알게 된 서버와 로컬의 시계 차이를 보정해, 잠정 60초가 지난 명령은 시작하지 않고 `failed`(`failure_stage=timeout`, `error_code=expired`)로 보고한다. 지원하지 않는 도구·잘못된 인자·권한 없음은 `rejected`로 보고한다. 서버는 확인 상태가 없는 `system.power`를 목록에서 제외한다. 로그아웃·계정 전환 시 저널과 미보고 결과는 이전 사용자의 데이터로 분리하며 다른 계정에 재전송하지 않는다.
 
-서버가 확정한 도구 인자(2026-10-22 서버 답변)는 아래와 같다. 키는 snake_case이고 클라이언트 어댑터가 로컬 도구 요청(`appId` 등)으로 변환한다. 서버 쪽 저장 방식은 서버가 명령 API를 다시 시작할 때 정하므로 명령 폴러 연동은 그 뒤에 한다.
+서버가 확정한 도구 인자(2026-10-22 서버 답변)는 아래와 같다. 키는 snake_case이고 클라이언트 어댑터가 로컬 도구 요청(`appId` 등)으로 변환한다. 명령 항목과 결과 보고의 형식은 이 표와 아래 설명이 현재 서버 구현 기준이며, 명령 `arguments`의 저장·전달 방식은 서버가 명령 API를 구현할 때 확정하므로 [서버 확인 항목](../delivery/validation.md#rest-api-명세-대조-결정2026-10-22)으로 남아 있다.
 
 | `command_type` | `arguments` | 클라이언트 처리 |
 | --- | --- | --- |
 | `apps.launch`, `apps.activate` | `{}` + 최상위 `requested_app_code` | 앱 코드를 로컬 앱 ID로 해석해 실행 |
 | `apps.close` | `{}` + `requested_app_code` | 클라이언트 도구가 없어 `rejected`(`unsupported`)로 보고 |
-| `apps.list`, `apps.restore` | `{}` | 그대로 |
+| `apps.list` | `{}` + 조회 대상 앱의 `requested_app_code`(서버 내부 이름은 `app_status`) | 서버의 의미는 **특정 앱의 상태 조회**다. 클라이언트 `apps.list`는 전체 목록을 돌려주므로 어댑터가 목록에서 해당 앱을 찾아 결과로 바꾼다 |
+| `apps.restore` | `{}` | 그대로 |
 | `browser.open` | `{"url": "https://…"}`(서버가 사이트 이름을 URL로 해석) | 그대로. http·https 검증 |
 | `browser.search` | `{"query", "engine": "google"\|"naver"}` | 클라이언트 도구가 없어(#55 보류) `rejected`(`unsupported`) |
-| `folder.open` | `{"alias": "home"\|"desktop"\|"documents"\|"downloads"\|"pictures"\|"music"\|"videos"}` | 그대로 |
+| `folder.open` | `{"alias": "downloads"\|"documents"\|"desktop"\|"pictures"}`(서버 도구가 지원하는 4개. 서버 문서에 있는 `home`·`music`·`videos`는 서버 도구 정의와 맞지 않아 현재 내려오지 않는다) | 그대로. 클라이언트 계약은 7개 별칭을 모두 받아 서버가 확장해도 바꾸지 않는다 |
 | `system.volume` | `{"mode": "set", "level": 0~100}` 또는 `{"mode": "adjust", "delta": -100~100}` | 그대로 |
 | `system.mute` | `{"muted": true\|false}` | 그대로 |
+| `system.status` | `{}`(현재는 볼륨·음소거 상태 조회) | 클라이언트 도구가 없어 `rejected`(`unsupported`)로 보고. 도구 추가와 결과의 형식은 서버 확인 항목 |
+
+서버 쪽에 알려진 제한이 있다(2026-10-22 서버 답변). 상대 볼륨(`adjust`)은 서버의 인자 변환에 오류가 있어 서버 수정 전에는 올바른 인자가 오지 않을 수 있으며, 형식이 깨진 인자는 인자 검증에서 `rejected`(`validation`)로 보고한다. `browser.open`의 브라우저 지정은 서버에서 버려져 클라이언트는 기본 브라우저로 연다. 전체 창 닫기와 특정 창 닫기는 하나의 `apps.close`로 합쳐진다. 로컬 도구에만 있는 `app_install`은 REST 명령으로 매핑되지 않으며, 밝기·스크린샷·클립보드·파일 검색·전원은 계획 단계 도구라 명령으로 내려오지 않는다.
 
 허용 앱 코드는 14개로 고정된다: `chrome`·`edge`·`whale`·`vscode`·`notion`·`slack`·`teams`·`outlook`·`spotify`·`kakaotalk`·`terminal`·`explorer`·`notepad`·`calculator`. 결과 보고의 `failure_stage`는 실패가 아니면 null이고 아래 표의 9개 중 하나다. 클라이언트가 보내는 `error_code`는(최대 64자, `A-Za-z0-9_.:-`) 소문자 snake_case(`permission_denied`·`unsupported`·`invalid_input`·`not_found`·`cancelled`·`expired`·`unavailable`·`internal`·`unknown`)이며 서버가 만드는 코드는 대문자 snake_case다. 확인 불가는 실패와 구분해 `status=unknown`으로 보고하며 자동 재실행하지 않는다. 요청 상태의 `failed`는 서버 처리 오류(STT·AI·내부), `rejected`는 정책상 거부(차단된 앱·허용되지 않은 요청)다.
 
