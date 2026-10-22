@@ -7,6 +7,7 @@ import { registerOverlayIpc } from '../ipc/overlay-ipc'
 import type { SpeechNotice } from '../speech/session/ports'
 import { OverlayController } from './overlay-controller'
 import { OverlayWindow } from './overlay-window'
+import { lockDownContents, secureWebPreferences } from '../windows/secure-window'
 
 interface OverlayWiring {
   entryUrl: string
@@ -65,13 +66,10 @@ export function createOverlay(wiring: OverlayWiring): {
         alwaysOnTop: true,
         fullscreenable: false,
         title: 'Jarvis Overlay',
-        webPreferences: {
+        webPreferences: secureWebPreferences({
           preload: wiring.preloadPath,
-          contextIsolation: true,
-          nodeIntegration: false,
-          sandbox: true,
           backgroundThrottling: false
-        }
+        })
       })
       created.setAlwaysOnTop(true, 'screen-saver')
       // Skipping the process transform keeps the app's Dock icon; the overlay then follows the
@@ -80,9 +78,7 @@ export function createOverlay(wiring: OverlayWiring): {
         visibleOnFullScreen: true,
         skipTransformProcessType: true
       })
-      created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-      created.webContents.on('will-navigate', (event) => event.preventDefault())
-      created.webContents.on('will-redirect', (event) => event.preventDefault())
+      lockDownContents(created.webContents)
       const own = created.webContents
       contents = own
       created.on('closed', () => {

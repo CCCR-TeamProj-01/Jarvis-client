@@ -10,8 +10,9 @@ import type { ListenOutcome, VoiceInput } from '../../src/main/speech/voice-inpu
 import type { Result } from '../../src/shared/contracts/common'
 import type { CompletedUtterance, PlaybackEvent } from '../../src/shared/contracts/speech'
 import type { AudioPlaybackPort } from '../../src/shared/ports/audio-playback'
-import { stopAllFakeServers } from '../fixtures/fake-auth-server'
+import { stopAllFakeServers } from '../fixtures/fake-jarvis-server'
 import { signedInApp } from '../fixtures/signed-in-app'
+import { waitUntil } from '../helpers/wait'
 
 afterEach(stopAllFakeServers)
 
@@ -24,14 +25,6 @@ const utterance = (seconds = 1): CompletedUtterance => ({
   format,
   audio: new Uint8Array(16_000 * seconds * 2).fill(3)
 })
-
-async function waitUntil(condition: () => boolean, timeoutMs = 4000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error('condition not met in time')
-    await new Promise((resolve) => setTimeout(resolve, 5))
-  }
-}
 
 /** The voice path in miniature: the real session, conversation and server adapters over HTTP. */
 async function voiceApp(

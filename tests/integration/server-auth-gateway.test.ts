@@ -12,7 +12,7 @@ import {
   startFakeServer,
   stopAllFakeServers,
   stopServer
-} from '../fixtures/fake-auth-server'
+} from '../fixtures/fake-jarvis-server'
 
 const DEVICE_KEY = '3f0c2a52-6a41-4f1d-8d58-0f6f1f2c9b11'
 const PASSWORD = 'correct-horse-battery'

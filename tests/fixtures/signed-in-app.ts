@@ -5,7 +5,7 @@ import { MemoryCredentialStore } from '../../src/main/auth/memory-credential-sto
 import { ServerAuthGateway } from '../../src/main/auth/server-auth-gateway'
 import { AccessTokenHolder } from '../../src/main/auth/server-session'
 import { ServerClient } from '../../src/main/connection/server-client'
-import { startFakeServer } from './fake-auth-server'
+import { startFakeServer } from './fake-jarvis-server'
 
 export const DEVICE_KEY = '3f0c2a52-6a41-4f1d-8d58-0f6f1f2c9b11'
 export const PASSWORD = 'correct-horse-battery'

@@ -7,6 +7,7 @@ import type {
   RespondOutcome
 } from '../../src/main/recommendation/recommendation-api'
 import { RecommendationService } from '../../src/main/recommendation/recommendation-service'
+import { waitUntil } from '../helpers/wait'
 
 const T0 = Date.parse('2026-10-22T03:00:00.000Z')
 
@@ -89,14 +90,6 @@ function setup(
 
 const signal = () => new AbortController().signal
 const last = (published: (RecommendationCard | null)[]) => published.at(-1) ?? null
-
-async function waitUntil(condition: () => boolean, timeoutMs = 2000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error('condition not met in time')
-    await new Promise((resolve) => setTimeout(resolve, 2))
-  }
-}
 
 /** A service that is running for a user, so answers can be sent. */
 async function running(t: ReturnType<typeof setup>) {

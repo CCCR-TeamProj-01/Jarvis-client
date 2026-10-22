@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron'
 import type { WebContents } from 'electron'
 import type { MediaCommandEnvelope } from '../../shared/ipc/media-api'
 import { MEDIA_CHANNELS } from '../../shared/ipc/channels'
+import { lockDownContents, secureWebPreferences } from '../windows/secure-window'
 
 interface MediaWindowOptions {
   entryUrl: string
@@ -55,21 +56,16 @@ export class MediaWindow {
       skipTaskbar: true,
       focusable: false,
       title: 'Jarvis Media',
-      webPreferences: {
+      webPreferences: secureWebPreferences({
         preload: this.options.preloadPath,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
         // Capture must keep running while the window is hidden, occluded or the screen is locked.
         backgroundThrottling: false,
         // Responses are played here without any user gesture in this hidden page.
         autoplayPolicy: 'no-user-gesture-required'
-      }
+      })
     })
     this.window = window
-    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    window.webContents.on('will-navigate', (event) => event.preventDefault())
-    window.webContents.on('will-redirect', (event) => event.preventDefault())
+    lockDownContents(window.webContents)
     window.webContents.on('render-process-gone', () => {
       if (this.window === window) {
         this.window = null

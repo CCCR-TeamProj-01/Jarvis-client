@@ -8,6 +8,7 @@ import { MacAppControl } from '../platform/macos-app-control'
 import type { AppControlPort } from '../platform/ports'
 import { createUnsupportedAppControl } from '../platform/unsupported-app-control'
 import { unsupportedSystemAudio } from '../platform/unsupported-system-audio'
+import { sleep } from '../sleep'
 import { CapabilityRegistry, platformCapabilities } from './capability-registry'
 import { RestoreTargetTracker } from './restore-target'
 import { ToolExecutor } from './tool-executor'
@@ -18,19 +19,6 @@ export interface ToolStack {
   executor: ToolExecutor
   restoreTracker: RestoreTargetTracker
 }
-
-const delay = (ms: number, signal?: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms)
-    signal?.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer)
-        resolve()
-      },
-      { once: true }
-    )
-  })
 
 /** Production wiring for the OS-facing tools. Tests build the pieces with fakes instead. */
 export function createToolStack(auth: { requireSignedIn(): Result<unknown> }): ToolStack {
@@ -44,7 +32,7 @@ export function createToolStack(auth: { requireSignedIn(): Result<unknown> }): T
           runner: nodeCommandRunner,
           openUrl,
           selfPid: process.pid,
-          delay,
+          delay: sleep,
           now
         })
       : createUnsupportedAppControl(openUrl)

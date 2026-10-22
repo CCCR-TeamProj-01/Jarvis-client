@@ -6,20 +6,10 @@ import { CommandService } from '../../src/main/commands/command-service'
 import { ServerCommandSchema } from '../../src/main/commands/server-command'
 import { ToolExecutionReportSchema } from '../../src/shared/contracts/tools'
 import type { ToolExecutionReport, ToolInvocation } from '../../src/shared/contracts/tools'
+import { waitUntil } from '../helpers/wait'
+import { MemoryFiles } from '../helpers/memory-files'
 
 const T0 = Date.parse('2026-10-22T03:00:00.000Z')
-
-class MemoryFiles {
-  contents: string | null = null
-  failWrites = false
-  async read(): Promise<string | null> {
-    return this.contents
-  }
-  async replace(_name: string, contents: string): Promise<void> {
-    if (this.failWrites) throw new Error('write failed')
-    this.contents = contents
-  }
-}
 
 class FakeApi implements CommandApiPort {
   items: PendingItem[] = []
@@ -619,11 +609,3 @@ describe('polling', () => {
     await other.stop()
   })
 })
-
-async function waitUntil(condition: () => boolean, timeoutMs = 2000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error('condition not met in time')
-    await new Promise((resolve) => setTimeout(resolve, 2))
-  }
-}

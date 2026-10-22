@@ -3,6 +3,7 @@ import type { WebContents } from 'electron'
 import { release } from 'node:os'
 import type { WindowMaterial } from '../../shared/contracts/application'
 import { OPAQUE_WINDOW_BACKGROUND, watchWindowMaterial } from './window-material'
+import { lockDownContents, secureWebPreferences } from '../windows/secure-window'
 
 interface UiWindowOptions {
   entryUrl: string
@@ -50,12 +51,7 @@ export class UiWindow {
       backgroundColor: OPAQUE_WINDOW_BACKGROUND,
       visualEffectState: 'followWindow',
       title: 'Jarvis',
-      webPreferences: {
-        preload: this.options.preloadPath,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true
-      }
+      webPreferences: secureWebPreferences({ preload: this.options.preloadPath })
     })
     this.window = window
     this.releaseMaterial = watchWindowMaterial(
@@ -66,9 +62,7 @@ export class UiWindow {
       this.options.onMaterialChange,
       this.options.nativeEffectsEnabled === true
     )
-    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    window.webContents.on('will-navigate', (event) => event.preventDefault())
-    window.webContents.on('will-redirect', (event) => event.preventDefault())
+    lockDownContents(window.webContents)
     window.once('ready-to-show', () => {
       if (this.window !== window || window.isDestroyed()) return
       this.ready = true

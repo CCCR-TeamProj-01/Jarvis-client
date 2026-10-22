@@ -1,6 +1,6 @@
 import type { RecommendationCard } from '../../shared/contracts/recommendation'
 import type { ServerClient } from '../connection/server-client'
-import { sleep } from '../connection/sleep'
+import { sleep } from '../sleep'
 import { RecommendationApi } from './recommendation-api'
 import { RecommendationService } from './recommendation-service'
 import type { RecommendationServiceOptions } from './recommendation-service'
