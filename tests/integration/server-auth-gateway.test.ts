@@ -34,11 +34,19 @@ class FakeAuthServer {
   readonly retired = new Set<string>()
   readonly revokedAccess = new Set<string>()
   refreshMode: RefreshMode = 'ok'
+  /** Faults for the next refresh calls only, consumed in order before `refreshMode` applies. */
+  refreshOnce: RefreshMode[] = []
+  /** How long after a renewal the previous refresh token is still accepted once more. */
+  graceMs = 30_000
+  rateLimitChecks = false
   private sessions: {
     id: string
     user: string
     access: string
     refresh: string
+    previous: string | null
+    rotatedAt: number
+    graceUsed: boolean
     revoked: boolean
   }[] = []
   private counter = 0
@@ -82,26 +90,45 @@ class FakeAuthServer {
         device: { device_id: 12, device_name: 'x', platform: 'windows' }
       })
     }
+    if (path === '/auth/username-checks') {
+      if (this.rateLimitChecks) {
+        response.writeHead(429, { 'content-type': 'application/json', 'retry-after': '5' })
+        return void response.end(JSON.stringify({ detail: { code: 'RATE_LIMITED' } }))
+      }
+      const username = String(body?.username ?? '')
+      if (username.length < 3) return error(422, 'VALIDATION_ERROR')
+      const lower = username.toLowerCase()
+      return send(200, { username: lower, available: !this.users.has(lower) })
+    }
     if (path === '/auth/refresh') {
       const token = String(body?.refresh_token)
-      if (this.retired.has(token)) {
-        const leaked = this.sessions.find((session) => session.refresh !== token && session.user)
-        for (const session of this.sessions) session.revoked = true
-        void leaked
-        return error(401, 'REFRESH_TOKEN_REUSED')
+      const mode = this.refreshOnce.shift() ?? this.refreshMode
+      const current = this.sessions.find((candidate) => candidate.refresh === token)
+      const prior = this.sessions.find((candidate) => candidate.previous === token)
+      let target = current
+      if (!current && prior && !prior.revoked) {
+        // The previous token again: forgiven once, shortly after the renewal; otherwise a leak.
+        if (Date.now() - prior.rotatedAt <= this.graceMs && !prior.graceUsed) {
+          prior.graceUsed = true
+          target = prior
+        } else {
+          prior.revoked = true
+          return error(401, 'REFRESH_TOKEN_REUSED')
+        }
       }
-      const session = this.sessions.find((candidate) => candidate.refresh === token)
-      if (!session || session.revoked) return error(401, 'INVALID_SESSION')
-      if (this.refreshMode === 'error503') return error(503, 'SERVICE_UNAVAILABLE')
-      this.retired.add(session.refresh)
-      session.access = `acc_${++this.counter}`
-      session.refresh = `ref_${++this.counter}`
-      if (this.refreshMode === 'drop') return void request.socket.destroy()
-      if (this.refreshMode === 'broken') {
+      if (!target || target.revoked) return error(401, 'INVALID_SESSION')
+      if (mode === 'error503') return error(503, 'SERVICE_UNAVAILABLE')
+      target.previous = target.refresh
+      this.retired.add(target.refresh)
+      target.access = `acc_${++this.counter}`
+      target.refresh = `ref_${++this.counter}`
+      target.rotatedAt = Date.now()
+      if (mode === 'drop') return void request.socket.destroy()
+      if (mode === 'broken') {
         response.writeHead(200, { 'content-type': 'application/json' })
         return void response.end('{"access_token": ')
       }
-      return send(200, { ...this.tokens(session), token_type: 'Bearer' })
+      return send(200, { ...this.tokens(target), token_type: 'Bearer' })
     }
     const session = this.sessions.find(
       (candidate) => `Bearer ${candidate.access}` === request.headers.authorization
@@ -128,6 +155,9 @@ class FakeAuthServer {
       user,
       access: `acc_${++this.counter}`,
       refresh: `ref_${++this.counter}`,
+      previous: null,
+      rotatedAt: 0,
+      graceUsed: false,
       revoked: false
     }
     this.sessions.push(session)
@@ -157,7 +187,7 @@ afterEach(async () => {
   )
 })
 
-async function setup(options: { deviceReady?: boolean } = {}) {
+async function setup(options: { deviceReady?: boolean; refreshRetryWindowMs?: number } = {}) {
   const fake = new FakeAuthServer()
   const server = createServer((request, response) => {
     let raw = ''
@@ -185,7 +215,10 @@ async function setup(options: { deviceReady?: boolean } = {}) {
         platform: 'win32',
         appVersion: '0.1.0'
       }),
-    nowUnixMs: () => clock.nowMs
+    nowUnixMs: () => clock.nowMs,
+    ...(options.refreshRetryWindowMs === undefined
+      ? {}
+      : { refreshRetryWindowMs: options.refreshRetryWindowMs })
   })
   const manager = (store = new MemoryCredentialStore()) =>
     new AuthManager({
@@ -198,8 +231,8 @@ async function setup(options: { deviceReady?: boolean } = {}) {
   return { fake, gateway, client, tokens, clock, server, manager }
 }
 
-async function signedIn() {
-  const context = await setup()
+async function signedIn(options: Parameters<typeof setup>[0] = {}) {
+  const context = await setup(options)
   context.fake.users.set('jarvis', PASSWORD)
   const result = await context.gateway.signIn({ loginId: 'jarvis', password: PASSWORD })
   if (!result.ok) throw new Error('sign-in failed')
@@ -236,30 +269,58 @@ describe('sign-up', () => {
   })
 })
 
-describe('login ID check (placeholder)', () => {
-  it('answers "available" without asking the server, and the sign-up decides', async () => {
+describe('login ID check', () => {
+  it('asks the server and reports whether the ID is free', async () => {
     const { gateway, fake } = await setup()
     fake.users.set('taken', PASSWORD)
-    expect(await gateway.checkLoginId({ loginId: 'taken' })).toEqual({
+    expect(await gateway.checkLoginId({ loginId: 'Free_Name' })).toEqual({
       ok: true,
-      value: { loginId: 'taken', available: true }
+      value: { loginId: 'Free_Name', available: true }
     })
-    expect(fake.calls).toHaveLength(0)
-    expect(await gateway.signUp({ loginId: 'taken', password: PASSWORD })).toMatchObject({
-      error: { code: 'login_id_taken' }
+    expect(await gateway.checkLoginId({ loginId: 'Taken' })).toEqual({
+      ok: true,
+      value: { loginId: 'Taken', available: false }
+    })
+    expect(fake.calls[0]).toMatchObject({
+      method: 'POST',
+      path: '/auth/username-checks',
+      body: { username: 'Free_Name' },
+      authorization: undefined
+    })
+  })
+
+  it('never turns a failed check into "available"', async () => {
+    const { gateway, fake, server } = await setup()
+    expect(await gateway.checkLoginId({ loginId: 'ab' })).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_input' }
+    })
+    fake.rateLimitChecks = true
+    expect(await gateway.checkLoginId({ loginId: 'free_name' })).toMatchObject({
+      ok: false,
+      error: { code: 'rate_limited' }
+    })
+    await new Promise<void>((resolve) => {
+      server.closeAllConnections()
+      server.close(() => resolve())
+    })
+    expect(await gateway.checkLoginId({ loginId: 'free_name' })).toMatchObject({
+      ok: false,
+      error: { code: 'unavailable' }
     })
   })
 
   it('still honours a cancelled request', async () => {
-    const { gateway } = await setup()
+    const { gateway, fake } = await setup()
     const controller = new AbortController()
     controller.abort()
     expect(
-      await gateway.checkLoginId({ loginId: 'x' }, { signal: controller.signal })
+      await gateway.checkLoginId({ loginId: 'free_name' }, { signal: controller.signal })
     ).toMatchObject({
       ok: false,
       error: { code: 'cancelled' }
     })
+    expect(fake.calls).toHaveLength(0)
   })
 })
 
@@ -352,7 +413,8 @@ describe('restore', () => {
     const { gateway, fake, session, clock } = await signedIn()
     clock.nowMs += 2 * 3600 * 1000
     const old = session.credential
-    // A first renewal retires the old refresh token; using it again looks like a leak.
+    // A first renewal retires the old refresh token; using it again after the grace looks like a leak.
+    fake.graceMs = -1
     expect(await gateway.restore(old)).toMatchObject({ ok: true })
     expect(await gateway.restore(old)).toMatchObject({
       ok: false,
@@ -374,7 +436,24 @@ describe('restore', () => {
     })
   })
 
-  it('does not try the old token again when a renewal may have been processed', async () => {
+  it('repeats a renewal whose answer was lost once, and the server forgives it', async () => {
+    const { gateway, fake, session, clock } = await signedIn()
+    clock.nowMs += 2 * 3600 * 1000
+    fake.refreshOnce = ['drop']
+    fake.calls.length = 0
+    const restored = await gateway.restore(session.credential)
+    expect(restored).toMatchObject({ ok: true, value: { user: { loginId: 'jarvis' } } })
+    expect(fake.count('/auth/refresh')).toBe(2)
+    // Both attempts carried the same (old) token, and the pair that was kept is the second one.
+    const old = decodeSession(session.credential)!.refreshToken
+    expect(fake.calls.map((call) => call.body?.refresh_token)).toEqual([old, old])
+    fake.calls.length = 0
+    if (!restored.ok) throw new Error('restore failed')
+    expect(await gateway.restore(restored.value.credential)).toMatchObject({ ok: true })
+    expect(fake.calls.map((call) => call.path)).toEqual(['/auth/me'])
+  })
+
+  it('gives up for good when the repeat is unanswered too', async () => {
     const { gateway, fake, session, clock } = await signedIn()
     clock.nowMs += 2 * 3600 * 1000
     fake.refreshMode = 'drop'
@@ -383,7 +462,32 @@ describe('restore', () => {
       ok: false,
       error: { code: 'session_expired' }
     })
+    expect(fake.count('/auth/refresh')).toBe(2)
+  })
+
+  it('does not repeat a renewal once the grace window may have closed', async () => {
+    const { gateway, fake, session, clock } = await signedIn({ refreshRetryWindowMs: 0 })
+    clock.nowMs += 2 * 3600 * 1000
+    fake.refreshMode = 'drop'
+    fake.calls.length = 0
+    expect(await gateway.restore(session.credential)).toMatchObject({
+      ok: false,
+      error: { code: 'session_expired' }
+    })
     expect(fake.count('/auth/refresh')).toBe(1)
+  })
+
+  it('ends in sign-in when the server does not forgive the repeat', async () => {
+    const { gateway, fake, session, clock } = await signedIn()
+    clock.nowMs += 2 * 3600 * 1000
+    fake.graceMs = -1
+    fake.refreshOnce = ['drop']
+    fake.calls.length = 0
+    expect(await gateway.restore(session.credential)).toMatchObject({
+      ok: false,
+      error: { code: 'session_expired' }
+    })
+    expect(fake.count('/auth/refresh')).toBe(2)
   })
 
   it('treats a renewal whose answer is unreadable as lost, and a server error as passing', async () => {
@@ -537,7 +641,8 @@ describe('with the app’s own login state', () => {
     await restarted.start()
     expect(restarted.getSnapshot().phase).toBe('signed_out')
     expect(await store.load()).toEqual({ ok: true, value: null })
-    expect(context.fake.count('/auth/refresh')).toBe(1)
+    // The lost answer is repeated once; the repeat is lost too, so the session ends in sign-in.
+    expect(context.fake.count('/auth/refresh')).toBe(2)
   })
 })
 

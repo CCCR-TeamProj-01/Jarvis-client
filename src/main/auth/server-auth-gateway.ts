@@ -23,10 +23,20 @@ export interface ServerAuthGatewayOptions {
   /** This machine as the server should know it, or why it cannot be described yet. */
   device(): Result<DeviceInfo>
   nowUnixMs(): number
+  /** How long after the first attempt a lost renewal may still be repeated. */
+  refreshRetryWindowMs?: number
 }
 
 /** An access token this close to its end is renewed before use rather than risked on a request. */
 const ACCESS_MARGIN_MS = 60_000
+
+/**
+ * The server accepts the previous refresh token once more for 30 seconds after a renewal, and
+ * answers it with a fresh pair. A renewal whose answer was lost is therefore repeated once, and
+ * only while that window is certain to be open (the first attempt can take up to the request
+ * timeout of 10 seconds).
+ */
+const REFRESH_RETRY_WINDOW_MS = 20_000
 
 const UserSchema = z.looseObject({ user_id: z.string().min(1), username: z.string().min(1) })
 const TokensSchema = z.looseObject({
@@ -36,6 +46,7 @@ const TokensSchema = z.looseObject({
   refresh_expires_in: z.number().int().positive()
 })
 const RegisterResponse = z.looseObject({ username: z.string().min(1) })
+const UsernameCheckResponse = z.looseObject({ available: z.boolean() })
 const LoginResponse = TokensSchema.extend({ session_id: z.string().min(1), user: UserSchema })
 const RefreshResponse = TokensSchema
 const MeResponse = z.looseObject({ user: UserSchema })
@@ -51,18 +62,21 @@ export class ServerAuthGateway implements AuthGatewayPort {
 
   constructor(private readonly options: ServerAuthGatewayOptions) {}
 
-  /**
-   * PLACEHOLDER. The server has no endpoint for asking whether a login ID is free yet, so this
-   * answers "available" for every ID without calling it. The real decision is made by the sign-up
-   * itself (`USERNAME_TAKEN`). Replace this with the server call once the endpoint is defined
-   * (see the REST API decisions in docs/delivery/validation.md).
-   */
   async checkLoginId(
     input: CheckLoginIdInput,
     options?: LocalExecutionOptions
   ): Promise<Result<CheckLoginIdResult>> {
-    if (options?.signal?.aborted) return failure(clientError('cancelled'))
-    return { ok: true, value: { loginId: input.loginId, available: true } }
+    const result = await this.options.client.request({
+      method: 'POST',
+      path: '/auth/username-checks',
+      auth: 'none',
+      body: { username: input.loginId },
+      response: UsernameCheckResponse,
+      ...signalOf(options)
+    })
+    // A failed check is never an answer: the caller must not treat it as "available".
+    if (!result.ok) return failure(result.error)
+    return { ok: true, value: { loginId: input.loginId, available: result.value.available } }
   }
 
   async signUp(input: SignUpInput, options?: LocalExecutionOptions): Promise<Result<SignUpResult>> {
@@ -266,33 +280,47 @@ export class ServerAuthGateway implements AuthGatewayPort {
   }
 
   private async exchange(session: StoredSession): Promise<Result<StoredSession>> {
-    const result = await this.options.client.request({
+    const startedAt = this.options.nowUnixMs()
+    let result = await this.requestRefresh(session)
+    // The server may have processed the first attempt. Its grace window accepts the same token one
+    // more time; a second attempt that is also unanswered is not repeated again.
+    if (
+      !result.ok &&
+      this.mayHaveBeenProcessed(result) &&
+      this.options.nowUnixMs() - startedAt <
+        (this.options.refreshRetryWindowMs ?? REFRESH_RETRY_WINDOW_MS)
+    )
+      result = await this.requestRefresh(session)
+    if (result.ok) return { ok: true, value: this.stored(session, session, result.value) }
+    return failure(this.refreshFailure(result))
+  }
+
+  private requestRefresh(session: StoredSession) {
+    return this.options.client.request({
       method: 'POST',
       path: '/auth/refresh',
       auth: 'none',
       body: { refresh_token: session.refreshToken },
       response: RefreshResponse
     })
-    if (result.ok)
-      return {
-        ok: true,
-        value: this.stored(session, session, result.value)
-      }
-    return failure(this.refreshFailure(result))
+  }
+
+  /** No answer, or a success whose body was lost or unreadable: the old token may be retired. */
+  private mayHaveBeenProcessed(result: Extract<ServerResult<unknown>, { ok: false }>): boolean {
+    const { detail } = result
+    if (detail.delivery === 'no_response') return true
+    return detail.status !== undefined && detail.status >= 200 && detail.status < 300
   }
 
   /**
-   * Which failures leave the stored session usable. Only a failure before the request was sent is
-   * safe to try again with the same token. If the server answered with success but the answer was
-   * lost or unreadable, or no answer came back at all, the token may already be retired and the
-   * user has to sign in again.
+   * Which failures leave the stored session usable, once the one repeat has been made. Only a
+   * failure before the request was sent is safe to try again with the same token. A request that
+   * may have been processed and still has no usable answer means the token is probably retired,
+   * and the user has to sign in again.
    */
   private refreshFailure(result: Extract<ServerResult<unknown>, { ok: false }>): ClientError {
-    const { detail } = result
-    if (detail.delivery === 'not_sent') return clientError('unavailable')
-    if (detail.delivery === 'no_response') return clientError('session_expired')
-    if (detail.status !== undefined && detail.status >= 200 && detail.status < 300)
-      return clientError('session_expired')
+    if (result.detail.delivery === 'not_sent') return clientError('unavailable')
+    if (this.mayHaveBeenProcessed(result)) return clientError('session_expired')
     return result.error
   }
 }

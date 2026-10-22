@@ -42,7 +42,7 @@
 | 대기 명령(`GET /device/commands/pending`) | 2초 | 10초 | 최대 30초. 401이면 토큰 갱신 |
 | 추천(`GET /recommendations/pending`) | 요청 완료 직후와 30초 | 60초 | 최대 5분 |
 
-오류 응답은 `{"error": {"code", "message", "request_id", "details"}}` 형식이다. 어댑터가 서버 오류 코드를 `ClientError`로 변환하며 서버의 `message`를 그대로 화면에 쓰지 않는다. `INVALID_SESSION`(401)은 세션 무효로 처리하고 `RATE_LIMITED`(429)는 `Retry-After`를 존중해 재시도를 늦춘다. 대화 생성 같은 생성 요청은 `Idempotency-Key`로, 요청 제출은 클라이언트가 만든 `request_id`로, 명령 결과는 `(command_id, attempt_no)`로 재전송을 멱등하게 한다.
+\1 일부 응답(호출 제한 `429` 등)은 `{\"detail\": {\"code\": ...}}` 형식이어서 두 형식을 모두 읽고, 코드가 없는 `detail`(프레임워크 검증 오류 등)은 HTTP 상태로만 분류한다. 어댑터가 서버 오류 코드를 `ClientError`로 변환하며 서버의 `message`를 그대로 화면에 쓰지 않는다. `INVALID_SESSION`(401)은 세션 무효로 처리하고 `RATE_LIMITED`(429)는 `Retry-After`를 존중해 재시도를 늦춘다. 대화 생성 같은 생성 요청은 `Idempotency-Key`로, 요청 제출은 클라이언트가 만든 `request_id`로, 명령 결과는 `(command_id, attempt_no)`로 재전송을 멱등하게 한다.
 
 정수 PK(`device_id`·`command_id`·`message_id`·`recommendation_id` 등)는 JSON 숫자로 받는다. 경계에서 `Number.isSafeInteger`로 안전한 정수(2^53-1 이하)인지 검증하고 아니면 응답을 계약 위반으로 거부한다. 내부에서는 문자열 식별자로 변환해 쓴다. `user_id`·`session_id`·`deletion_id`는 UUID, `conversation_id`·`request_id`는 접두가 붙은 문자열이다.
 
@@ -60,6 +60,7 @@ F-027([#58](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/58))에서 
 
 - 결과는 `ServerResult`다. 실패에는 `ClientError`와 별도로 전송 정보(`delivery`, HTTP 상태, 서버 오류 코드, 요청 ID, `Retry-After` 지연)를 담는다. `delivery`는 요청이 서버에 닿았는지를 나타낸다. 연결 거부·이름 해석 실패·연결 시간 초과·인증서 오류는 `not_sent`(다시 시도해도 안전), 요청을 보낸 뒤의 시간 초과·연결 끊김과 알 수 없는 오류는 `no_response`(서버가 처리했을 수 있음), 응답을 받은 경우는 `responded`다. 갱신 토큰 응답 유실 처리([계정 인증 계약](#계정-인증-계약))가 이 구분을 쓴다.
 - 비밀번호·토큰·요청 본문·서버가 보낸 문구·스키마 오류의 세부 내용은 결과와 오류 문구에 넣지 않는다.
+- 서버 오류 응답은 `error`와 `detail` 두 형식을 모두 읽는다.
 - 아직 없는 것: multipart 음성 업로드와 오디오 응답 처리(음성 단계), 보호 API 호출 시 접근 토큰 자동 갱신(첫 보호 API 연동 때). 토큰 갱신과 단일 비행 처리는 서버 인증 어댑터에서 구현했다([F-028](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/60), [서버 인증 어댑터](../features/auth.md#서버-인증-어댑터-f-028)).
 
 ## 계정 인증 계약
@@ -68,13 +69,13 @@ F-027([#58](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/58))에서 
 
 | 연산 | 필수 계약 |
 | --- | --- |
-| 아이디 중복 확인 | `loginId`에 대한 사용 가능·중복·유효하지 않은 입력·실패 구분. 가입 시 최종 유일성 검사를 대체하지 않음. 현재 서버 명세에는 이 연산의 엔드포인트가 없어 서버에 추가를 요청했다. 추가되기 전에는 임시 구현이 서버를 부르지 않고 항상 사용 가능으로 답하며, 최종 판정은 가입 응답의 `USERNAME_TAKEN`(409)이다. 엔드포인트가 정해지면 교체한다 |
+| 아이디 중복 확인 | `loginId`에 대한 사용 가능·중복·유효하지 않은 입력·실패 구분. 가입 시 최종 유일성 검사를 대체하지 않음. 서버 엔드포인트는 `POST /auth/username-checks`(요청 `{username}`, 응답 `200 {username(소문자), available}`, 형식 오류 `422`, 호출 한도 초과 `429`)다. 확인 실패(통신 오류·`429`·`422`)는 사용 가능으로 처리하지 않는다 |
 | 회원가입 | `loginId`·`password`를 입력으로 받고 가입 성공·아이디 중복·입력 오류·실패를 구분. 서버에서 같은 정규화 규칙과 저장소 제약으로 동시 가입의 중복 방지. 재입력 값이나 클라이언트의 사용 가능 플래그는 신뢰 근거가 아님 |
 | 로그인·기기 등록 | 자격 증명과 Main의 설치 식별자 `device_key`·기기 이름·OS·클라이언트 버전을 함께 전달. 서버가 `(user_id, device_key)`로 기기를 찾거나 만들고 `AUTH_SESSIONS.device_id`에 연결한 뒤 공개 사용자·기기 정보와 Main 내부 인증 자격 증명 반환. 반복 로그인은 같은 계정의 같은 기기로 수렴. 잘못된 인증 정보·일시 제한·서버 오류·통신 실패를 구분. 기기 정보는 `device_key`·`device_name`·`platform`(`windows`/`macos`, Main이 `win32`/`darwin`에서 변환)·`client_version`이며 응답은 토큰 한 쌍·세션 ID·공개 사용자·기기(`device_id`)다 |
 | 세션 검증·갱신 | 보호 저장된 자격 증명의 현재 유효성과 사용자·기기 연결을 확인하고 필요 시 새 토큰 쌍으로 갱신. 무효·만료·폐기와 일시 통신 실패 구분. 교체한 자격 증명은 보호 저장소에도 반영. 복구는 저장된 접근 토큰이 유효하면 `GET /auth/me`로, 만료됐으면 `POST /auth/refresh` 뒤 `GET /auth/me`로 사용자·기기 연결을 확인 |
 | 로그아웃 | 현재 로그인 세션의 폐기. 다른 PC 세션의 일괄 폐기를 의미하지 않음. 반복 요청에 안전하게 처리하며 클라이언트의 즉시 기능 차단·로컬 정리를 지연시키지 않음 |
 
-접근 토큰은 발급 후 1시간, 갱신 토큰은 발급·갱신 후 30일 동안 유효하다. 갱신은 새 토큰 쌍을 발급하며 이전 갱신 토큰은 즉시 무효가 된다. 교체된 갱신 토큰이 다시 사용되면 서버가 해당 세션을 폐기한다. Main은 같은 세션의 갱신을 직렬화하고 교체 전 토큰을 자동 재사용하지 않는다. 접근·갱신 토큰 한 쌍은 한 값으로 묶어 보호 저장소(`SessionCredential`)에 저장한다. 교체 응답이 유실되면 이전 갱신 토큰의 재전송이 재사용으로 탐지되어 세션이 폐기되므로, 서버에 짧은 유예 시간(같은 요청의 재전송에 같은 새 토큰 쌍 반환)을 요청했다. 유예가 합의되기 전에는 서버에 닿지 않았음이 확실한 실패(연결 거부·이름 해석 실패 등)만 일시 장애로 보고 자격 증명을 유지한 채 재시도한다. 요청을 보낸 뒤 응답을 받지 못한 갱신(시간 초과·연결 끊김)은 교체 여부를 알 수 없으므로 이전 토큰을 다시 쓰지 않고 자격 증명을 제거해 재로그인을 안내한다. 새 토큰을 받았으나 보호 저장에 실패하면 현재 실행의 로그인은 유지하되 다음 실행의 복구가 불가함을 알린다.
+접근 토큰은 발급 후 1시간, 갱신 토큰은 발급·갱신 후 30일 동안 유효하다. 갱신은 새 토큰 쌍을 발급하며 이전 갱신 토큰은 즉시 무효가 된다. 교체된 갱신 토큰이 다시 사용되면 서버가 해당 세션을 폐기한다. Main은 같은 세션의 갱신을 직렬화하고 교체 전 토큰을 자동 재사용하지 않는다. 접근·갱신 토큰 한 쌍은 한 값으로 묶어 보호 저장소(`SessionCredential`)에 저장한다. 교체 응답이 유실되면 이전 갱신 토큰의 재전송이 재사용으로 탐지되어 세션이 폐기될 수 있어 서버가 유예를 지원한다(2026-10-22 서버 답변). 직전 갱신 토큰이 회전 후 30초 안에 한 번 더 오면 세션을 폐기하지 않고 새 토큰 쌍을 다시 발급하며(직전에 발급한 쌍은 무효), 30초가 지났거나 같은 직전 토큰이 두 번째로 다시 오면 `REFRESH_TOKEN_REUSED`로 세션을 폐기한다. 서버에는 회전 시각 컬럼(`AUTH_SESSIONS.rotated_at`) 마이그레이션이 필요하고, 유예 30초 동안 탈취된 토큰도 한 번 더 쓸 수 있다는 보안 비용이 있다. 클라이언트는 서버에 닿지 않았음이 확실한 실패(연결 거부·이름 해석 실패 등)를 일시 장애로 보고 자격 증명을 유지한 채 재시도한다. 요청을 보낸 뒤 응답을 받지 못했거나 성공 응답을 읽지 못한 갱신은 첫 시도 후 20초 안에 같은 토큰으로 한 번만 다시 보내고, 그 반복도 실패하면 교체 여부를 알 수 없으므로 이전 토큰을 다시 쓰지 않고 자격 증명을 제거해 재로그인을 안내한다. 서버에 유예가 배포되기 전에는 반복이 `REFRESH_TOKEN_REUSED`로 끝나 재로그인이 된다. 새 토큰을 받았으나 보호 저장에 실패하면 현재 실행의 로그인은 유지하되 다음 실행의 복구가 불가함을 알린다.
 
 서버는 비밀번호를 해시로 저장하고 로그인·가입 입력을 다시 검증한다. 비밀번호·토큰은 요청·오류 로그에 기록하지 않는다. 모든 API는 토큰에서 사용자·기기·세션을 확인하며 매 요청 본문에 `userId`·`deviceId`를 중복 요구하지 않는다. 클라이언트가 보낸 식별자만으로 소유권을 인정하지 않는다.
 
@@ -114,7 +115,22 @@ Main은 활성 대화가 없으면 인증된 현재 기기로 서버 대화를 �
 - 같은 요청의 부작용 명령은 지정 순서로 처리한다. 중간 실패 시 후속 명령을 계속할지·의존 명령만 중단할지와 실행 전 안내의 TTS 순서는 API 연동 전에 결정한다. 순서만으로 의존 관계를 추정하지 않는다.
 - 추천 정보는 실행 명령이 아니다. [추천 승인](../features/activity-recommendation.md#추천-승인) 이후 서버가 생성한 명령을 실행한다.
 
-명령은 대화와 별개로 기기 단위의 폴러가 `GET /device/commands/pending`에서 받는다. 현재 토큰의 기기에 속한 명령만 생성 순서대로 내려오며 추천 승인으로 생긴 명령도 같은 경로다. 결과를 보고하기 전까지 같은 명령이 다시 내려올 수 있어, Main은 `(command_id, attempt_no)`를 키로 하는 실행 저널을 로컬에 영속 보관한다. 이미 실행한 명령을 다시 받으면 OS 명령을 재실행하지 않고 저장된 결과만 재전송한다. 명령에 만료 시각이 없으므로 `requested_at`을 서버 시각으로 보고 응답으로 알게 된 서버와 로컬의 시계 차이를 보정해, 잠정 60초가 지난 명령은 시작하지 않고 `failed`(`error_code`는 서버 합의 전까지 잠정 `expired`)로 보고한다. 지원하지 않는 도구·잘못된 인자·권한 없음은 `rejected`로 보고한다. 서버는 확인 상태가 없는 `system.power`를 목록에서 제외한다. 로그아웃·계정 전환 시 저널과 미보고 결과는 이전 사용자의 데이터로 분리하며 다른 계정에 재전송하지 않는다.
+명령은 대화와 별개로 기기 단위의 폴러가 `GET /device/commands/pending`에서 받는다. 현재 토큰의 기기에 속한 명령만 생성 순서대로 내려오며 추천 승인으로 생긴 명령도 같은 경로다. 결과를 보고하기 전까지 같은 명령이 다시 내려올 수 있어, Main은 `(command_id, attempt_no)`를 키로 하는 실행 저널을 로컬에 영속 보관한다. 이미 실행한 명령을 다시 받으면 OS 명령을 재실행하지 않고 저장된 결과만 재전송한다. 명령에 만료 시각이 없으므로 `requested_at`을 서버 시각으로 보고 응답으로 알게 된 서버와 로컬의 시계 차이를 보정해, 잠정 60초가 지난 명령은 시작하지 않고 `failed`(`failure_stage=timeout`, `error_code=expired`)로 보고한다. 지원하지 않는 도구·잘못된 인자·권한 없음은 `rejected`로 보고한다. 서버는 확인 상태가 없는 `system.power`를 목록에서 제외한다. 로그아웃·계정 전환 시 저널과 미보고 결과는 이전 사용자의 데이터로 분리하며 다른 계정에 재전송하지 않는다.
+
+서버가 확정한 도구 인자(2026-10-22 서버 답변)는 아래와 같다. 키는 snake_case이고 클라이언트 어댑터가 로컬 도구 요청(`appId` 등)으로 변환한다. 서버 쪽 저장 방식은 서버가 명령 API를 다시 시작할 때 정하므로 명령 폴러 연동은 그 뒤에 한다.
+
+| `command_type` | `arguments` | 클라이언트 처리 |
+| --- | --- | --- |
+| `apps.launch`, `apps.activate` | `{}` + 최상위 `requested_app_code` | 앱 코드를 로컬 앱 ID로 해석해 실행 |
+| `apps.close` | `{}` + `requested_app_code` | 클라이언트 도구가 없어 `rejected`(`unsupported`)로 보고 |
+| `apps.list`, `apps.restore` | `{}` | 그대로 |
+| `browser.open` | `{"url": "https://…"}`(서버가 사이트 이름을 URL로 해석) | 그대로. http·https 검증 |
+| `browser.search` | `{"query", "engine": "google"\|"naver"}` | 클라이언트 도구가 없어(#55 보류) `rejected`(`unsupported`) |
+| `folder.open` | `{"alias": "home"\|"desktop"\|"documents"\|"downloads"\|"pictures"\|"music"\|"videos"}` | 그대로 |
+| `system.volume` | `{"mode": "set", "level": 0~100}` 또는 `{"mode": "adjust", "delta": -100~100}` | 그대로 |
+| `system.mute` | `{"muted": true\|false}` | 그대로 |
+
+허용 앱 코드는 14개로 고정된다: `chrome`·`edge`·`whale`·`vscode`·`notion`·`slack`·`teams`·`outlook`·`spotify`·`kakaotalk`·`terminal`·`explorer`·`notepad`·`calculator`. 결과 보고의 `failure_stage`는 `validation`·`capability`·`precondition`·`dispatch`·`execution`·`observation`·`timeout`·`cancellation`·`internal` 9개이고, 클라이언트가 보내는 `error_code`는 소문자 snake_case(`permission_denied`·`unsupported`·`invalid_input`·`not_found`·`cancelled`·`expired`·`unavailable`·`internal`·`unknown`)이며 서버가 만드는 코드는 대문자 snake_case다. 확인 불가는 실패와 구분해 `status=unknown`으로 보고하며 자동 재실행하지 않는다. 요청 상태의 `failed`는 서버 처리 오류(STT·AI·내부), `rejected`는 정책상 거부(차단된 앱·허용되지 않은 요청)다.
 
 `COMMAND_REQUESTS`는 명령 정보를, `COMMAND_RESULTS`는 실행 시도별 결과를 받는다. 기존 로컬 `ToolExecutionReport`와 다음 외부 보고의 변환은 Main의 서버 어댑터가 담당한다.
 
@@ -146,9 +162,9 @@ MVP 기본안은 로컬 VAD가 확정한 한 발화를 인증된 HTTPS 요청으
 
 | 데이터 | 필수 계약 |
 | --- | --- |
-| 발화 업로드 | 인증된 사용자·기기(토큰), 경로의 `conversation_id`, `request_id`, 입력 방식, 오디오(16kHz 16-bit 모노 PCM/WAV)와 선택 `language`. 최대 길이·크기와 형식 불일치는 서버가 검증하며 한도는 서버 답변 대기 |
+| 발화 업로드 | 인증된 사용자·기기(토큰), 경로의 `conversation_id`, `request_id`, 입력 방식, 오디오와 선택 `language`. WAV(PCM 16-bit little-endian·16kHz·모노)만 받으며 헤더로 검증해 맞지 않으면 `422 UNSUPPORTED_AUDIO_FORMAT`이다. 길이는 0.1~20초, 파일은 헤더를 포함해 최대 700,000바이트다. 클라이언트 VAD의 최소 150ms·최대 15초(약 480KB)는 이 범위 안이다. 서버의 현재 한도(10초·320,000바이트)는 올려야 한다(서버 작업) |
 | STT 결과 | `GET /requests/{request_id}`의 `transcript`·`processing_status`·`error_code`(`SPEECH_NOT_RECOGNIZED`·`STT_UNAVAILABLE`·`STT_FAILED`). 서버는 빈 결과로 도구를 실행하지 않음 |
-| TTS 결과 | 답변 텍스트로 호출해 받는 오디오 형식·길이·바이트 또는 생성 오류(`UPSTREAM_ERROR`, 502). 오디오 오류 시 텍스트 결과 표시. 재생은 실행 전 응답 문장에 한정 |
+| TTS 결과 | 답변 텍스트로 호출해 받는 오디오 형식·길이·바이트 또는 생성 오류(`UPSTREAM_ERROR`, 502). 오디오 오류 시 텍스트 결과 표시. 재생은 실행 전 응답 문장에 한정. 텍스트는 최대 300자(초과 시 `422`)이므로 긴 응답 문장은 음성 단계에서 나누거나 줄이는 정책을 정한다 |
 | 취소 | REST 명세에는 음성 업로드·STT·TTS의 취소 API가 없다. 클라이언트가 요청을 중단하고 늦은 결과를 폐기하며 서버 연산의 즉시 중단은 보장하지 않음 |
 
 대기 중 마이크 스트림과 VAD가 완료하지 않은 구간은 전송하지 않는다. 음성 바이트는 오프라인 대기열이나 재연결 자동 재전송 대상에 넣지 않는다. 클라이언트와 서버는 허용 오디오 형식·최대 길이·최대 바이트·요청 기한을 구현 전에 함께 확정한다. 원시 음성의 보관 경계는 [데이터와 보안](data-security.md)을 따른다.

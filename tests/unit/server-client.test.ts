@@ -190,6 +190,26 @@ describe('what comes back', () => {
     expect((await failed(new Response('', { status: 503 }))).error.code).toBe('unavailable')
   })
 
+  it('reads the code from the framework `detail` shape too, and ignores a detail without one', async () => {
+    const limited = await failed(
+      json({ detail: { code: 'RATE_LIMITED' } }, { status: 429, headers: { 'retry-after': '7' } })
+    )
+    expect(limited.error.code).toBe('rate_limited')
+    expect(limited.detail).toMatchObject({
+      status: 429,
+      serverCode: 'RATE_LIMITED',
+      retryAfterMs: 7000
+    })
+    // A framework validation error lists problems instead; the status alone decides.
+    const listed = await failed(
+      json({ detail: [{ loc: ['body', 'username'], msg: 'too short' }] }, { status: 422 })
+    )
+    expect(listed.error.code).toBe('invalid_input')
+    expect(listed.detail.serverCode).toBeUndefined()
+    const text = await failed(json({ detail: 'Not Found' }, { status: 404 }))
+    expect(text.error.code).toBe('not_found')
+  })
+
   it('ignores a server code or request ID that does not look like one', async () => {
     const result = await failed(
       json({ error: { code: 'lower case; DROP', request_id: 'r'.repeat(500) } }, { status: 500 })
