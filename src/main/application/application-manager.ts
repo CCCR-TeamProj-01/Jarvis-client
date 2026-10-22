@@ -132,7 +132,11 @@ export class ApplicationManager {
     })
     this.sensors = this.sensorStack.sensors
     const stack = this.sensorStack
-    const server = createRemoteSpeech({ isPackaged: app.isPackaged, env: process.env })
+    const server = createRemoteSpeech({
+      isPackaged: app.isPackaged,
+      env: process.env,
+      api: login.api
+    })
     this.conversation = new ConversationManager({
       gate: sensorGate,
       assistant: server.assistant,

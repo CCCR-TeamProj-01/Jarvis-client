@@ -29,6 +29,20 @@ export class FakeAuthServer {
   /** How long after a renewal the previous refresh token is still accepted once more. */
   graceMs = 30_000
   rateLimitChecks = false
+  /** How long a submitted request takes before the server has an answer. */
+  processingMs = 20
+  /** What a finished request turns out as. */
+  outcome: 'success' | 'failed' | 'rejected' = 'success'
+  withCommands = false
+  /** Process the next submit, then drop the connection without answering. */
+  dropNextSubmitAnswer = false
+  readonly conversationsMade: string[] = []
+  readonly processed: { requestId: string; content: string }[] = []
+  private conversationKeys = new Map<string, string>()
+  private serverRequests = new Map<
+    string,
+    { conversation: string; content: string; doneAt: number }
+  >()
   private sessions: {
     id: string
     user: string
@@ -139,6 +153,86 @@ export class FakeAuthServer {
     if (path === '/ping') {
       if (!valid) return error(401, 'INVALID_SESSION')
       return send(200, { ok: true, user: session.user })
+    }
+    if (path === '/conversations' && request.method === 'POST') {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      const key = String(request.headers['idempotency-key'] ?? '')
+      const known = key ? this.conversationKeys.get(key) : undefined
+      if (known) return send(201, { conversation_id: known, created_at: 'x', updated_at: 'x' })
+      const id = `conv_${++this.counter}`
+      this.conversationsMade.push(id)
+      if (key) this.conversationKeys.set(key, id)
+      return send(201, { conversation_id: id, created_at: 'x', updated_at: 'x' })
+    }
+    const messages = /^\/conversations\/([^/]+)\/messages$/.exec(path)
+    if (messages && request.method === 'POST') {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      const conversation = decodeURIComponent(messages[1]!)
+      if (!this.conversationsMade.includes(conversation)) return error(404, 'RESOURCE_NOT_FOUND')
+      const requestId = String(body?.request_id)
+      const existing = this.serverRequests.get(requestId)
+      if (!existing) {
+        const busy = [...this.serverRequests.values()].some(
+          (other) => other.conversation === conversation && other.doneAt > Date.now()
+        )
+        if (busy) return error(409, 'CONVERSATION_BUSY')
+        this.serverRequests.set(requestId, {
+          conversation,
+          content: String(body?.content),
+          doneAt: Date.now() + this.processingMs
+        })
+        this.processed.push({ requestId, content: String(body?.content) })
+        if (this.dropNextSubmitAnswer) {
+          this.dropNextSubmitAnswer = false
+          return void request.socket.destroy()
+        }
+      }
+      return send(202, {
+        request_id: requestId,
+        message_id: this.processed.length,
+        processing_status: 'queued',
+        status_url: `/api/v1/requests/${requestId}`,
+        poll_after_ms: 500
+      })
+    }
+    const requestStatus = /^\/requests\/([^/]+)$/.exec(path)
+    if (requestStatus && request.method === 'GET') {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      const found = this.serverRequests.get(decodeURIComponent(requestStatus[1]!))
+      if (!found) return error(404, 'RESOURCE_NOT_FOUND')
+      const base = {
+        request_id: decodeURIComponent(requestStatus[1]!),
+        conversation_id: found.conversation,
+        transcript: null,
+        recommendation: null
+      }
+      if (Date.now() < found.doneAt)
+        return send(200, {
+          ...base,
+          processing_status: 'processing',
+          error_code: null,
+          assistant_messages: [],
+          commands: []
+        })
+      if (this.outcome !== 'success')
+        return send(200, {
+          ...base,
+          processing_status: this.outcome,
+          error_code: 'SERVER_DETAIL_THAT_MUST_NOT_SHOW',
+          assistant_messages: [],
+          commands: []
+        })
+      return send(200, {
+        ...base,
+        processing_status: 'success',
+        error_code: null,
+        assistant_messages: [
+          { message_id: 2, role: 'assistant', content: `echo: ${found.content}` }
+        ],
+        commands: this.withCommands
+          ? [{ command_id: 8801, command_type: 'apps.launch', latest_result: null }]
+          : []
+      })
     }
     if (path === '/auth/logout') {
       if (!valid) return error(401, 'INVALID_SESSION')
