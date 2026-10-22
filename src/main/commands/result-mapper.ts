@@ -44,6 +44,21 @@ export function rejectedResult(
   })
 }
 
+/**
+ * The result for a command that was started but whose outcome was lost, for example because the
+ * app ended while it ran. Nothing is claimed, and the command is never run again.
+ */
+export function interruptedResult(command: Pick<ServerCommand, 'attempt_no'>): CommandResult {
+  return CommandResultSchema.parse({
+    attempt_no: command.attempt_no,
+    status: 'unknown',
+    observation_status: 'unknown',
+    error_code: 'unknown',
+    failure_stage: 'observation',
+    result_message: '명령이 실행됐는지 확인하지 못했어요.'
+  })
+}
+
 /** The server's result for a local execution report. */
 export function resultFromReport(
   command: Pick<ServerCommand, 'attempt_no'>,

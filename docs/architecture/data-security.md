@@ -58,6 +58,7 @@ F-023([#45](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/45))에서 
 | --- | --- | --- |
 | `installation.json` | `version: 1`, UUID `deviceKey` | 설치 단위. 로그아웃·계정 전환·기기 설정 초기화 후에도 유지 |
 | `device-settings.json` | `version: 1`, `settings.speechOutputEnabled`(boolean, 기본 true) | PC의 음성 응답 재생 설정. 원본 계정 설정과 인증 비밀은 허용하지 않음 |
+| `command-journal.json` | `version: 1`, 사용자별 명령 처리 기록(ID·상태·고정 문구 결과) | 서버 명령의 중복 실행 방지. 사용자별 격리, 7일 보관. 내용과 규칙은 [명령 실행 저널](server-integration.md#구현-현황-명령-실행-저널) |
 
 `LocalStatePort`는 초기화·복사된 스냅샷 조회·전체 설정 검증/저장·기기 설정 초기화만 Main에 제공한다. 초기 필드는 각 음성 응답의 재생 직전에 읽는다. false이면 텍스트·후속 발화는 유지하고 응답 오디오만 재생하지 않으며, 설정 변경으로 이미 진행 중인 재생을 중단하지 않는다. 설정 편집 UI·입력 장치/단축키 재설정은 후속 작업이다. 서버 요청의 설정이나 DB 기기 등록 성공을 의미하지 않는다.
 

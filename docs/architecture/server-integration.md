@@ -109,6 +109,16 @@ F-032([#69](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/69))에서 
 - `app-codes.ts`: 앱 코드 14개를 macOS 번들 ID로 매핑한다. 이 Mac에서 설치된 앱의 번들 ID를 읽어 확인한 것은 `chrome`·`vscode`·`notion`·`slack`·`kakaotalk`·`terminal`·`explorer`(Finder)·`notepad`(TextEdit)·`calculator`이고, `edge`·`whale`·`teams`·`outlook`·`spotify`는 제조사가 공개한 ID이며 기기에서 확인하지 못했다. 잘못된 ID는 "설치되어 있지 않음"으로만 나타난다(앱 제어가 OS가 알려 주는 앱 목록에서만 대상을 찾는다). Windows는 실행 파일 매핑이 없어 `rejected`(`capability`, `unsupported`)다.
 - `result-mapper.ts`: `ToolExecutionReport`를 위 결과 매핑 표와 `failure_stage` 표대로 서버 결과 본문으로 바꾼다. `result_message`는 도구 이름과 결과 종류로 만든 고정 문구라서 URL·경로·볼륨 수치·오류 원문이 들어가지 않는다. `app`은 앱 명령과 복귀(번들 ID가 고정 앱 코드 14개 중 하나일 때)에서만 붙는다.
 
+### 구현 현황: 명령 실행 저널
+
+F-033([#71](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/71))에서 `src/main/commands/command-journal.ts`에 실행 저널의 저장 계층을 구현했다. 폴러·결과 전송과 앱 연결은 아직 없다(후속). 위 [명령 전달 규칙](#명령-계획과-실행-결과)의 "이미 실행한 명령을 다시 받으면 재실행하지 않고 저장된 결과만 재전송한다"를 이 계층이 지킨다.
+
+- 상태는 `started`(실행 직전에 디스크에 기록) → `finished`(결과 포함, 전송 대기) → `reported`(서버가 저장)다. `started`를 기록하지 못하면 명령을 실행하지 않는다. 이미 본 `(command_id, attempt_no)`는 `existing`으로 돌려주며 같은 명령의 동시 요청 중 하나만 시작된다.
+- 앱이 실행 도중 종료되어 다음 시작에서도 `started`로 남은 명령은 `unknown`(`failure_stage=observation`) 결과로 바꾸고 다시 실행하지 않는다.
+- 저장 내용은 사용자 ID·명령 ID·시도 번호·상태·고정 문구 결과뿐이다. 명령 인자(URL·폴더)와 서버·OS 오류 원문은 담지 않는다. 파일 `command-journal.json`은 `installation.json`과 같은 소유자 전용 원자적 교체 방식으로 `userData`에 저장하며 설치 식별자·계정 설정과 섞지 않는다.
+- 사용자마다 격리하고 다른 계정이 로그인하면 이전 사용자의 기록을 지울 수 있다(`purgeOthers`). 보관 기한은 7일, 사용자당 상한은 500개이며 상한을 넘으면 보고가 끝난 오래된 항목부터 지운다(보고 대기 결과는 지우지 않음).
+- 읽거나 해석할 수 없는 파일(알 수 없는 버전·필드 포함)은 덮어쓰지 않고 모든 호출이 `unavailable`이다. 무엇을 실행했는지 모르는 채 실행하면 한 명령을 두 번 실행할 수 있기 때문이다.
+
 ### 구현 현황: 대화·요청 어댑터
 
 F-030([#62](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/62))에서 글 입력 대화의 서버 어댑터(`src/main/conversation/server-assistant.ts`)를 구현했다. 서버 주소가 유효하고 `JARVIS_DEV_SPEECH=1`이 아니면 `AssistantPort`로 선택된다(개발용 대역이 우선, 서버가 없으면 연결 불가). 음성 입력은 아직 서버로 보내지 않고(음성 포트는 연결 불가 유지) 명령도 실행하지 않는다. 실제 서버와의 통합은 아직 확인하지 못했다.
