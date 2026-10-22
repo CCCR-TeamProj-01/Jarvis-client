@@ -46,6 +46,22 @@
 
 정수 PK(`device_id`·`command_id`·`message_id`·`recommendation_id` 등)는 JSON 숫자로 받는다. 경계에서 `Number.isSafeInteger`로 안전한 정수(2^53-1 이하)인지 검증하고 아니면 응답을 계약 위반으로 거부한다. 내부에서는 문자열 식별자로 변환해 쓴다. `user_id`·`session_id`·`deletion_id`는 UUID, `conversation_id`·`request_id`는 접두가 붙은 문자열이다.
 
+### 구현 현황: 공통 서버 클라이언트
+
+F-027([#58](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/58))에서 서버 호출의 공통 기반을 구현했다. 인증·대화·명령 엔드포인트 호출은 이 위에 올라가는 후속 구현이며, 아직 앱 시작과 연결하지 않았으므로 사용자에게 보이는 동작은 없다.
+
+| 위치 | 책임 |
+| --- | --- |
+| `src/main/connection/server-config.ts` | 서버 기준 주소. 패키징되지 않은 앱의 `JARVIS_SERVER_URL`만 읽는다. 없으면 `unconfigured`, 잘못되면 `invalid`로 연결 불가처럼 동작한다. `https`만 허용하고 `http`는 `127.0.0.1`·`localhost`·`::1`에만 허용한다. 인증 정보·쿼리·해시·앞뒤 공백은 거부한다. 패키징된 빌드는 환경변수로 주소를 바꿀 수 없고 운영 주소 주입 방식은 서버 주소가 정해질 때 정한다 |
+| `src/main/connection/server-client.ts` | `ServerClient.request`. 고정 형식의 경로·`Idempotency-Key`만 허용하고 기준 주소의 출처·경로를 벗어나는 요청(인코딩된 `..` 포함)을 보내기 전에 거절한다. 접근 토큰은 `Authorization: Bearer`로만 보내고 토큰이 없거나 형식이 맞지 않으면 보내지 않는다. 시간 초과(기본 10초)·취소·응답 크기 제한(기본 1MB)·리다이렉트 거부를 적용하고, 성공 본문은 JSON 형식과 호출자의 스키마로 검증한다. 자동 재시도는 하지 않는다 |
+| `src/main/connection/server-errors.ts` | 서버 오류 코드(없으면 HTTP 상태) → `ClientError` 변환과 코드별 고정 문구. 서버의 `message`는 쓰지 않는다 |
+| `src/main/connection/server-ids.ts`, `server-clock.ts` | 정수 ID의 안전 정수 검증과 문자열 변환. 응답 `Date` 헤더로 서버와 로컬의 시계 차이 추적 |
+| `src/main/connection/create-server-client.ts`, `create-default-server-client.ts` | 주소 확인 뒤 클라이언트를 만드는 조립. 실제 전송은 Electron `net.fetch`(시스템 프록시·인증서 저장소)를 주입한다 |
+
+- 결과는 `ServerResult`다. 실패에는 `ClientError`와 별도로 전송 정보(`delivery`, HTTP 상태, 서버 오류 코드, 요청 ID, `Retry-After` 지연)를 담는다. `delivery`는 요청이 서버에 닿았는지를 나타낸다. 연결 거부·이름 해석 실패·연결 시간 초과·인증서 오류는 `not_sent`(다시 시도해도 안전), 요청을 보낸 뒤의 시간 초과·연결 끊김과 알 수 없는 오류는 `no_response`(서버가 처리했을 수 있음), 응답을 받은 경우는 `responded`다. 갱신 토큰 응답 유실 처리([계정 인증 계약](#계정-인증-계약))가 이 구분을 쓴다.
+- 비밀번호·토큰·요청 본문·서버가 보낸 문구·스키마 오류의 세부 내용은 결과와 오류 문구에 넣지 않는다.
+- 아직 없는 것: multipart 음성 업로드와 오디오 응답 처리(음성 단계), 토큰 갱신과 단일 비행 처리(인증 어댑터), 앱 시작과의 연결.
+
 ## 계정 인증 계약
 
 제품 동작·입력 규칙과 설치 식별자의 수명은 [AUTH-01~07](../features/auth.md)을 따른다. 아래는 최종 ERD 3절·6-1절에 따라 Main의 인증 어댑터가 서버와 주고받을 연산의 의미다.

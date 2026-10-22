@@ -1,0 +1,460 @@
+import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
+import {
+  EmptyResponse,
+  ServerClient,
+  classifyNetworkError
+} from '../../src/main/connection/server-client'
+import type { FetchLike, ServerResult } from '../../src/main/connection/server-client'
+import { ServerIdSchema } from '../../src/main/connection/server-ids'
+
+const BASE = 'http://127.0.0.1:8000/api/v1'
+const TOKEN = 'tok_SECRET.value-123'
+
+const json = (body: unknown, init: ResponseInit = {}) =>
+  new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+    ...init
+  })
+
+function setup(
+  respond: (url: string, init: RequestInit) => Promise<Response> | Response,
+  options: {
+    token?: string | null
+    baseUrl?: string
+    maxResponseBytes?: number
+    now?: () => number
+  } = {}
+) {
+  const fetch = vi.fn<FetchLike>(async (url, init) => respond(url, init))
+  const client = new ServerClient({
+    baseUrl: options.baseUrl ?? BASE,
+    fetch,
+    accessToken: () => (options.token === undefined ? TOKEN : options.token),
+    ...(options.maxResponseBytes ? { maxResponseBytes: options.maxResponseBytes } : {}),
+    ...(options.now ? { now: options.now } : {})
+  })
+  return { client, fetch }
+}
+
+const Device = z.object({ device_id: ServerIdSchema, device_name: z.string() })
+
+describe('requests', () => {
+  it('sends a checked request with the token only as a bearer header and validates the answer', async () => {
+    const { client, fetch } = setup(() => json({ device_id: 12, device_name: '집 PC' }))
+    const result = await client.request({
+      method: 'POST',
+      path: '/conversations/conv_1/messages',
+      query: { limit: 5, skip: undefined, q: 'a b&c=d' },
+      body: { request_id: 'req_1', content: '안녕' },
+      idempotencyKey: 'idem-key-12345',
+      response: Device
+    })
+    expect(result).toEqual({
+      ok: true,
+      value: { device_id: '12', device_name: '집 PC' },
+      status: 200
+    })
+    const [url, init] = fetch.mock.calls[0]!
+    expect(url).toBe(`${BASE}/conversations/conv_1/messages?limit=5&q=a+b%26c%3Dd`)
+    expect(url).not.toContain(TOKEN)
+    expect(init.method).toBe('POST')
+    expect(init.redirect).toBe('manual')
+    expect(init.body).toBe(JSON.stringify({ request_id: 'req_1', content: '안녕' }))
+    expect(init.headers).toEqual({
+      Accept: 'application/json',
+      Authorization: `Bearer ${TOKEN}`,
+      'Idempotency-Key': 'idem-key-12345',
+      'Content-Type': 'application/json'
+    })
+  })
+
+  it('leaves the token off a request that does not need one', async () => {
+    const { client, fetch } = setup(() => json({ status: 'ok' }))
+    await client.request({
+      method: 'POST',
+      path: '/auth/login',
+      body: { username: 'a' },
+      auth: 'none',
+      response: z.object({ status: z.string() })
+    })
+    expect(fetch.mock.calls[0]![1].headers).not.toHaveProperty('Authorization')
+  })
+
+  it('does not send a protected request without a usable token', async () => {
+    for (const token of [null, 'bad token', 'a\r\nX-Evil: 1', '']) {
+      const { client, fetch } = setup(() => json({}), { token })
+      expect(
+        await client.request({ method: 'GET', path: '/auth/me', response: z.object({}) })
+      ).toMatchObject({
+        ok: false,
+        error: { code: 'authentication_required' },
+        detail: { delivery: 'not_sent' }
+      })
+      expect(fetch).not.toHaveBeenCalled()
+    }
+  })
+
+  it('refuses paths and headers it cannot vouch for before sending anything', async () => {
+    const { client, fetch } = setup(() => json({}))
+    const run = (path: string, extra: object = {}) =>
+      client.request({ method: 'GET', path, response: z.unknown(), ...extra })
+    for (const path of [
+      'auth/me',
+      '/a/../b',
+      '//evil.example/x',
+      '/a b',
+      '/x?y=1',
+      '/x#frag',
+      '/%2e%2e/admin',
+      '/api/%2E%2E/%2E%2E/other',
+      '/a\nb'
+    ])
+      expect(await run(path)).toMatchObject({ ok: false, error: { code: 'invalid_input' } })
+    for (const key of ['short', 'has space here', 'x\r\nInjected: 1', 'a'.repeat(129)])
+      expect(await run('/ok', { idempotencyKey: key })).toMatchObject({
+        ok: false,
+        error: { code: 'invalid_input' }
+      })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('works with an address that has no path prefix', async () => {
+    const { client, fetch } = setup(() => json({}), { baseUrl: 'https://api.example.com' })
+    expect(
+      await client.request({ method: 'GET', path: '/health', response: z.object({}) })
+    ).toMatchObject({
+      ok: true
+    })
+    expect(fetch.mock.calls[0]![0]).toBe('https://api.example.com/health')
+  })
+
+  it('accepts an empty success only when the caller expects one', async () => {
+    const { client } = setup(() => new Response(null, { status: 204 }))
+    expect(
+      await client.request({ method: 'POST', path: '/auth/logout', response: EmptyResponse })
+    ).toEqual({
+      ok: true,
+      value: undefined,
+      status: 204
+    })
+    expect(
+      await client.request({
+        method: 'GET',
+        path: '/auth/me',
+        response: z.object({ a: z.string() })
+      })
+    ).toMatchObject({ ok: false, error: { code: 'internal' } })
+  })
+})
+
+describe('what comes back', () => {
+  const failed = async (response: Response, options: Parameters<typeof setup>[1] = {}) => {
+    const { client } = setup(() => response, options)
+    return (await client.request({
+      method: 'GET',
+      path: '/x',
+      response: z.object({ ok: z.boolean() })
+    })) as Extract<ServerResult<unknown>, { ok: false }>
+  }
+
+  it('turns the error envelope into a client error and keeps the server code for logic', async () => {
+    const result = await failed(
+      json(
+        {
+          error: {
+            code: 'INVALID_SESSION',
+            message: 'token for user 77 expired',
+            request_id: 'req-01J'
+          }
+        },
+        { status: 401 }
+      )
+    )
+    expect(result.error.code).toBe('session_expired')
+    expect(result.detail).toEqual({
+      delivery: 'responded',
+      status: 401,
+      serverCode: 'INVALID_SESSION',
+      requestId: 'req-01J'
+    })
+    expect(JSON.stringify(result)).not.toContain('user 77')
+  })
+
+  it('classifies by status when the body is not an error envelope', async () => {
+    expect(
+      (await failed(new Response('<html>bad gateway</html>', { status: 502 }))).error.code
+    ).toBe('unavailable')
+    expect((await failed(json({ detail: 'x' }, { status: 409 }))).error.code).toBe('conflict')
+    expect((await failed(new Response('', { status: 503 }))).error.code).toBe('unavailable')
+  })
+
+  it('ignores a server code or request ID that does not look like one', async () => {
+    const result = await failed(
+      json({ error: { code: 'lower case; DROP', request_id: 'r'.repeat(500) } }, { status: 500 })
+    )
+    expect(result.detail.serverCode).toBeUndefined()
+    expect(result.detail.requestId).toBeUndefined()
+  })
+
+  it('passes Retry-After on as a delay and never retries by itself', async () => {
+    const { client, fetch } = setup(() =>
+      json({ error: { code: 'RATE_LIMITED' } }, { status: 429, headers: { 'retry-after': '3' } })
+    )
+    const result = await client.request({ method: 'GET', path: '/x', response: z.unknown() })
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'rate_limited' },
+      detail: { retryAfterMs: 3000 }
+    })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(
+      (await failed(json({}, { status: 429, headers: { 'retry-after': 'soon' } }))).detail
+        .retryAfterMs
+    ).toBeUndefined()
+    expect(
+      (await failed(json({}, { status: 429, headers: { 'retry-after': '99999999' } }))).detail
+        .retryAfterMs
+    ).toBeUndefined()
+    expect(
+      (await failed(json({}, { status: 429, headers: { 'retry-after': '999999' } }))).detail
+        .retryAfterMs
+    ).toBe(3_600_000)
+  })
+
+  it('does not follow a redirect', async () => {
+    const result = await failed(
+      new Response(null, { status: 302, headers: { location: 'https://evil.example/' } })
+    )
+    expect(result.error.code).toBe('unavailable')
+    expect(result.detail).toMatchObject({ delivery: 'responded', status: 302 })
+  })
+
+  it('does not accept a success that is not the agreed JSON', async () => {
+    expect(
+      (
+        await failed(
+          new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'text/html' } })
+        )
+      ).error.code
+    ).toBe('internal')
+    expect((await failed(json('{broken'))).error.code).toBe('internal')
+    const mismatch = await failed(json({ ok: 'yes', 'server-supplied-text': 1 }))
+    expect(mismatch.error.code).toBe('internal')
+    expect(JSON.stringify(mismatch)).not.toContain('server-supplied-text')
+    // A strict schema names the unexpected key in its issues; that must not reach the result.
+    const { client } = setup(() => json({ ok: true, 'server-supplied-text': 1 }))
+    const strict = await client.request({
+      method: 'GET',
+      path: '/x',
+      response: z.strictObject({ ok: z.boolean() })
+    })
+    expect(strict).toMatchObject({ ok: false, error: { code: 'internal' } })
+    expect(JSON.stringify(strict)).not.toContain('server-supplied-text')
+  })
+
+  it('refuses an unsafe integer ID in an answer', async () => {
+    const { client } = setup(
+      () =>
+        new Response('{"device_id": 9007199254740993, "device_name": "x"}', {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+    )
+    expect(await client.request({ method: 'GET', path: '/x', response: Device })).toMatchObject({
+      ok: false,
+      error: { code: 'internal' }
+    })
+  })
+
+  it('refuses an answer that is too large, declared or streamed', async () => {
+    const declared = await failed(
+      new Response('x', {
+        status: 200,
+        headers: { 'content-type': 'application/json', 'content-length': '2000' }
+      }),
+      { maxResponseBytes: 1000 }
+    )
+    expect(declared.error.code).toBe('internal')
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"ok":"'))
+        controller.enqueue(new TextEncoder().encode('a'.repeat(2000)))
+        controller.close()
+      }
+    })
+    const streamed = await failed(
+      new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } }),
+      {
+        maxResponseBytes: 1000
+      }
+    )
+    expect(streamed.error.code).toBe('internal')
+  })
+
+  it('reports a body that breaks off after the headers as unavailable but responded', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error('socket hang up'))
+      }
+    })
+    const result = await failed(
+      new Response(stream, { status: 201, headers: { 'content-type': 'application/json' } })
+    )
+    expect(result.error.code).toBe('unavailable')
+    expect(result.detail).toMatchObject({ delivery: 'responded', status: 201 })
+  })
+
+  it('learns the server clock from the Date header', async () => {
+    const { client } = setup(
+      () => json({ ok: true }, { headers: { date: 'Thu, 22 Oct 2026 00:00:10 GMT' } }),
+      {
+        now: () => Date.parse('2026-10-22T00:00:00Z')
+      }
+    )
+    await client.request({ method: 'GET', path: '/x', response: z.unknown() })
+    expect(client.clock.offsetMs).toBe(10_000)
+  })
+})
+
+describe('when the request does not get an answer', () => {
+  const networkFailure = (error: unknown) => async () => {
+    throw error
+  }
+  const refused = Object.assign(new TypeError('fetch failed'), {
+    cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:8000'), { code: 'ECONNREFUSED' })
+  })
+
+  it('tells a failure before connecting from one that may have been processed', () => {
+    expect(classifyNetworkError(refused)).toBe('not_sent')
+    expect(classifyNetworkError(new Error('net::ERR_NAME_NOT_RESOLVED'))).toBe('not_sent')
+    expect(classifyNetworkError(new Error('net::ERR_INTERNET_DISCONNECTED'))).toBe('not_sent')
+    expect(classifyNetworkError(new Error('net::ERR_CERT_AUTHORITY_INVALID'))).toBe('not_sent')
+    expect(
+      classifyNetworkError(Object.assign(new Error('x'), { code: 'UND_ERR_CONNECT_TIMEOUT' }))
+    ).toBe('not_sent')
+    expect(classifyNetworkError(Object.assign(new Error('x'), { code: 'ENOTFOUND' }))).toBe(
+      'not_sent'
+    )
+    expect(classifyNetworkError(new Error('net::ERR_CONNECTION_RESET'))).toBe('no_response')
+    expect(
+      classifyNetworkError(
+        new TypeError('fetch failed', {
+          cause: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })
+        })
+      )
+    ).toBe('no_response')
+    expect(classifyNetworkError('something odd')).toBe('no_response')
+    expect(classifyNetworkError(undefined)).toBe('no_response')
+  })
+
+  it('reports each case as unavailable with the right delivery', async () => {
+    for (const [error, delivery] of [
+      [refused, 'not_sent'],
+      [new Error('net::ERR_CONNECTION_CLOSED'), 'no_response']
+    ] as const) {
+      const { client } = setup(networkFailure(error))
+      expect(
+        await client.request({ method: 'POST', path: '/auth/refresh', response: z.unknown() })
+      ).toMatchObject({
+        ok: false,
+        error: { code: 'unavailable' },
+        detail: { delivery }
+      })
+    }
+  })
+
+  it('gives up after the time limit and counts it as possibly sent', async () => {
+    const { client } = setup(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError'))
+          )
+        })
+    )
+    expect(
+      await client.request({ method: 'GET', path: '/slow', response: z.unknown(), timeoutMs: 30 })
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'unavailable' },
+      detail: { delivery: 'no_response' }
+    })
+  })
+
+  it('distinguishes the caller cancelling from a timeout', async () => {
+    const controller = new AbortController()
+    const { client } = setup(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError'))
+          )
+          setTimeout(() => controller.abort(), 5)
+        })
+    )
+    expect(
+      await client.request({
+        method: 'GET',
+        path: '/slow',
+        response: z.unknown(),
+        signal: controller.signal
+      })
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'cancelled' },
+      detail: { delivery: 'no_response' }
+    })
+  })
+
+  it('does not send anything for a request that is already cancelled', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const { client, fetch } = setup(() => json({}))
+    expect(
+      await client.request({
+        method: 'GET',
+        path: '/x',
+        response: z.unknown(),
+        signal: controller.signal
+      })
+    ).toMatchObject({ ok: false, error: { code: 'cancelled' }, detail: { delivery: 'not_sent' } })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('secrets', () => {
+  it('never puts the token or the request body into a result', async () => {
+    const results: unknown[] = []
+    const failures: (() => Promise<Response> | Response)[] = [
+      () =>
+        json(
+          { error: { code: 'INVALID_CREDENTIALS', message: 'bad password hunter2-pass' } },
+          { status: 401 }
+        ),
+      () => new Response('hunter2-pass', { status: 500 }),
+      () => json({ ok: 'no' }),
+      () => {
+        throw Object.assign(new TypeError('fetch failed'), {
+          cause: new Error(`failed with ${TOKEN} hunter2-pass`)
+        })
+      }
+    ]
+    for (const respond of failures) {
+      const { client } = setup(respond)
+      results.push(
+        await client.request({
+          method: 'POST',
+          path: '/auth/login',
+          body: { username: 'jarvis', password: 'hunter2-pass' },
+          response: z.object({ ok: z.boolean() })
+        })
+      )
+    }
+    const text = JSON.stringify(results)
+    expect(text).not.toContain('hunter2-pass')
+    expect(text).not.toContain(TOKEN)
+    expect(text).not.toContain('127.0.0.1')
+  })
+})
