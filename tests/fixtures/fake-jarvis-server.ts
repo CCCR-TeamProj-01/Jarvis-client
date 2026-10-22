@@ -1,6 +1,7 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import type { FakeCalendarStore } from './fake-calendar-store'
 
 export const ACCESS_LIFETIME_S = 3600
 export const REFRESH_LIFETIME_S = 2_592_000
@@ -34,6 +35,8 @@ export class FakeJarvisServer {
   rateLimitChecks = false
   calendarSettings: unknown = { timezone: 'Asia/Seoul' }
   calendarAnswer: unknown = { items: [], todos: [] }
+  /** When set, the calendar is kept here and follows the real server's rules, and `calendarAnswer` is not used. */
+  calendarStore: FakeCalendarStore | null = null
   calendarFaults: number[] = []
   /** Hold an event response to test sign-out or a newer read overtaking it. */
   calendarGate: Promise<void> | null = null
@@ -225,6 +228,39 @@ export class FakeJarvisServer {
     if (path === '/me/settings' && request.method === 'GET') {
       if (!valid) return error(401, 'INVALID_SESSION')
       return send(200, this.calendarSettings)
+    }
+    const store = this.calendarStore
+    const eventRoute = /^\/calendar\/events(?:\/(\d+))?(?:\?.*)?$/.exec(path)
+    if (store && eventRoute) {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      const id = eventRoute[1] === undefined ? null : Number(eventRoute[1])
+      const method = request.method
+      if (method === 'GET' && id === null) {
+        const query = new URL(`http://x${path}`).searchParams
+        const answered = store.list(
+          query.get('from') ?? '',
+          query.get('to') ?? '',
+          query.get('include_todos') === 'true'
+        )
+        return send(answered.status, answered.payload)
+      }
+      if (
+        (method === 'POST' && id === null) ||
+        (method === 'PATCH' && id !== null) ||
+        (method === 'DELETE' && id !== null)
+      ) {
+        const fault = store.faults.shift() ?? 'ok'
+        if (typeof fault === 'number') return error(fault, 'FAULT')
+        const answered =
+          method === 'POST'
+            ? store.create(body)
+            : method === 'PATCH'
+              ? store.update(id!, body)
+              : store.remove(id!)
+        if (fault === 'lost') return void request.socket.destroy()
+        return send(answered.status, answered.payload)
+      }
+      return error(405, 'METHOD_NOT_ALLOWED')
     }
     if (path.startsWith('/calendar/events?') && request.method === 'GET') {
       if (!valid) return error(401, 'INVALID_SESSION')

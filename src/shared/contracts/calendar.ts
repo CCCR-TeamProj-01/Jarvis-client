@@ -42,6 +42,21 @@ const PartSchema = z.strictObject({
   total: z.number().int().min(2)
 })
 
+/**
+ * The whole of an event in the user's time zone, not just the part on one day. An all-day event
+ * ends on its last day (the server's exclusive end date is one day later); a timed event ends at
+ * its real end, which can be midnight of the next day.
+ */
+const ExtentShape = {
+  startDate: DateKeySchema,
+  /** `null` for an all-day event. */
+  startTime: TimeOfDaySchema.nullable(),
+  endDate: DateKeySchema,
+  endTime: TimeOfDaySchema.nullable()
+}
+export const CalendarEventExtentSchema = z.strictObject(ExtentShape)
+export type CalendarEventExtent = z.infer<typeof CalendarEventExtentSchema>
+
 export const CalendarEventItemSchema = z.strictObject({
   kind: z.literal('event'),
   id: IdentifierSchema,
@@ -53,7 +68,9 @@ export const CalendarEventItemSchema = z.strictObject({
   startTime: TimeOfDaySchema.nullable(),
   /** `null`: no end time on this day, because it goes on to a later day (or all day). */
   endTime: TimeOfDaySchema.nullable(),
-  part: PartSchema.nullable()
+  part: PartSchema.nullable(),
+  /** What opening this event for editing starts from. */
+  extent: CalendarEventExtentSchema
 })
 export type CalendarEventItem = z.infer<typeof CalendarEventItemSchema>
 
@@ -119,3 +136,51 @@ export const CalendarEventSchema = z.strictObject({
   snapshot: CalendarSnapshotSchema
 })
 export type CalendarEvent = z.infer<typeof CalendarEventSchema>
+
+/**
+ * An event as the user typed it: dates and times of day on their own calendar and clock, exactly as
+ * a form holds them. Main turns them into what the server takes, in the user's time zone. For an
+ * all-day event `endDate` is its last day and both times are `null`.
+ */
+export const CalendarEventDraftSchema = z.strictObject({
+  title: z.string(),
+  allDay: z.boolean(),
+  ...ExtentShape
+})
+export type CalendarEventDraft = z.infer<typeof CalendarEventDraftSchema>
+
+/** The most characters the server takes in a title (after it trims the ends). */
+export const CALENDAR_TITLE_MAX_CHARS = 255
+
+const EventIdSchema = IdentifierSchema
+
+export const CalendarCreateEventRequestSchema = z.strictObject({ draft: CalendarEventDraftSchema })
+export type CalendarCreateEventRequest = z.infer<typeof CalendarCreateEventRequestSchema>
+export const CalendarUpdateEventRequestSchema = z.strictObject({
+  eventId: EventIdSchema,
+  draft: CalendarEventDraftSchema
+})
+export type CalendarUpdateEventRequest = z.infer<typeof CalendarUpdateEventRequestSchema>
+export const CalendarDeleteEventRequestSchema = z.strictObject({ eventId: EventIdSchema })
+export type CalendarDeleteEventRequest = z.infer<typeof CalendarDeleteEventRequestSchema>
+
+/**
+ * What became of a change. `saved`: the server took it and `snapshot` has the calendar read again.
+ * `not_saved`: it did not (the reason is in `error`). `unknown`: the request may or may not have
+ * been processed; the window must not send it again on its own, because the server does not
+ * recognise a repeat of an add.
+ */
+export const CalendarEditOutcomeSchema = z.discriminatedUnion('outcome', [
+  z.strictObject({ outcome: z.literal('saved'), snapshot: CalendarSnapshotSchema }),
+  z.strictObject({
+    outcome: z.literal('not_saved'),
+    error: ClientErrorSchema,
+    snapshot: CalendarSnapshotSchema
+  }),
+  z.strictObject({
+    outcome: z.literal('unknown'),
+    error: ClientErrorSchema,
+    snapshot: CalendarSnapshotSchema
+  })
+])
+export type CalendarEditOutcome = z.infer<typeof CalendarEditOutcomeSchema>

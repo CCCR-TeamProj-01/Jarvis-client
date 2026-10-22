@@ -1,3 +1,4 @@
+import { CALENDAR_TITLE_MAX_CHARS } from '../../shared/contracts/calendar'
 import type {
   CalendarDay,
   CalendarEventItem,
@@ -18,7 +19,8 @@ import {
   weekdayOf
 } from './zoned-time'
 
-const MAX_TITLE_CHARS = 200
+/** The most the server takes in a title, so an event made here is never cut when it is opened to be edited. */
+const MAX_TITLE_CHARS = CALENDAR_TITLE_MAX_CHARS
 
 /** The day, Monday-to-Sunday week, or calendar month containing `anchor`. */
 export function viewOf(span: CalendarSpan, anchor: string): CalendarView {
@@ -93,7 +95,14 @@ function eventsOnDay(date: string, events: readonly ServerEvent[], timeZone: str
         allDay: true,
         startTime: null,
         endTime: null,
-        part: total > 1 ? { index: daysBetween(event.startDate, date) + 1, total } : null
+        part: total > 1 ? { index: daysBetween(event.startDate, date) + 1, total } : null,
+        // Opened for editing, the event ends on its last day, not on the server's exclusive end.
+        extent: {
+          startDate: event.startDate,
+          startTime: null,
+          endDate: addDays(end, -1),
+          endTime: null
+        }
       })
       continue
     }
@@ -116,7 +125,17 @@ function eventsOnDay(date: string, events: readonly ServerEvent[], timeZone: str
       part:
         firstDate === lastDate
           ? null
-          : { index: daysBetween(firstDate, date) + 1, total: daysBetween(firstDate, lastDate) + 1 }
+          : {
+              index: daysBetween(firstDate, date) + 1,
+              total: daysBetween(firstDate, lastDate) + 1
+            },
+      extent: {
+        startDate: firstDate,
+        startTime: localTime(event.startMs, timeZone),
+        // The real end: an event that ends at midnight ends on the next day, at 00:00.
+        endDate: localDateKey(event.endMs, timeZone),
+        endTime: end
+      }
     })
   }
   return items.sort(

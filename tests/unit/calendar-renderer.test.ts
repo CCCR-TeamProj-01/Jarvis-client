@@ -13,7 +13,8 @@ import {
   selectedCalendarDay,
   viewTitle
 } from '../../src/renderer/ui/features/calendar/view-model'
-import type { CalendarSnapshot } from '../../src/shared/contracts/calendar'
+import type { CalendarEditOutcome, CalendarSnapshot } from '../../src/shared/contracts/calendar'
+import type { Result } from '../../src/shared/contracts/common'
 
 const NOW = Date.parse('2026-10-22T03:00:00Z')
 function snapshot(overrides: Partial<CalendarSnapshot> = {}): CalendarSnapshot {
@@ -30,12 +31,19 @@ function snapshot(overrides: Partial<CalendarSnapshot> = {}): CalendarSnapshot {
     ...overrides
   }
 }
+const refuse = async (): Promise<Result<CalendarEditOutcome>> => ({
+  ok: false,
+  error: { code: 'internal', message: 'x' }
+})
 const render = (state: CalendarSnapshot | null) =>
   renderToStaticMarkup(
     createElement(CalendarView, {
       snapshot: state,
       connectionError: null,
-      onNavigate: () => undefined
+      onNavigate: () => undefined,
+      onCreate: refuse,
+      onUpdate: refuse,
+      onDelete: refuse
     })
   )
 
@@ -51,7 +59,8 @@ describe('the calendar screen', () => {
       allDay: true,
       startTime: null,
       endTime: null,
-      part: null
+      part: null,
+      extent: { startDate: '2026-10-22', startTime: null, endDate: '2026-10-22', endTime: null }
     }))
     const html = render(snapshot({ view, days }))
     expect(html.match(/class="calendar-preview calendar-preview-jarvis"/g)).toHaveLength(2)
@@ -170,7 +179,8 @@ describe('the calendar screen', () => {
       allDay: true,
       startTime: null,
       endTime: null,
-      part: { index: 1, total: 2 }
+      part: { index: 1, total: 2 },
+      extent: { startDate: '2026-10-22', startTime: null, endDate: '2026-10-23', endTime: null }
     })
     state.days[0]!.todos.push({
       kind: 'todo',

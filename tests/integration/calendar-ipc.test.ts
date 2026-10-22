@@ -3,10 +3,20 @@ import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron'
 import { CalendarService } from '../../src/main/calendar/calendar-service'
 import { registerCalendarIpc } from '../../src/main/ipc/calendar-ipc'
 import { createUiBridge } from '../../src/preload/ui-bridge'
-import type { CalendarEvent } from '../../src/shared/contracts/calendar'
+import type { CalendarEvent, CalendarEventDraft } from '../../src/shared/contracts/calendar'
 import { CALENDAR_CHANNELS } from '../../src/shared/ipc/channels'
 
+const draft: CalendarEventDraft = {
+  title: '팀 회의',
+  allDay: false,
+  startDate: '2026-10-22',
+  startTime: '14:00',
+  endDate: '2026-10-22',
+  endTime: '15:00'
+}
+
 function setup() {
+  const changes: unknown[][] = []
   const entryUrl = 'file:///jarvis/ui/index.html'
   type Listener = (event: unknown, value: unknown) => void
   const listeners = new Map<string, Set<Listener>>()
@@ -31,7 +41,19 @@ function setup() {
   const service = new CalendarService({
     api: {
       timeZone: async () => ({ ok: true, value: 'Asia/Seoul' }),
-      events: async () => ({ ok: true, value: { events: [], todos: [] } })
+      events: async () => ({ ok: true, value: { events: [], todos: [] } }),
+      createEvent: async (prepared) => {
+        changes.push(['create', prepared])
+        return { kind: 'done' }
+      },
+      updateEvent: async (id, prepared) => {
+        changes.push(['update', id, prepared])
+        return { kind: 'done' }
+      },
+      deleteEvent: async (id) => {
+        changes.push(['delete', id])
+        return { kind: 'done' }
+      }
     },
     now: () => Date.parse('2026-10-22T03:00:00Z')
   })
@@ -58,7 +80,19 @@ function setup() {
     },
     'darwin'
   ).calendar
-  return { api, service, handlers, ipc, contents, event, entryUrl, dispose, invoke, listeners }
+  return {
+    api,
+    service,
+    handlers,
+    ipc,
+    contents,
+    event,
+    entryUrl,
+    dispose,
+    invoke,
+    listeners,
+    changes
+  }
 }
 
 describe('calendar IPC and preload boundary', () => {
@@ -77,7 +111,14 @@ describe('calendar IPC and preload boundary', () => {
         snapshot: t.service.getSnapshot()
       }
     ])
-    expect(Object.keys(t.api).sort()).toEqual(['getSnapshot', 'navigate', 'subscribe'])
+    expect(Object.keys(t.api).sort()).toEqual([
+      'createEvent',
+      'deleteEvent',
+      'getSnapshot',
+      'navigate',
+      'subscribe',
+      'updateEvent'
+    ])
     t.dispose()
   })
 
@@ -114,9 +155,24 @@ describe('calendar IPC and preload boundary', () => {
 
   it('refuses foreign windows, subframes, missing frames and other documents on both channels', async () => {
     const t = setup()
-    for (const channel of [CALENDAR_CHANNELS.snapshot, CALENDAR_CHANNELS.navigate]) {
+    for (const channel of [
+      CALENDAR_CHANNELS.snapshot,
+      CALENDAR_CHANNELS.navigate,
+      CALENDAR_CHANNELS.create,
+      CALENDAR_CHANNELS.update,
+      CALENDAR_CHANNELS.delete
+    ]) {
       const handle = t.handlers.get(channel)!
-      const args = channel === CALENDAR_CHANNELS.navigate ? [{ navigation: 'today' }] : []
+      const args =
+        channel === CALENDAR_CHANNELS.navigate
+          ? [{ navigation: 'today' }]
+          : channel === CALENDAR_CHANNELS.create
+            ? [{ draft }]
+            : channel === CALENDAR_CHANNELS.update
+              ? [{ eventId: '1', draft }]
+              : channel === CALENDAR_CHANNELS.delete
+                ? [{ eventId: '1' }]
+                : []
       for (const event of [
         { ...t.event, sender: {} },
         { ...t.event, senderFrame: { url: t.entryUrl } },
@@ -174,7 +230,109 @@ describe('calendar IPC and preload boundary', () => {
     expect(listener).not.toHaveBeenCalled()
     t.dispose()
     t.dispose()
-    expect(t.ipc.removeHandler).toHaveBeenCalledTimes(2)
+    expect(t.ipc.removeHandler).toHaveBeenCalledTimes(Object.keys(CALENDAR_CHANNELS).length - 1)
     expect(t.handlers.size).toBe(0)
+  })
+
+  it('adds, changes and deletes through the bridge, and gets the calendar back each time', async () => {
+    const t = setup()
+    t.service.start('u1')
+    const created = await t.api.createEvent({ draft })
+    expect(created).toMatchObject({
+      ok: true,
+      value: { outcome: 'saved', snapshot: { status: 'ready' } }
+    })
+    expect(
+      await t.api.updateEvent({ eventId: '551', draft: { ...draft, title: '바뀐 회의' } })
+    ).toMatchObject({
+      ok: true,
+      value: { outcome: 'saved' }
+    })
+    expect(await t.api.deleteEvent({ eventId: '551' })).toMatchObject({
+      ok: true,
+      value: { outcome: 'saved' }
+    })
+    expect(t.changes.map((change) => change[0])).toEqual(['create', 'update', 'delete'])
+    expect(t.changes[0]![1]).toMatchObject({
+      title: '팀 회의',
+      startMs: Date.parse('2026-10-22T05:00:00Z')
+    })
+    t.dispose()
+  })
+
+  it('rejects a malformed change in preload and again in Main, and changes nothing', async () => {
+    const t = setup()
+    const bad: [string, unknown, unknown][] = [
+      ['createEvent', CALENDAR_CHANNELS.create, null],
+      ['createEvent', CALENDAR_CHANNELS.create, {}],
+      ['createEvent', CALENDAR_CHANNELS.create, { draft: { ...draft, extra: 1 } }],
+      ['createEvent', CALENDAR_CHANNELS.create, { draft: { ...draft, startDate: 20261022 } }],
+      ['createEvent', CALENDAR_CHANNELS.create, { draft, source: 'google' }],
+      ['updateEvent', CALENDAR_CHANNELS.update, { draft }],
+      ['updateEvent', CALENDAR_CHANNELS.update, { eventId: '', draft }],
+      ['updateEvent', CALENDAR_CHANNELS.update, { eventId: ' 1', draft }],
+      ['deleteEvent', CALENDAR_CHANNELS.delete, {}],
+      ['deleteEvent', CALENDAR_CHANNELS.delete, { eventId: 1 }],
+      ['deleteEvent', CALENDAR_CHANNELS.delete, { eventId: '1', extra: true }]
+    ]
+    t.service.start('u1')
+    for (const [method, channel, request] of bad) {
+      const call = (t.api as unknown as Record<string, (r: unknown) => Promise<unknown>>)[method]!
+      expect(await call(request)).toMatchObject({ ok: false, error: { code: 'invalid_input' } })
+      expect(await t.handlers.get(channel as string)!(t.event, request)).toMatchObject({
+        ok: false,
+        error: { code: 'invalid_input' }
+      })
+    }
+    expect(t.invoke).not.toHaveBeenCalled()
+    for (const channel of [
+      CALENDAR_CHANNELS.create,
+      CALENDAR_CHANNELS.update,
+      CALENDAR_CHANNELS.delete
+    ])
+      expect(await t.handlers.get(channel)!(t.event)).toMatchObject({ ok: false })
+    expect(t.changes).toEqual([])
+    t.dispose()
+  })
+
+  it('turns an exception or an invalid answer from a change into a fixed error', async () => {
+    const t = setup()
+    vi.spyOn(t.service, 'createEvent').mockRejectedValueOnce(new Error('secret'))
+    const failed = await t.api.createEvent({ draft })
+    expect(failed).toMatchObject({ ok: false, error: { code: 'internal' } })
+    expect(JSON.stringify(failed)).not.toContain('secret')
+    vi.spyOn(t.service, 'deleteEvent').mockResolvedValueOnce({
+      ok: true,
+      value: { outcome: 'saved', snapshot: { secret: 'secret' } }
+    } as never)
+    expect(await t.api.deleteEvent({ eventId: '1' })).toMatchObject({ ok: false })
+    t.invoke.mockResolvedValueOnce({ ok: true, value: { outcome: 'maybe' } })
+    expect(await t.api.updateEvent({ eventId: '1', draft })).toMatchObject({ ok: false })
+    t.dispose()
+  })
+
+  it('passes "not saved" and "unknown" through with their reasons', async () => {
+    const t = setup()
+    t.service.start('u1')
+    expect(await t.api.createEvent({ draft: { ...draft, title: ' ' } })).toMatchObject({
+      ok: true,
+      value: {
+        outcome: 'not_saved',
+        error: { code: 'invalid_input', message: '제목을 입력해 주세요.' }
+      }
+    })
+    vi.spyOn(t.service, 'createEvent').mockResolvedValueOnce({
+      ok: true,
+      value: {
+        outcome: 'unknown',
+        error: { code: 'unavailable', message: '서버에 연결할 수 없습니다.' },
+        snapshot: t.service.getSnapshot()
+      }
+    })
+    expect(await t.api.createEvent({ draft })).toMatchObject({
+      ok: true,
+      value: { outcome: 'unknown' }
+    })
+    t.dispose()
   })
 })

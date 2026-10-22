@@ -18,7 +18,7 @@ F-024([#49](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/49))에서 
 | [앱과 OS 제어](features/app-control.md) | APP |
 | [제스처 제어](features/gesture.md) | GEST |
 | [실행 이력과 추천](features/activity-recommendation.md) | HIST·REC, 명령 결과와 활동 분리·수집 동의·추천 승인 |
-| [캘린더](features/calendar.md) | CAL-01~06, 자체/Google 일정 저장·조회·동기화·연결 해제와 마감 할 일 표시 |
+| [캘린더](features/calendar.md) | CAL-01~09, 자체/Google 일정 저장·조회·동기화·연결 해제, 마감 할 일 표시와 자체 일정 추가·수정·삭제 |
 | [클라이언트 아키텍처](architecture/client.md) | 실행 공간, 모듈, 기술 스택, 독립 상태 |
 | [클라이언트 공통 인터페이스](architecture/client-interfaces.md) | 내부 데이터·IPC·모듈 포트·좌표·취소·자원 정리 규약 |
 | [서버 연동과 실행 계약](architecture/server-integration.md) | REST 전송·기기·대화·명령/시도 ID, 결과 보고·시각·오디오, 취소·만료·중복 실행 |

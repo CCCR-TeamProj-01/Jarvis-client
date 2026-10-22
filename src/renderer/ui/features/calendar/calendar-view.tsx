@@ -7,13 +7,22 @@ import {
   Info,
   ListTodo,
   Lock,
-  RefreshCw
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2
 } from 'lucide-react'
 import type {
   CalendarDay,
+  CalendarEditOutcome,
+  CalendarEventDraft,
+  CalendarEventItem,
   CalendarNavigation,
   CalendarSnapshot
 } from '../../../../shared/contracts/calendar'
+import type { Result } from '../../../../shared/contracts/common'
+import { DeleteDialog, EventDialog } from './event-dialogs'
+import { editReport, formFromEvent, newEventForm } from './event-form'
 import {
   calendarBody,
   calendarKeyTarget,
@@ -34,7 +43,16 @@ interface CalendarViewProps {
   /** The window could not reach Main at all. */
   connectionError: string | null
   onNavigate(navigation: CalendarNavigation): void
+  onCreate(draft: CalendarEventDraft): Promise<Result<CalendarEditOutcome>>
+  onUpdate(eventId: string, draft: CalendarEventDraft): Promise<Result<CalendarEditOutcome>>
+  onDelete(eventId: string): Promise<Result<CalendarEditOutcome>>
 }
+
+/** What is open over the calendar, if anything. */
+type Dialog =
+  | { kind: 'create'; date: string }
+  | { kind: 'edit'; event: CalendarEventItem }
+  | { kind: 'delete'; event: CalendarEventItem }
 
 const SHORTCUTS: { navigation: CalendarNavigation; label: string }[] = [
   { navigation: 'this_month', label: '월간' },
@@ -44,8 +62,16 @@ const SHORTCUTS: { navigation: CalendarNavigation; label: string }[] = [
 ]
 
 /** The calendar tab: events and to-dos with a deadline, day by day, for reading. */
-export function CalendarView({ snapshot, connectionError, onNavigate }: CalendarViewProps) {
+export function CalendarView({
+  snapshot,
+  connectionError,
+  onNavigate,
+  onCreate,
+  onUpdate,
+  onDelete
+}: CalendarViewProps) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [dialog, setDialog] = useState<Dialog | null>(null)
   const selectedDay = selectedCalendarDay(snapshot?.days ?? [], selectedDate)
   const loading = snapshot === null || snapshot.status === 'loading'
   const body = snapshot ? calendarBody(snapshot) : 'loading'
@@ -167,6 +193,7 @@ export function CalendarView({ snapshot, connectionError, onNavigate }: Calendar
                 selectedDay={selectedDay}
                 title={title}
                 onSelect={setSelectedDate}
+                onAdd={(date) => setDialog({ kind: 'create', date })}
               />
               <div className="calendar-legend" aria-label="일정 구분">
                 <span>
@@ -185,9 +212,50 @@ export function CalendarView({ snapshot, connectionError, onNavigate }: Calendar
             </div>
           )}
           <div className="calendar-detail" aria-live="polite" aria-atomic="true">
-            <DaySection day={selectedDay} />
+            <DaySection
+              day={selectedDay}
+              // A day view has no grid to hold the add button, so the day's own heading does.
+              onAdd={
+                snapshot.view?.span === 'day'
+                  ? () => setDialog({ kind: 'create', date: selectedDay.date })
+                  : undefined
+              }
+              onEdit={(event) => setDialog({ kind: 'edit', event })}
+              onDelete={(event) => setDialog({ kind: 'delete', event })}
+            />
           </div>
         </div>
+      )}
+      {dialog?.kind === 'create' && (
+        <EventDialog
+          mode="create"
+          initial={newEventForm(dialog.date)}
+          onSubmit={async (draft) => editReport(await onCreate(draft))}
+          onClose={() => setDialog(null)}
+          onCheck={() => {
+            setDialog(null)
+            onNavigate('refresh')
+          }}
+        />
+      )}
+      {dialog?.kind === 'edit' && (
+        <EventDialog
+          mode="edit"
+          initial={formFromEvent(dialog.event)}
+          onSubmit={async (draft) => editReport(await onUpdate(dialog.event.id, draft))}
+          onClose={() => setDialog(null)}
+          onCheck={() => {
+            setDialog(null)
+            onNavigate('refresh')
+          }}
+        />
+      )}
+      {dialog?.kind === 'delete' && (
+        <DeleteDialog
+          title={dialog.event.title}
+          onConfirm={async () => editReport(await onDelete(dialog.event.id))}
+          onClose={() => setDialog(null)}
+        />
       )}
     </section>
   )
@@ -200,13 +268,15 @@ function CalendarGrid({
   weekStartsOn,
   selectedDay,
   title,
-  onSelect
+  onSelect,
+  onAdd
 }: {
   days: CalendarDay[]
   weekStartsOn: 0 | 1
   selectedDay: CalendarDay
   title: string
   onSelect(date: string): void
+  onAdd(date: string): void
 }) {
   const weeks = calendarWeeks(days, weekStartsOn)
   const weekdays = [...WEEKDAYS.slice(weekStartsOn), ...WEEKDAYS.slice(0, weekStartsOn)]
@@ -281,6 +351,18 @@ function CalendarGrid({
                       )}
                     </span>
                   </button>
+                  {selected && (
+                    // Beside the cell, not inside it: a button cannot hold a button.
+                    <button
+                      type="button"
+                      className="calendar-add"
+                      aria-label={`${dayHeading(day)}에 일정 추가`}
+                      title="일정 추가"
+                      onClick={() => onAdd(day.date)}
+                    >
+                      <Plus aria-hidden="true" />
+                    </button>
+                  )}
                 </td>
               )
             })}
@@ -291,17 +373,39 @@ function CalendarGrid({
   )
 }
 
-function DaySection({ day }: { day: CalendarDay }) {
+function DaySection({
+  day,
+  onAdd,
+  onEdit,
+  onDelete
+}: {
+  day: CalendarDay
+  onAdd?: () => void
+  onEdit(event: CalendarEventItem): void
+  onDelete(event: CalendarEventItem): void
+}) {
   const empty = day.events.length === 0 && day.todos.length === 0
   return (
     <section
       className={`panel calendar-day${day.isToday ? ' calendar-today' : ''}`}
       aria-labelledby={`day-${day.date}`}
     >
-      <h3 id={`day-${day.date}`}>
-        {dayHeading(day)}
-        {day.isToday && <span className="calendar-badge calendar-badge-today">오늘</span>}
-      </h3>
+      <div className="calendar-day-head">
+        <h3 id={`day-${day.date}`}>
+          {dayHeading(day)}
+          {day.isToday && <span className="calendar-badge calendar-badge-today">오늘</span>}
+        </h3>
+        {onAdd && (
+          <button
+            type="button"
+            className="button button-secondary calendar-day-add"
+            onClick={onAdd}
+          >
+            <Plus aria-hidden="true" />
+            일정 추가
+          </button>
+        )}
+      </div>
       {empty ? (
         <p className="calendar-none">이 날에는 일정과 마감 할 일이 없어요.</p>
       ) : (
@@ -322,6 +426,28 @@ function DaySection({ day }: { day: CalendarDay }) {
                     <Lock aria-hidden="true" />
                     읽기 전용
                   </span>
+                )}
+                {!isReadOnly(event.source) && (
+                  <>
+                    <button
+                      type="button"
+                      className="calendar-action"
+                      aria-label={`${event.title || '제목 없는 일정'} 수정`}
+                      title="수정"
+                      onClick={() => onEdit(event)}
+                    >
+                      <Pencil aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="calendar-action calendar-action-danger"
+                      aria-label={`${event.title || '제목 없는 일정'} 삭제`}
+                      title="삭제"
+                      onClick={() => onDelete(event)}
+                    >
+                      <Trash2 aria-hidden="true" />
+                    </button>
+                  </>
                 )}
               </span>
             </li>

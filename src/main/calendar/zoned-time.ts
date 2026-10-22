@@ -136,3 +136,27 @@ export function startOfLocalDay(key: string, timeZone: string): number {
   }
   return low * MS_PER_MINUTE
 }
+
+/** The wall clock at an instant in the zone, read as if it were UTC. */
+function wallClock(ms: number, timeZone: string): number {
+  const { date, hour, minute } = localParts(ms, timeZone)
+  return Date.parse(`${date}T${hour}:${minute}:00Z`)
+}
+
+/**
+ * The instant at which a clock in the zone shows this date and time. `null` when no such instant
+ * exists, because the clock skips it when daylight time begins. When the clock shows it twice, as
+ * it does when daylight time ends, the first time is meant.
+ */
+export function instantAt(key: string, time: string, timeZone: string): number | null {
+  const [hour, minute] = time.split(':').map(Number)
+  const wall = utcMidnight(key) + (hour! * 60 + minute!) * MS_PER_MINUTE
+  const found = new Set<number>()
+  // The zone's offset can differ a day either side of a change, so try the offsets around it.
+  for (const probe of [wall - MS_PER_DAY, wall, wall + MS_PER_DAY]) {
+    const candidate = wall - (wallClock(probe, timeZone) - probe)
+    if (localDateKey(candidate, timeZone) === key && localTime(candidate, timeZone) === time)
+      found.add(candidate)
+  }
+  return found.size === 0 ? null : Math.min(...found)
+}

@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { CalendarAnswer, CalendarApiPort } from '../../src/main/calendar/calendar-api'
+import type {
+  CalendarAnswer,
+  CalendarApiPort,
+  ChangeOutcome
+} from '../../src/main/calendar/calendar-api'
+import type { PreparedEvent } from '../../src/main/calendar/event-draft'
 import { CalendarService, UnavailableCalendar } from '../../src/main/calendar/calendar-service'
-import { CalendarSnapshotSchema } from '../../src/shared/contracts/calendar'
-import type { CalendarEvent } from '../../src/shared/contracts/calendar'
+import {
+  CalendarEditOutcomeSchema,
+  CalendarSnapshotSchema
+} from '../../src/shared/contracts/calendar'
+import type { CalendarEvent, CalendarEventDraft } from '../../src/shared/contracts/calendar'
 import type { Result } from '../../src/shared/contracts/common'
 
 const NOW = Date.parse('2026-10-22T03:22:14Z') // 12:22 on the 22nd in Seoul
@@ -29,7 +37,27 @@ function fakeApi() {
   const asked: Window[] = []
   const signals: (AbortSignal | undefined)[] = []
   let zoneCalls = 0
+  /** What was sent to change events, and what the server says to each. */
+  const changes: (
+    | { kind: 'create'; event: PreparedEvent; signal?: AbortSignal }
+    | { kind: 'update'; id: string; event: PreparedEvent; signal?: AbortSignal }
+    | { kind: 'delete'; id: string; signal?: AbortSignal }
+  )[] = []
+  const answers: (() => Promise<ChangeOutcome>)[] = []
+  const nextAnswer = () => (answers.shift() ?? (async () => ({ kind: 'done' }) as const))()
   const api: CalendarApiPort = {
+    async createEvent(event, signal) {
+      changes.push({ kind: 'create', event, ...(signal ? { signal } : {}) })
+      return nextAnswer()
+    },
+    async updateEvent(id, event, signal) {
+      changes.push({ kind: 'update', id, event, ...(signal ? { signal } : {}) })
+      return nextAnswer()
+    },
+    async deleteEvent(id, signal) {
+      changes.push({ kind: 'delete', id, ...(signal ? { signal } : {}) })
+      return nextAnswer()
+    },
     async timeZone(signal) {
       signals.push(signal)
       zoneCalls += 1
@@ -41,7 +69,7 @@ function fakeApi() {
       return (reads.shift() ?? (async () => answer()))(window, signal)
     }
   }
-  return { api, zones, reads, asked, signals, zoneCalls: () => zoneCalls }
+  return { api, zones, reads, asked, signals, changes, answers, zoneCalls: () => zoneCalls }
 }
 
 function setup(now: () => number = () => NOW) {
@@ -573,5 +601,330 @@ describe('with no server', () => {
     expect(await calendar.navigate()).toEqual({ ok: true, value: calendar.getSnapshot() })
     expect(CalendarSnapshotSchema.safeParse(calendar.getSnapshot()).success).toBe(true)
     calendar.subscribe()()
+  })
+
+  it('does not save anything either, and says why', async () => {
+    const calendar = new UnavailableCalendar()
+    for (const result of [
+      await calendar.createEvent(),
+      await calendar.updateEvent(),
+      await calendar.deleteEvent()
+    ]) {
+      expect(result).toMatchObject({
+        ok: true,
+        value: { outcome: 'not_saved', error: { code: 'unavailable' } }
+      })
+      expect(CalendarEditOutcomeSchema.safeParse(result.ok && result.value).success).toBe(true)
+    }
+  })
+})
+
+const draft = (overrides: Partial<CalendarEventDraft> = {}): CalendarEventDraft => ({
+  title: '팀 회의',
+  allDay: false,
+  startDate: '2026-10-22',
+  startTime: '14:00',
+  endDate: '2026-10-22',
+  endTime: '15:00',
+  ...overrides
+})
+
+describe('changing events', () => {
+  async function ready() {
+    const t = setup()
+    t.service.start('u1')
+    await t.service.navigate('refresh')
+    t.asked.length = 0
+    return t
+  }
+  const outcomeOf = (result: Awaited<ReturnType<CalendarService['createEvent']>>) =>
+    result.ok ? result.value.outcome : `error:${result.error.code}`
+
+  it('adds an event in the user zone, then reads the calendar again and says it was saved', async () => {
+    const t = await ready()
+    t.reads.push(async () => answer([meeting]))
+    const result = await t.service.createEvent(draft())
+    expect(outcomeOf(result)).toBe('saved')
+    expect(t.changes).toEqual([
+      {
+        kind: 'create',
+        event: {
+          title: '팀 회의',
+          allDay: false,
+          startMs: Date.parse('2026-10-22T05:00:00Z'),
+          endMs: Date.parse('2026-10-22T06:00:00Z')
+        },
+        signal: expect.any(AbortSignal)
+      }
+    ])
+    // The read after the change shows what the server now holds.
+    expect(t.asked).toHaveLength(1)
+    expect(result.ok && result.value.snapshot).toEqual(t.service.getSnapshot())
+    expect(t.service.getSnapshot().days[0]!.events).toHaveLength(1)
+  })
+
+  it('changes and deletes an event by its ID', async () => {
+    const t = await ready()
+    expect(outcomeOf(await t.service.updateEvent('551', draft({ title: '바뀐 회의' })))).toBe(
+      'saved'
+    )
+    expect(outcomeOf(await t.service.deleteEvent('551'))).toBe('saved')
+    expect(t.changes.map((change) => [change.kind, 'id' in change ? change.id : null])).toEqual([
+      ['update', '551'],
+      ['delete', '551']
+    ])
+    expect(t.changes[0]).toMatchObject({ event: { title: '바뀐 회의' } })
+  })
+
+  it('sends an all-day event as dates', async () => {
+    const t = await ready()
+    await t.service.createEvent(
+      draft({
+        allDay: true,
+        startTime: null,
+        endTime: null,
+        startDate: '2026-10-26',
+        endDate: '2026-10-27'
+      })
+    )
+    expect(t.changes[0]).toMatchObject({
+      event: { allDay: true, startDate: '2026-10-26', endDate: '2026-10-28' }
+    })
+  })
+
+  it('forgets what it kept for other days, which the change may have altered', async () => {
+    const t = await ready()
+    await t.service.navigate('next')
+    await t.service.navigate('previous') // both views are now kept
+    t.reads.push(async () => answer())
+    await t.service.createEvent(draft())
+    const gate = deferred<Result<CalendarAnswer>>()
+    t.reads.push(() => gate.promise)
+    const asked = t.asked.length
+    const pending = t.service.navigate('next')
+    await vi.waitFor(() => expect(t.asked).toHaveLength(asked + 1))
+    // Nothing is shown for the other day until it has been read again.
+    expect(t.service.getSnapshot()).toMatchObject({ status: 'loading', loadedAt: null })
+    gate.resolve(answer())
+    await pending
+  })
+
+  it('reads the zone again for each change', async () => {
+    const t = await ready()
+    const before = t.zoneCalls()
+    await t.service.createEvent(draft())
+    expect(t.zoneCalls()).toBeGreaterThan(before + 0)
+    expect(t.changes).toHaveLength(1)
+  })
+
+  it('does not save when the zone changed since the calendar was drawn, and reads it again', async () => {
+    const t = await ready()
+    // Once for the change, once more for the read that follows it.
+    t.zones.push(
+      async () => ({ ok: true, value: 'America/Los_Angeles' }),
+      async () => ({ ok: true, value: 'America/Los_Angeles' })
+    )
+    const result = await t.service.createEvent(draft())
+    expect(outcomeOf(result)).toBe('not_saved')
+    expect(t.changes).toHaveLength(0)
+    expect(result.ok && result.value.outcome !== 'saved' && result.value.error.message).toContain(
+      '시간대'
+    )
+    expect(t.service.getSnapshot().timeZone).toBe('America/Los_Angeles')
+  })
+
+  it('does not save when the zone cannot be read, and does not guess one', async () => {
+    const t = await ready()
+    t.zones.push(async () => failure('서버에 연결하지 못했어요.'))
+    const result = await t.service.createEvent(draft())
+    expect(outcomeOf(result)).toBe('not_saved')
+    expect(t.changes).toHaveLength(0)
+    expect(result.ok && result.value.outcome !== 'saved' && result.value.error.message).toContain(
+      '시간대를 확인하지 못해 저장하지 않았어요.'
+    )
+    t.zones.push(async () => ({ ok: true, value: 'UTC+9' }))
+    expect(outcomeOf(await t.service.createEvent(draft()))).toBe('not_saved')
+    expect(t.changes).toHaveLength(0)
+  })
+
+  it('refuses what the rules refuse, saying why, and sends nothing', async () => {
+    const t = await ready()
+    for (const bad of [
+      draft({ title: '  ' }),
+      draft({ endTime: '14:00' }),
+      draft({ startDate: '2026-02-30' })
+    ]) {
+      const result = await t.service.createEvent(bad)
+      expect(outcomeOf(result)).toBe('not_saved')
+      expect(result.ok && result.value.outcome === 'not_saved' && result.value.error.code).toBe(
+        'invalid_input'
+      )
+    }
+    expect(t.changes).toHaveLength(0)
+  })
+
+  it('does not read the calendar again for a change that did not go through', async () => {
+    const t = await ready()
+    t.answers.push(async () => ({
+      kind: 'rejected',
+      reason: 'invalid',
+      error: { code: 'invalid_input', message: '서버가 받아들이지 못했어요.' }
+    }))
+    const result = await t.service.createEvent(draft())
+    expect(outcomeOf(result)).toBe('not_saved')
+    expect(t.asked).toHaveLength(0)
+    expect(result.ok && result.value.outcome === 'not_saved' && result.value.error.message).toBe(
+      '서버가 받아들이지 못했어요.'
+    )
+  })
+
+  it.each(['not_found', 'read_only'] as const)(
+    'reads the calendar again when the server says %s, because what is drawn is out of date',
+    async (reason) => {
+      const t = await ready()
+      t.answers.push(async () => ({
+        kind: 'rejected',
+        reason,
+        error: { code: 'not_found', message: '이미 삭제됐어요.' }
+      }))
+      expect(outcomeOf(await t.service.deleteEvent('551'))).toBe('not_saved')
+      expect(t.asked).toHaveLength(1)
+    }
+  )
+
+  it('says so when it cannot tell whether the server took the change, and does not send it again', async () => {
+    const t = await ready()
+    t.answers.push(async () => ({
+      kind: 'unknown',
+      error: { code: 'unavailable', message: '서버에 연결할 수 없습니다.' }
+    }))
+    const result = await t.service.createEvent(draft())
+    expect(outcomeOf(result)).toBe('unknown')
+    expect(t.changes).toHaveLength(1)
+    // Nor does it read in the background: the user decides when to look.
+    expect(t.asked).toHaveLength(0)
+  })
+
+  it('turns a thrown error into "unknown", never into "saved"', async () => {
+    const t = await ready()
+    t.answers.push(async () => {
+      throw new Error('boom')
+    })
+    const result = await t.service.createEvent(draft())
+    expect(outcomeOf(result)).toBe('unknown')
+    expect(JSON.stringify(result)).not.toContain('boom')
+  })
+
+  it('says it saved even if reading again fails, with the failure in the snapshot', async () => {
+    const t = await ready()
+    t.reads.push(async () => failure())
+    const result = await t.service.createEvent(draft())
+    expect(outcomeOf(result)).toBe('saved')
+    expect(result.ok && result.value.snapshot.status).toBe('failed')
+  })
+
+  it('takes one change at a time, so pressing twice adds once', async () => {
+    const t = await ready()
+    const gate = deferred<ChangeOutcome>()
+    t.answers.push(() => gate.promise)
+    const first = t.service.createEvent(draft())
+    await vi.waitFor(() => expect(t.changes).toHaveLength(1))
+    const second = await t.service.createEvent(draft())
+    expect(outcomeOf(second)).toBe('not_saved')
+    expect(t.changes).toHaveLength(1)
+    gate.resolve({ kind: 'done' })
+    expect(outcomeOf(await first)).toBe('saved')
+    // And once it is over, the next one goes through.
+    expect(outcomeOf(await t.service.createEvent(draft()))).toBe('saved')
+    expect(t.changes).toHaveLength(2)
+  })
+
+  it('takes the next change after one that failed', async () => {
+    const t = await ready()
+    t.answers.push(async () => {
+      throw new Error('boom')
+    })
+    await t.service.createEvent(draft())
+    expect(outcomeOf(await t.service.createEvent(draft()))).toBe('saved')
+  })
+
+  it('will not change anything when nobody is signed in', async () => {
+    const t = setup()
+    for (const result of [
+      await t.service.createEvent(draft()),
+      await t.service.updateEvent('1', draft()),
+      await t.service.deleteEvent('1')
+    ])
+      expect(outcomeOf(result)).toBe('error:authentication_required')
+    expect(t.changes).toHaveLength(0)
+    expect(t.zoneCalls()).toBe(0)
+  })
+
+  it('drops a change in flight when the user signs out, and does not report it as done', async () => {
+    const t = await ready()
+    const gate = deferred<ChangeOutcome>()
+    t.answers.push(() => gate.promise)
+    const pending = t.service.createEvent(draft())
+    await vi.waitFor(() => expect(t.changes).toHaveLength(1))
+    const signal = (t.changes[0] as { signal: AbortSignal }).signal
+    await t.service.stop()
+    expect(signal.aborted).toBe(true)
+    gate.resolve({ kind: 'done' })
+    expect(outcomeOf(await pending)).toBe('error:cancelled')
+    expect(t.service.getSnapshot()).toMatchObject({ status: 'idle', days: [] })
+  })
+
+  it('does not report a change for the earlier user when another account signs in', async () => {
+    const t = await ready()
+    const gate = deferred<ChangeOutcome>()
+    t.answers.push(() => gate.promise)
+    const pending = t.service.createEvent(draft())
+    await vi.waitFor(() => expect(t.changes).toHaveLength(1))
+    t.service.start('u2')
+    gate.resolve({ kind: 'done' })
+    expect(outcomeOf(await pending)).toBe('error:cancelled')
+    // The new user is not held up by the earlier one's change.
+    expect(outcomeOf(await t.service.createEvent(draft()))).toBe('saved')
+  })
+
+  it('lets the next user change things at once, though the earlier one is still waiting for the server', async () => {
+    const t = await ready()
+    const gate = deferred<ChangeOutcome>()
+    t.answers.push(() => gate.promise)
+    const earlier = t.service.createEvent(draft())
+    await vi.waitFor(() => expect(t.changes).toHaveLength(1))
+    t.service.start('u2')
+    expect(outcomeOf(await t.service.createEvent(draft()))).toBe('saved')
+    gate.resolve({ kind: 'done' })
+    await earlier
+  })
+
+  it('refuses a zone this machine cannot use even when no calendar was read yet', async () => {
+    const t = setup()
+    t.service.start('u1')
+    t.zones.push(async () => ({ ok: true, value: 'UTC+9' }))
+    const result = await t.service.createEvent(draft())
+    expect(outcomeOf(result)).toBe('not_saved')
+    expect(
+      result.ok && result.value.outcome === 'not_saved' && result.value.error.message
+    ).toContain('시간대')
+    expect(t.changes).toHaveLength(0)
+  })
+
+  it('has every outcome pass the contract', async () => {
+    const t = await ready()
+    t.answers.push(
+      async () => ({ kind: 'done' }),
+      async () => ({
+        kind: 'rejected',
+        reason: 'invalid',
+        error: { code: 'invalid_input', message: '안 돼요.' }
+      }),
+      async () => ({ kind: 'unknown', error: { code: 'unavailable', message: '몰라요.' } })
+    )
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const result = await t.service.createEvent(draft())
+      expect(result.ok && CalendarEditOutcomeSchema.safeParse(result.value).success).toBe(true)
+    }
   })
 })
