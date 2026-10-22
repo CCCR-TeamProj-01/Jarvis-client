@@ -148,20 +148,20 @@ describe('a typed request', () => {
     })
   })
 
-  it('says so when the server planned commands that this device does not run', async () => {
+  it("shows only the server's sentence when it planned commands, which the command poller runs", async () => {
     const withText = setup({
       poll: () => done('크롬 실행 명령을 보냈어요.', { commands: [{ command_id: 1 }] })
     })
     expect(await withText.assistant.respond(withText.turn(), 'x')).toEqual({
       ok: true,
       value: {
-        text: '크롬 실행 명령을 보냈어요.\n(참고: 이 기기에서는 아직 명령을 실행하지 않아요.)'
+        text: '크롬 실행 명령을 보냈어요.'
       }
     })
     const bare = setup({ poll: () => status('success', { commands: [{ command_id: 1 }] }) })
     expect(await bare.assistant.respond(bare.turn(), 'x')).toMatchObject({
       ok: true,
-      value: { text: expect.stringContaining('아직 명령을 실행하지 않아요') }
+      value: { text: '요청을 처리했어요.' }
     })
     const empty = setup({ poll: () => status('success') })
     expect(await empty.assistant.respond(empty.turn(), 'x')).toMatchObject({

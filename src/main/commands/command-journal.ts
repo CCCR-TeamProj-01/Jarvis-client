@@ -189,7 +189,11 @@ export class CommandJournal {
           ? {
               ...entry,
               state: 'finished',
-              result: interruptedResult({ attempt_no: entry.attemptNo })
+              result: interruptedResult(
+                { attempt_no: entry.attemptNo },
+                // A `started` entry's time is when the command began.
+                { startedAtMs: entry.updatedAtUnixMs, finishedAtMs: this.options.now() }
+              )
             }
           : entry
       )

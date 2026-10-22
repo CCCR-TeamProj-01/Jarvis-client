@@ -214,6 +214,13 @@
       "description": "(command_id, attempt_no) 기준의 영속 처리 기록(started→finished→reported)을 추가한다. 실행 전 기록, 이미 본 명령의 재실행 방지, 재시작 시 중단된 명령의 unknown 결과 전환, 사용자별 격리, 손상 파일 거절, 보관 기한·상한을 다룬다. 폴링·실행·전송과 앱 연결은 제외한다.",
       "status": "done",
       "issue": 71
+    },
+    {
+      "id": "F-034",
+      "title": "서버 명령 폴러와 결과 보고",
+      "description": "로그인한 동안 GET /device/commands/pending을 폴링해 명령을 저널 기록 후 하나씩 실행하고 POST /commands/{id}/results로 보고한다. 만료(60초)·번역 실패 거절, 같은 결과 재전송, 서버가 받지 않는 응답의 종료, 로그아웃·계정 전환 처리와 대화 응답의 '아직 실행하지 않아요' 문구 제거를 포함한다. 결과 본문은 서버 명세(시각 3개, success·unknown에 failure_stage 금지)를 따른다.",
+      "status": "done",
+      "issue": 72
     }
   ]
 }

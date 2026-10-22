@@ -41,7 +41,10 @@ const result = (attemptNo = 1): CommandResult =>
     attempt_no: attemptNo,
     status: 'success',
     observation_status: 'confirmed',
-    result_message: '폴더 열기을(를) 마쳤어요.'
+    result_message: '폴더 열기을(를) 마쳤어요.',
+    started_at: '2026-10-22T03:00:00.000Z',
+    finished_at: '2026-10-22T03:00:01.000Z',
+    reported_at: '2026-10-22T03:00:01.000Z'
   })
 
 describe('begin', () => {
@@ -158,13 +161,26 @@ describe('after a restart', () => {
           result: {
             attempt_no: 2,
             status: 'unknown',
-            observation_status: 'unknown',
-            failure_stage: 'observation'
+            observation_status: 'unknown'
           }
         }
       ]
     })
     expect(await after.begin(key('7', 2))).toMatchObject({ ok: true, value: { kind: 'existing' } })
+  })
+
+  it('dates an interrupted result from when the command began to when the app came back', async () => {
+    const files = new MemoryFiles()
+    now = Date.parse('2026-10-22T03:00:00.000Z')
+    await journalOver(files).forUser('u1').begin(key('7'))
+    now = Date.parse('2026-10-22T03:05:00.000Z')
+    const waiting = await journalOver(files).forUser('u1').unreported()
+    expect(waiting.ok && waiting.value[0]?.result).toMatchObject({
+      started_at: '2026-10-22T03:00:00.000Z',
+      finished_at: '2026-10-22T03:05:00.000Z',
+      reported_at: '2026-10-22T03:05:00.000Z'
+    })
+    expect(waiting.ok && waiting.value[0]?.result?.failure_stage).toBeUndefined()
   })
 
   it('keeps finished and reported entries as they were', async () => {

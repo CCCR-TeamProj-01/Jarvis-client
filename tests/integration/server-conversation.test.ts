@@ -102,12 +102,12 @@ describe('typing to the server', () => {
     expect(JSON.stringify([failed, refused])).not.toContain('SERVER_DETAIL_THAT_MUST_NOT_SHOW')
   })
 
-  it('says that planned commands are not run here', async () => {
+  it("shows the server's sentence when commands were planned, with no note about running them", async () => {
     const { say, fake } = await conversationApp()
     fake.withCommands = true
     expect(await say('크롬 열어줘')).toMatchObject({
       ok: true,
-      value: { reply: { text: expect.stringContaining('아직 명령을 실행하지 않아요') } }
+      value: { reply: { text: expect.not.stringContaining('아직 명령을 실행하지 않아요') } }
     })
   })
 
