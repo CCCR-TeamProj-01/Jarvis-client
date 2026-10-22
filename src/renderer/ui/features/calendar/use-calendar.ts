@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { CalendarNavigation, CalendarSnapshot } from '../../../../shared/contracts/calendar'
+import type {
+  CalendarEditOutcome,
+  CalendarEventDraft,
+  CalendarNavigation,
+  CalendarSnapshot
+} from '../../../../shared/contracts/calendar'
 import type { Result } from '../../../../shared/contracts/common'
 import type { CalendarApi } from '../../../../shared/ipc/calendar-api'
 
@@ -44,6 +49,30 @@ export function useCalendar(api: CalendarApi | undefined, active: boolean) {
     [api, settle]
   )
 
+  /** Sends a change. The calendar Main read again afterwards comes with the answer. */
+  const edit = useCallback(
+    async (send: (api: CalendarApi) => Promise<Result<CalendarEditOutcome>>) => {
+      if (!api) return { ok: false, error: { code: 'unavailable', message: unavailable } } as const
+      const result = await send(api)
+      if (result.ok) apply(result.value.snapshot)
+      return result
+    },
+    [api, apply]
+  )
+  const createEvent = useCallback(
+    (draft: CalendarEventDraft) => edit((target) => target.createEvent({ draft })),
+    [edit]
+  )
+  const updateEvent = useCallback(
+    (eventId: string, draft: CalendarEventDraft) =>
+      edit((target) => target.updateEvent({ eventId, draft })),
+    [edit]
+  )
+  const deleteEvent = useCallback(
+    (eventId: string) => edit((target) => target.deleteEvent({ eventId })),
+    [edit]
+  )
+
   useEffect(() => {
     if (!api) return
     let live = true
@@ -72,5 +101,12 @@ export function useCalendar(api: CalendarApi | undefined, active: boolean) {
     }
   }, [api, active, settle])
 
-  return { snapshot, error: api ? error : unavailable, navigate }
+  return {
+    snapshot,
+    error: api ? error : unavailable,
+    navigate,
+    createEvent,
+    updateEvent,
+    deleteEvent
+  }
 }

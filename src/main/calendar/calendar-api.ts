@@ -1,7 +1,9 @@
 import { z } from 'zod'
-import type { Result } from '../../shared/contracts/common'
+import type { ClientError, Result } from '../../shared/contracts/common'
 import type { CalendarSource } from '../../shared/contracts/calendar'
+import type { PreparedEvent } from './event-draft'
 import type { ServerClient } from '../connection/server-client'
+import { EmptyResponse } from '../connection/server-client'
 import { ServerIdSchema } from '../connection/server-ids'
 import { ServerTimeSchema } from '../connection/server-time'
 import { isDateKey } from './zoned-time'
@@ -31,6 +33,19 @@ export interface CalendarAnswer {
   todos: ServerTodo[]
 }
 
+/**
+ * What became of a change. `rejected`: the server did not take it, and nothing changed. `unknown`:
+ * the request went out but the answer did not come back readable, so the server may have taken it.
+ */
+export type ChangeOutcome =
+  | { kind: 'done' }
+  | {
+      kind: 'rejected'
+      reason: 'read_only' | 'not_found' | 'invalid' | 'other'
+      error: ClientError
+    }
+  | { kind: 'unknown'; error: ClientError }
+
 export interface CalendarApiPort {
   /** The user's time zone name, as the server has it. */
   timeZone(signal?: AbortSignal): Promise<Result<string>>
@@ -39,6 +54,9 @@ export interface CalendarApiPort {
     window: { fromMs: number; toMs: number },
     signal?: AbortSignal
   ): Promise<Result<CalendarAnswer>>
+  createEvent(event: PreparedEvent, signal?: AbortSignal): Promise<ChangeOutcome>
+  updateEvent(eventId: string, event: PreparedEvent, signal?: AbortSignal): Promise<ChangeOutcome>
+  deleteEvent(eventId: string, signal?: AbortSignal): Promise<ChangeOutcome>
 }
 
 const SettingsSchema = z.looseObject({ timezone: z.string().min(1) })
@@ -66,6 +84,37 @@ const EventListSchema = z.looseObject({
   items: z.array(RawEventSchema),
   todos: z.array(RawTodoSchema).nullish()
 })
+
+/** What a change returns. Only that it is an event is checked; the calendar is read again after. */
+const ChangedEventSchema = z.looseObject({ event_id: ServerIdSchema })
+const DeletedSchema = z.union([EmptyResponse, z.looseObject({})])
+
+/** The body for adding or replacing an event. Every field is named, so a switch between all-day and timed clears the other kind. */
+function eventBody(event: PreparedEvent) {
+  return event.allDay
+    ? {
+        title: event.title,
+        is_all_day: true,
+        start_at: null,
+        end_at: null,
+        start_date: event.startDate,
+        end_date: event.endDate
+      }
+    : {
+        title: event.title,
+        is_all_day: false,
+        start_at: new Date(event.startMs).toISOString(),
+        end_at: new Date(event.endMs).toISOString(),
+        start_date: null,
+        end_date: null
+      }
+}
+
+const REFUSALS = {
+  read_only: 'Google에서 가져온 일정은 자비스에서 바꿀 수 없어요.',
+  not_found: '이미 삭제됐거나 찾을 수 없는 일정이에요.',
+  invalid: '서버가 입력한 내용을 받아들이지 못했어요. 제목과 시간을 확인해 주세요.'
+} as const
 
 const invalidAnswer = {
   ok: false,
@@ -167,4 +216,79 @@ export class CalendarApi implements CalendarApiPort {
     }
     return { ok: true, value: { events, todos } }
   }
+
+  createEvent(event: PreparedEvent, signal?: AbortSignal): Promise<ChangeOutcome> {
+    return this.change('POST', '/calendar/events', eventBody(event), ChangedEventSchema, signal)
+  }
+
+  updateEvent(eventId: string, event: PreparedEvent, signal?: AbortSignal): Promise<ChangeOutcome> {
+    return this.onEvent(eventId, (path) =>
+      this.change('PATCH', path, eventBody(event), ChangedEventSchema, signal)
+    )
+  }
+
+  deleteEvent(eventId: string, signal?: AbortSignal): Promise<ChangeOutcome> {
+    return this.onEvent(eventId, (path) =>
+      this.change('DELETE', path, undefined, DeletedSchema, signal)
+    )
+  }
+
+  /** The ID is the server's own, from an earlier answer; check it anyway before it joins a path. */
+  private onEvent(
+    eventId: string,
+    run: (path: string) => Promise<ChangeOutcome>
+  ): Promise<ChangeOutcome> {
+    if (!/^\d{1,16}$/.test(eventId))
+      return Promise.resolve({
+        kind: 'rejected',
+        reason: 'not_found',
+        error: { code: 'not_found', message: REFUSALS.not_found }
+      })
+    return run(`/calendar/events/${eventId}`)
+  }
+
+  /**
+   * Sends one change, once. The server ignores `Idempotency-Key` on events (checked against the
+   * real server: the same key twice made two events), so a repeat cannot be told from a new add and
+   * nothing here retries. A refusal (4xx) changed nothing; no answer, an answer that cannot be
+   * read, or a server error leaves it open whether the change was made.
+   */
+  private async change<T>(
+    method: 'POST' | 'PATCH' | 'DELETE',
+    path: string,
+    body: unknown,
+    response: z.ZodType<T>,
+    signal?: AbortSignal
+  ): Promise<ChangeOutcome> {
+    const result = await this.client.request({
+      method,
+      path,
+      ...(body === undefined ? {} : { body }),
+      response,
+      ...(signal ? { signal } : {})
+    })
+    if (result.ok) return { kind: 'done' }
+    const { detail } = result
+    if (detail.delivery === 'not_sent')
+      return { kind: 'rejected', reason: 'other', error: result.error }
+    const status = detail.status
+    if (detail.delivery === 'responded' && status !== undefined && status >= 400 && status < 500) {
+      if (status === 409 && detail.serverCode === 'EXTERNAL_EVENT_READ_ONLY')
+        return rejected('read_only')
+      if (status === 404) return rejected('not_found')
+      if (status === 422) return rejected('invalid')
+      return { kind: 'rejected', reason: 'other', error: result.error }
+    }
+    return { kind: 'unknown', error: result.error }
+  }
 }
+
+const rejected = (reason: keyof typeof REFUSALS): ChangeOutcome => ({
+  kind: 'rejected',
+  reason,
+  error: {
+    code:
+      reason === 'read_only' ? 'conflict' : reason === 'not_found' ? 'not_found' : 'invalid_input',
+    message: REFUSALS[reason]
+  }
+})

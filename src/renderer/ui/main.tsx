@@ -104,6 +104,9 @@ function App(): React.JSX.Element {
             snapshot={calendar.snapshot}
             connectionError={calendar.error}
             onNavigate={(navigation) => void calendar.navigate(navigation)}
+            onCreate={calendar.createEvent}
+            onUpdate={calendar.updateEvent}
+            onDelete={calendar.deleteEvent}
           />
         )}
         {tab === 'gesture' && (

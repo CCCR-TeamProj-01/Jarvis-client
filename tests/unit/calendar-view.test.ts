@@ -151,7 +151,13 @@ describe('events with a time', () => {
         allDay: false,
         startTime: '14:00',
         endTime: '15:00',
-        part: null
+        part: null,
+        extent: {
+          startDate: '2026-10-22',
+          startTime: '14:00',
+          endDate: '2026-10-22',
+          endTime: '15:00'
+        }
       }
     ])
   })
@@ -331,13 +337,13 @@ describe('events in a day', () => {
     expect(list[0]!.events.map((event) => event.source)).toEqual(['google', 'other'])
   })
 
-  it('shortens a title that is very long, and trims one with spaces', () => {
+  it('shortens a title longer than the server takes, and trims one with spaces', () => {
     const list = days('day', '2026-10-22', [
       timed('1', '2026-10-22T05:00:00Z', '2026-10-22T06:00:00Z', { title: '가'.repeat(500) }),
       timed('2', '2026-10-22T06:00:00Z', '2026-10-22T07:00:00Z', { title: '  회의  ' })
     ])
     const [long, spaced] = list[0]!.events
-    expect(Array.from(long!.title)).toHaveLength(201)
+    expect(Array.from(long!.title)).toHaveLength(256)
     expect(long!.title.endsWith('…')).toBe(true)
     expect(spaced!.title).toBe('회의')
   })
@@ -421,5 +427,66 @@ describe('the days of a view', () => {
 
   it('has no today when today is outside the view', () => {
     expect(days('day', '2026-10-23', []).some((day) => day.isToday)).toBe(false)
+  })
+})
+
+describe('the whole of an event, for editing', () => {
+  const extentOn = (list: ReturnType<typeof days>, date: string) =>
+    dayOf(list, date).events[0]!.extent
+
+  it('is the same on every day an event is shown, not the part on that day', () => {
+    // 22:00 on the 22nd to 02:00 on the 23rd in Seoul.
+    const list = days('week', '2026-10-22', [
+      timed('1', '2026-10-22T13:00:00Z', '2026-10-22T17:00:00Z')
+    ])
+    const whole = {
+      startDate: '2026-10-22',
+      startTime: '22:00',
+      endDate: '2026-10-23',
+      endTime: '02:00'
+    }
+    expect(extentOn(list, '2026-10-22')).toEqual(whole)
+    expect(extentOn(list, '2026-10-23')).toEqual(whole)
+  })
+
+  it('ends an all-day event on its last day, not on the exclusive end the server holds', () => {
+    const list = days('week', '2026-10-19', [allDay('1', '2026-10-22', '2026-10-24')])
+    for (const date of ['2026-10-22', '2026-10-23'])
+      expect(extentOn(list, date)).toEqual({
+        startDate: '2026-10-22',
+        startTime: null,
+        endDate: '2026-10-23',
+        endTime: null
+      })
+  })
+
+  it('keeps a one-day all-day event on one day, also when the server end is missing', () => {
+    for (const end of ['2026-10-23', '2026-10-22']) {
+      const list = days('day', '2026-10-22', [allDay('1', '2026-10-22', end)])
+      expect(extentOn(list, '2026-10-22')).toMatchObject({
+        startDate: '2026-10-22',
+        endDate: '2026-10-22'
+      })
+    }
+  })
+
+  it('ends an event that stops at midnight at 00:00 of the next day, as it really does', () => {
+    const list = days('day', '2026-10-22', [
+      timed('1', '2026-10-22T14:00:00Z', '2026-10-22T15:00:00Z')
+    ])
+    expect(extentOn(list, '2026-10-22')).toEqual({
+      startDate: '2026-10-22',
+      startTime: '23:00',
+      endDate: '2026-10-23',
+      endTime: '00:00'
+    })
+  })
+
+  it('does not cut a title the server allows', () => {
+    const title = '가'.repeat(255)
+    const list = days('day', '2026-10-22', [
+      timed('1', '2026-10-22T05:00:00Z', '2026-10-22T06:00:00Z', { title })
+    ])
+    expect(list[0]!.events[0]!.title).toBe(title)
   })
 })

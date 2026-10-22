@@ -61,5 +61,5 @@ export async function signedInApp() {
   fake.calls.length = 0
   const ping = () =>
     api.request({ method: 'GET', path: '/ping', response: z.object({ ok: z.boolean() }) })
-  return { fake, clock, manager, store, api, ping, tokens }
+  return { fake, baseUrl, clock, manager, store, api, ping, tokens }
 }

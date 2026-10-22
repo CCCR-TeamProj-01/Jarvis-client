@@ -5,7 +5,13 @@ import {
   SignInRequestSchema,
   SignUpRequestSchema
 } from '../shared/contracts/auth'
-import { CalendarEventSchema, CalendarNavigateRequestSchema } from '../shared/contracts/calendar'
+import {
+  CalendarCreateEventRequestSchema,
+  CalendarDeleteEventRequestSchema,
+  CalendarEventSchema,
+  CalendarNavigateRequestSchema,
+  CalendarUpdateEventRequestSchema
+} from '../shared/contracts/calendar'
 import type { Result } from '../shared/contracts/common'
 import { UiCommandSchema, UiEventSchema } from '../shared/contracts/interaction'
 import {
@@ -16,7 +22,10 @@ import {
   SignUpResponseSchema
 } from '../shared/ipc/auth-api'
 import type { AuthApi } from '../shared/ipc/auth-api'
-import { CalendarSnapshotResponseSchema } from '../shared/ipc/calendar-api'
+import {
+  CalendarEditResponseSchema,
+  CalendarSnapshotResponseSchema
+} from '../shared/ipc/calendar-api'
 import type { CalendarApi } from '../shared/ipc/calendar-api'
 import { AUTH_CHANNELS, CALENDAR_CHANNELS, UI_CHANNELS } from '../shared/ipc/channels'
 import { UiCommandResponseSchema, UiSnapshotResponseSchema } from '../shared/ipc/ui-api'
@@ -121,6 +130,27 @@ export function createUiBridge(ipc: UiTransport, platform: string): UiApi {
         parsed.data
       )
     },
+    createEvent: (request) =>
+      authCall(
+        CALENDAR_CHANNELS.create,
+        CalendarCreateEventRequestSchema,
+        (value) => CalendarEditResponseSchema.parse(value),
+        request
+      ),
+    updateEvent: (request) =>
+      authCall(
+        CALENDAR_CHANNELS.update,
+        CalendarUpdateEventRequestSchema,
+        (value) => CalendarEditResponseSchema.parse(value),
+        request
+      ),
+    deleteEvent: (request) =>
+      authCall(
+        CALENDAR_CHANNELS.delete,
+        CalendarDeleteEventRequestSchema,
+        (value) => CalendarEditResponseSchema.parse(value),
+        request
+      ),
     getSnapshot: () =>
       invoke(CALENDAR_CHANNELS.snapshot, (value) => CalendarSnapshotResponseSchema.parse(value)),
     subscribe(listener) {

@@ -22,6 +22,9 @@ export const AUTH_CHANNELS = {
 
 export const CALENDAR_CHANNELS = {
   navigate: 'jarvis:calendar:navigate',
+  create: 'jarvis:calendar:create',
+  update: 'jarvis:calendar:update',
+  delete: 'jarvis:calendar:delete',
   snapshot: 'jarvis:calendar:snapshot',
   event: 'jarvis:calendar:event'
 } as const

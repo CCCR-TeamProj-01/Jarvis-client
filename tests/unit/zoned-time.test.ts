@@ -5,6 +5,7 @@ import {
   daysBetween,
   isDateKey,
   isTimeZone,
+  instantAt,
   localDateKey,
   localTime,
   startOfLocalDay,
@@ -122,6 +123,54 @@ describe('time zones', () => {
         expect(localDateKey(start, zone)).toBe(day)
         expect(localDateKey(start - 60_000, zone)).toBe(addDays(day, -1))
       }
+    }
+  })
+})
+
+describe('the instant a clock shows', () => {
+  it('turns a date and time on the clock into the instant', () => {
+    expect(instantAt('2026-10-22', '14:00', 'Asia/Seoul')).toBe(at('2026-10-22T05:00:00Z'))
+    expect(instantAt('2026-10-22', '00:00', 'Asia/Seoul')).toBe(at('2026-10-21T15:00:00Z'))
+    expect(instantAt('2026-10-22', '23:59', 'Asia/Seoul')).toBe(at('2026-10-22T14:59:00Z'))
+    expect(instantAt('2026-10-22', '09:30', 'Asia/Kolkata')).toBe(at('2026-10-22T04:00:00Z'))
+    expect(instantAt('2026-10-22', '12:00', 'UTC')).toBe(at('2026-10-22T12:00:00Z'))
+    expect(instantAt('2026-10-22', '12:00', 'America/Los_Angeles')).toBe(at('2026-10-22T19:00:00Z'))
+  })
+
+  it('reads back as the same date and time in the zone', () => {
+    for (const zone of ['Asia/Seoul', 'America/Los_Angeles', 'Europe/London', 'Australia/Sydney']) {
+      for (const day of ['2026-01-15', '2026-03-08', '2026-03-29', '2026-10-25', '2026-11-01']) {
+        for (const time of ['00:00', '00:30', '09:00', '12:34', '23:59']) {
+          const instant = instantAt(day, time, zone)
+          if (instant === null) continue
+          expect(localDateKey(instant, zone)).toBe(day)
+          expect(localTime(instant, zone)).toBe(time)
+        }
+      }
+    }
+  })
+
+  it('has no instant for a time the clock skips when daylight time begins', () => {
+    // Clocks in Los Angeles go from 02:00 to 03:00 on 2026-03-08.
+    expect(instantAt('2026-03-08', '02:30', 'America/Los_Angeles')).toBeNull()
+    expect(instantAt('2026-03-08', '02:00', 'America/Los_Angeles')).toBeNull()
+    expect(instantAt('2026-03-08', '01:59', 'America/Los_Angeles')).toBe(at('2026-03-08T09:59:00Z'))
+    expect(instantAt('2026-03-08', '03:00', 'America/Los_Angeles')).toBe(at('2026-03-08T10:00:00Z'))
+    // Havana skips the whole of 00:00-01:00 on 2026-03-08.
+    expect(instantAt('2026-03-08', '00:30', 'America/Havana')).toBeNull()
+  })
+
+  it('takes the first of the two times the clock shows when daylight time ends', () => {
+    // 01:30 on 2026-11-01 in Los Angeles happens twice: 08:30Z (still daylight) and 09:30Z.
+    expect(instantAt('2026-11-01', '01:30', 'America/Los_Angeles')).toBe(at('2026-11-01T08:30:00Z'))
+    expect(instantAt('2026-11-01', '00:59', 'America/Los_Angeles')).toBe(at('2026-11-01T07:59:00Z'))
+    expect(instantAt('2026-11-01', '02:00', 'America/Los_Angeles')).toBe(at('2026-11-01T10:00:00Z'))
+  })
+
+  it('has one instant for every time of a day without a clock change', () => {
+    for (let minute = 0; minute < 24 * 60; minute += 7) {
+      const time = `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`
+      expect(instantAt('2026-10-22', time, 'Asia/Seoul')).not.toBeNull()
     }
   })
 })

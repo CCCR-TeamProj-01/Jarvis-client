@@ -1,13 +1,16 @@
 import type {
   CalendarDay,
+  CalendarEditOutcome,
   CalendarEvent,
+  CalendarEventDraft,
   CalendarNavigation,
   CalendarSnapshot,
   CalendarView
 } from '../../shared/contracts/calendar'
 import type { ClientError, Result, Unsubscribe } from '../../shared/contracts/common'
-import type { CalendarApiPort } from './calendar-api'
+import type { CalendarApiPort, ChangeOutcome } from './calendar-api'
 import { buildDays, serverWindow, shiftView, viewOf } from './calendar-view'
+import { prepareEvent } from './event-draft'
 import { addDays, isTimeZone, localDateKey } from './zoned-time'
 
 /** What the calendar tab talks to; the window reaches it only through IPC. */
@@ -15,7 +18,15 @@ export interface CalendarPort {
   getSnapshot(): CalendarSnapshot
   subscribe(listener: (event: CalendarEvent) => void): Unsubscribe
   navigate(navigation: CalendarNavigation): Promise<Result<CalendarSnapshot>>
+  createEvent(draft: CalendarEventDraft): Promise<Result<CalendarEditOutcome>>
+  updateEvent(eventId: string, draft: CalendarEventDraft): Promise<Result<CalendarEditOutcome>>
+  deleteEvent(eventId: string): Promise<Result<CalendarEditOutcome>>
 }
+
+type Change =
+  | { kind: 'create'; draft: CalendarEventDraft }
+  | { kind: 'update'; eventId: string; draft: CalendarEventDraft }
+  | { kind: 'delete'; eventId: string }
 
 export interface CalendarServiceOptions {
   api: CalendarApiPort
@@ -78,6 +89,9 @@ export class CalendarService implements CalendarPort {
   private lastSuccessAt: number | null = null
   private error: ClientError | null = null
   private remembered = new Map<string, Remembered>()
+  /** The change being sent, if any; only one at a time, so a double press cannot add twice. */
+  private changing: symbol | null = null
+  private changeAbort: AbortController | null = null
   private readonly listeners = new Set<(event: CalendarEvent) => void>()
 
   constructor(private readonly options: CalendarServiceOptions) {}
@@ -172,6 +186,106 @@ export class CalendarService implements CalendarPort {
     }
   }
 
+  createEvent(draft: CalendarEventDraft): Promise<Result<CalendarEditOutcome>> {
+    return this.change({ kind: 'create', draft })
+  }
+
+  updateEvent(eventId: string, draft: CalendarEventDraft): Promise<Result<CalendarEditOutcome>> {
+    return this.change({ kind: 'update', eventId, draft })
+  }
+
+  deleteEvent(eventId: string): Promise<Result<CalendarEditOutcome>> {
+    return this.change({ kind: 'delete', eventId })
+  }
+
+  /**
+   * Sends one change to the server, and on success reads the calendar again. The time zone is read
+   * again first: what the user typed is on the clock of the zone the calendar was drawn in, and a
+   * zone that changed meanwhile would move the event. A change is sent once; if it may have gone
+   * through without us hearing, that is said (`unknown`) and left to the user to check.
+   */
+  private async change(change: Change): Promise<Result<CalendarEditOutcome>> {
+    const user = this.userId
+    if (user === null) return noUser
+    const outcome = (
+      kind: 'not_saved' | 'unknown',
+      error: ClientError
+    ): Result<CalendarEditOutcome> => ({
+      ok: true,
+      value: { outcome: kind, error, snapshot: this.getSnapshot() }
+    })
+    if (this.changing !== null)
+      return outcome('not_saved', {
+        code: 'conflict',
+        message: '이전 요청을 처리하는 중이에요. 잠시 후 다시 시도해 주세요.'
+      })
+    const mine = Symbol('change')
+    this.changing = mine
+    const abort = new AbortController()
+    this.changeAbort = abort
+    const gone = (): Result<CalendarEditOutcome> => ({
+      ok: false,
+      error: { code: 'cancelled', message: '로그아웃되어 요청을 취소했어요.' }
+    })
+    try {
+      const zone = await this.options.api.timeZone(abort.signal)
+      if (user !== this.userId) return gone()
+      if (!zone.ok)
+        return outcome('not_saved', {
+          code: zone.error.code,
+          message: `시간대를 확인하지 못해 저장하지 않았어요. ${zone.error.message}`
+        })
+      if (!isTimeZone(zone.value))
+        return outcome('not_saved', {
+          code: 'internal',
+          message: '서버가 알려 준 시간대를 이 기기에서 쓸 수 없어 저장하지 않았어요.'
+        })
+      if (this.timeZone !== null && zone.value !== this.timeZone) {
+        await this.navigate('refresh')
+        return outcome('not_saved', {
+          code: 'conflict',
+          message:
+            '시간대 설정이 바뀌어 일정을 다시 불러왔어요. 시간을 확인하고 다시 저장해 주세요.'
+        })
+      }
+
+      const sent = await this.send(change, zone.value, abort.signal)
+      if (user !== this.userId) return gone()
+      if (sent.kind === 'unknown') return outcome('unknown', sent.error)
+      if (sent.kind === 'rejected') {
+        // Gone, or not ours to change: what is drawn is out of date.
+        if (sent.reason === 'not_found' || sent.reason === 'read_only')
+          await this.navigate('refresh')
+        return outcome('not_saved', sent.error)
+      }
+      // Whatever was kept for other days may now be wrong.
+      this.remembered = new Map()
+      await this.navigate('refresh')
+      return { ok: true, value: { outcome: 'saved', snapshot: this.getSnapshot() } }
+    } catch {
+      if (user !== this.userId) return gone()
+      return outcome('unknown', { code: 'internal', message: '요청을 처리하지 못했어요.' })
+    } finally {
+      if (this.changing === mine) {
+        this.changing = null
+        this.changeAbort = null
+      }
+    }
+  }
+
+  private async send(
+    change: Change,
+    timeZone: string,
+    signal: AbortSignal
+  ): Promise<ChangeOutcome> {
+    if (change.kind === 'delete') return this.options.api.deleteEvent(change.eventId, signal)
+    const prepared = prepareEvent(change.draft, timeZone)
+    if (!prepared.ok) return { kind: 'rejected', reason: 'invalid', error: prepared.error }
+    return change.kind === 'create'
+      ? this.options.api.createEvent(prepared.value, signal)
+      : this.options.api.updateEvent(change.eventId, prepared.value, signal)
+  }
+
   private fail(
     error: ClientError,
     lead: string | null,
@@ -197,6 +311,9 @@ export class CalendarService implements CalendarPort {
   private reset(): void {
     this.abort?.abort()
     this.abort = null
+    this.changeAbort?.abort()
+    this.changeAbort = null
+    this.changing = null
     this.run += 1
     this.status = 'idle'
     this.view = null
@@ -257,5 +374,28 @@ export class UnavailableCalendar implements CalendarPort {
 
   async navigate(): Promise<Result<CalendarSnapshot>> {
     return { ok: true, value: this.snapshot }
+  }
+
+  async createEvent(): Promise<Result<CalendarEditOutcome>> {
+    return this.refused()
+  }
+
+  async updateEvent(): Promise<Result<CalendarEditOutcome>> {
+    return this.refused()
+  }
+
+  async deleteEvent(): Promise<Result<CalendarEditOutcome>> {
+    return this.refused()
+  }
+
+  private refused(): Result<CalendarEditOutcome> {
+    return {
+      ok: true,
+      value: {
+        outcome: 'not_saved',
+        error: { code: 'unavailable', message: '서버에 연결되지 않은 상태라 저장할 수 없어요.' },
+        snapshot: this.snapshot
+      }
+    }
   }
 }

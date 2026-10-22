@@ -274,3 +274,167 @@ describe('asking for events', () => {
     for (const signal of seen) expect(signal).toBeDefined()
   })
 })
+
+describe('changing events', () => {
+  const timedEvent = {
+    title: '팀 회의',
+    allDay: false,
+    startMs: Date.parse('2026-10-22T05:00:00Z'),
+    endMs: Date.parse('2026-10-22T06:00:00Z')
+  } as const
+  const allDayEvent = {
+    title: '출장',
+    allDay: true,
+    startDate: '2026-10-26',
+    endDate: '2026-10-28'
+  } as const
+  const created = (id = 551) => json({ ...event({ event_id: id }) }, 201)
+  const bodyOf = (init: RequestInit) => JSON.parse(String(init.body))
+
+  it('adds a timed event with every field named, the unused ones null', async () => {
+    const t = api(() => created())
+    expect(await t.api.createEvent(timedEvent)).toEqual({ kind: 'done' })
+    const [url, init] = t.fetch.mock.calls[0]!
+    expect(url).toBe(`${BASE}/calendar/events`)
+    expect(init.method).toBe('POST')
+    expect(bodyOf(init)).toEqual({
+      title: '팀 회의',
+      is_all_day: false,
+      start_at: '2026-10-22T05:00:00.000Z',
+      end_at: '2026-10-22T06:00:00.000Z',
+      start_date: null,
+      end_date: null
+    })
+  })
+
+  it('adds an all-day event as dates only, with the end the server expects', async () => {
+    const t = api(() => created())
+    await t.api.createEvent(allDayEvent)
+    expect(bodyOf(t.fetch.mock.calls[0]![1])).toEqual({
+      title: '출장',
+      is_all_day: true,
+      start_at: null,
+      end_at: null,
+      start_date: '2026-10-26',
+      end_date: '2026-10-28'
+    })
+  })
+
+  it('sends the same body for a change, so a switch between kinds clears the other kind', async () => {
+    const t = api(() => json(event()))
+    expect(await t.api.updateEvent('551', allDayEvent)).toEqual({ kind: 'done' })
+    const [url, init] = t.fetch.mock.calls[0]!
+    expect(url).toBe(`${BASE}/calendar/events/551`)
+    expect(init.method).toBe('PATCH')
+    expect(bodyOf(init)).toMatchObject({ is_all_day: true, start_at: null, end_at: null })
+  })
+
+  it('deletes with no body', async () => {
+    const t = api(() => new Response(null, { status: 204 }))
+    expect(await t.api.deleteEvent('551')).toEqual({ kind: 'done' })
+    const [url, init] = t.fetch.mock.calls[0]!
+    expect(url).toBe(`${BASE}/calendar/events/551`)
+    expect(init.method).toBe('DELETE')
+    expect(init.body).toBeUndefined()
+  })
+
+  it('does not send an Idempotency-Key, which the server ignores for events', async () => {
+    const t = api(() => created())
+    await t.api.createEvent(timedEvent)
+    const headers = t.fetch.mock.calls[0]![1].headers as Record<string, string>
+    expect(Object.keys(headers).map((name) => name.toLowerCase())).not.toContain('idempotency-key')
+  })
+
+  it('does not put an ID that is not a number into a path', async () => {
+    for (const id of ['', 'abc', '../me', '12/34', '1 2', '-1', '12345678901234567']) {
+      const t = api(() => json(event()))
+      expect(await t.api.updateEvent(id, timedEvent)).toMatchObject({
+        kind: 'rejected',
+        reason: 'not_found'
+      })
+      expect(await t.api.deleteEvent(id)).toMatchObject({ kind: 'rejected', reason: 'not_found' })
+      expect(t.fetch).not.toHaveBeenCalled()
+    }
+  })
+
+  const refusal = (status: number, code: string) =>
+    api(() => json({ error: { code, message: 'server wording' } }, status))
+
+  it('says a Google event cannot be changed, with its own words', async () => {
+    const t = refusal(409, 'EXTERNAL_EVENT_READ_ONLY')
+    const result = await t.api.updateEvent('551', timedEvent)
+    expect(result).toMatchObject({ kind: 'rejected', reason: 'read_only' })
+    expect(JSON.stringify(result)).not.toContain('server wording')
+    expect(await refusal(409, 'EXTERNAL_EVENT_READ_ONLY').api.deleteEvent('551')).toMatchObject({
+      kind: 'rejected',
+      reason: 'read_only'
+    })
+  })
+
+  it('says an event that is gone is gone', async () => {
+    expect(await refusal(404, 'RESOURCE_NOT_FOUND').api.deleteEvent('551')).toMatchObject({
+      kind: 'rejected',
+      reason: 'not_found'
+    })
+  })
+
+  it('says the server did not accept what was sent, without its wording', async () => {
+    const result = await refusal(422, 'VALIDATION_ERROR').api.createEvent(timedEvent)
+    expect(result).toMatchObject({ kind: 'rejected', reason: 'invalid' })
+    expect(JSON.stringify(result)).not.toContain('server wording')
+  })
+
+  it('treats any other refusal as nothing changed', async () => {
+    for (const status of [400, 401, 403, 409, 429]) {
+      const result = await refusal(status, 'X').api.createEvent(timedEvent)
+      expect(result).toMatchObject({ kind: 'rejected', reason: 'other' })
+    }
+  })
+
+  it('is open about whether it went through when the answer did not come', async () => {
+    // Connected, then no answer: the server may have stored it.
+    const reset = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })
+    const lost = api(() => {
+      throw reset
+    })
+    expect(await lost.api.createEvent(timedEvent)).toMatchObject({ kind: 'unknown' })
+  })
+
+  it('is open about it too when the server failed, or its answer cannot be read', async () => {
+    for (const status of [500, 502, 503, 504])
+      expect(await refusal(status, 'INTERNAL_ERROR').api.createEvent(timedEvent)).toMatchObject({
+        kind: 'unknown'
+      })
+    // A created answer that is not an event: it was created, but we cannot say so.
+    expect(await api(() => json({ ok: true }, 201)).api.createEvent(timedEvent)).toMatchObject({
+      kind: 'unknown'
+    })
+    expect(
+      await api(
+        () => new Response('not json', { status: 201, headers: { 'content-type': 'text/plain' } })
+      ).api.createEvent(timedEvent)
+    ).toMatchObject({ kind: 'unknown' })
+  })
+
+  it('knows a request that never left was not sent', async () => {
+    const refused = Object.assign(new TypeError('fetch failed'), {
+      cause: { code: 'ECONNREFUSED' }
+    })
+    const down = api(() => {
+      throw refused
+    })
+    expect(await down.api.createEvent(timedEvent)).toMatchObject({
+      kind: 'rejected',
+      reason: 'other'
+    })
+  })
+
+  it('stops with the cancel signal and reports it as not sent or unknown, never as done', async () => {
+    const abort = new AbortController()
+    abort.abort()
+    const t = api(() => created())
+    const result = await t.api.createEvent(timedEvent, abort.signal)
+    expect(result.kind).not.toBe('done')
+    expect(t.fetch).not.toHaveBeenCalled()
+  })
+})
