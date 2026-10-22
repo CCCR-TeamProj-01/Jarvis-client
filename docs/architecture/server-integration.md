@@ -138,18 +138,22 @@ F-030([#62](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/62))에서 
 
 명령은 대화와 별개로 기기 단위의 폴러가 `GET /device/commands/pending`에서 받는다. 현재 토큰의 기기에 속한 명령만 생성 순서대로 내려오며 추천 승인으로 생긴 명령도 같은 경로다. 결과를 보고하기 전까지 같은 명령이 다시 내려올 수 있어, Main은 `(command_id, attempt_no)`를 키로 하는 실행 저널을 로컬에 영속 보관한다. 이미 실행한 명령을 다시 받으면 OS 명령을 재실행하지 않고 저장된 결과만 재전송한다. 명령에 만료 시각이 없으므로 `requested_at`을 서버 시각으로 보고 응답으로 알게 된 서버와 로컬의 시계 차이를 보정해, 잠정 60초가 지난 명령은 시작하지 않고 `failed`(`failure_stage=timeout`, `error_code=expired`)로 보고한다. 지원하지 않는 도구·잘못된 인자·권한 없음은 `rejected`로 보고한다. 서버는 확인 상태가 없는 `system.power`를 목록에서 제외한다. 로그아웃·계정 전환 시 저널과 미보고 결과는 이전 사용자의 데이터로 분리하며 다른 계정에 재전송하지 않는다.
 
-서버가 확정한 도구 인자(2026-10-22 서버 답변)는 아래와 같다. 키는 snake_case이고 클라이언트 어댑터가 로컬 도구 요청(`appId` 등)으로 변환한다. 서버 쪽 저장 방식은 서버가 명령 API를 다시 시작할 때 정하므로 명령 폴러 연동은 그 뒤에 한다.
+서버가 확정한 도구 인자(2026-10-22 서버 답변)는 아래와 같다. 키는 snake_case이고 클라이언트 어댑터가 로컬 도구 요청(`appId` 등)으로 변환한다. 명령 항목과 결과 보고의 형식은 이 표와 아래 설명이 현재 서버 구현 기준이며, 명령 `arguments`의 저장·전달 방식은 서버가 명령 API를 구현할 때 확정하므로 [서버 확인 항목](../delivery/validation.md#rest-api-명세-대조-결정2026-10-22)으로 남아 있다.
 
 | `command_type` | `arguments` | 클라이언트 처리 |
 | --- | --- | --- |
 | `apps.launch`, `apps.activate` | `{}` + 최상위 `requested_app_code` | 앱 코드를 로컬 앱 ID로 해석해 실행 |
 | `apps.close` | `{}` + `requested_app_code` | 클라이언트 도구가 없어 `rejected`(`unsupported`)로 보고 |
-| `apps.list`, `apps.restore` | `{}` | 그대로 |
+| `apps.list` | `{}` + 조회 대상 앱의 `requested_app_code`(서버 내부 이름은 `app_status`) | 서버의 의미는 **특정 앱의 상태 조회**다. 클라이언트 `apps.list`는 전체 목록을 돌려주므로 어댑터가 목록에서 해당 앱을 찾아 결과로 바꾼다 |
+| `apps.restore` | `{}` | 그대로 |
 | `browser.open` | `{"url": "https://…"}`(서버가 사이트 이름을 URL로 해석) | 그대로. http·https 검증 |
 | `browser.search` | `{"query", "engine": "google"\|"naver"}` | 클라이언트 도구가 없어(#55 보류) `rejected`(`unsupported`) |
-| `folder.open` | `{"alias": "home"\|"desktop"\|"documents"\|"downloads"\|"pictures"\|"music"\|"videos"}` | 그대로 |
+| `folder.open` | `{"alias": "downloads"\|"documents"\|"desktop"\|"pictures"}`(서버 도구가 지원하는 4개. 서버 문서에 있는 `home`·`music`·`videos`는 서버 도구 정의와 맞지 않아 현재 내려오지 않는다) | 그대로. 클라이언트 계약은 7개 별칭을 모두 받아 서버가 확장해도 바꾸지 않는다 |
 | `system.volume` | `{"mode": "set", "level": 0~100}` 또는 `{"mode": "adjust", "delta": -100~100}` | 그대로 |
 | `system.mute` | `{"muted": true\|false}` | 그대로 |
+| `system.status` | `{}`(현재는 볼륨·음소거 상태 조회) | 클라이언트 도구가 없어 `rejected`(`unsupported`)로 보고. 도구 추가와 결과의 형식은 서버 확인 항목 |
+
+서버 쪽에 알려진 제한이 있다(2026-10-22 서버 답변). 상대 볼륨(`adjust`)은 서버의 인자 변환에 오류가 있어 서버 수정 전에는 올바른 인자가 오지 않을 수 있으며, 형식이 깨진 인자는 인자 검증에서 `rejected`(`validation`)로 보고한다. `browser.open`의 브라우저 지정은 서버에서 버려져 클라이언트는 기본 브라우저로 연다. 전체 창 닫기와 특정 창 닫기는 하나의 `apps.close`로 합쳐진다. 로컬 도구에만 있는 `app_install`은 REST 명령으로 매핑되지 않으며, 밝기·스크린샷·클립보드·파일 검색·전원은 계획 단계 도구라 명령으로 내려오지 않는다.
 
 허용 앱 코드는 14개로 고정된다: `chrome`·`edge`·`whale`·`vscode`·`notion`·`slack`·`teams`·`outlook`·`spotify`·`kakaotalk`·`terminal`·`explorer`·`notepad`·`calculator`. 결과 보고의 `failure_stage`는 실패가 아니면 null이고 아래 표의 9개 중 하나다. 클라이언트가 보내는 `error_code`는(최대 64자, `A-Za-z0-9_.:-`) 소문자 snake_case(`permission_denied`·`unsupported`·`invalid_input`·`not_found`·`cancelled`·`expired`·`unavailable`·`internal`·`unknown`)이며 서버가 만드는 코드는 대문자 snake_case다. 확인 불가는 실패와 구분해 `status=unknown`으로 보고하며 자동 재실행하지 않는다. 요청 상태의 `failed`는 서버 처리 오류(STT·AI·내부), `rejected`는 정책상 거부(차단된 앱·허용되지 않은 요청)다.
 
