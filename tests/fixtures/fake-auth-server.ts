@@ -37,6 +37,22 @@ export class FakeAuthServer {
   /** Process the next submit, then drop the connection without answering. */
   dropNextSubmitAnswer = false
   readonly conversationsMade: string[] = []
+  /** Commands the server has for the device, in order. A command with a stored result is not pending. */
+  readonly commands: {
+    command_id: number
+    attempt_no: number
+    command_type: string
+    requested_app_code: string | null
+    arguments: Record<string, unknown>
+    requested_at: string
+  }[] = []
+  /** Stored results by command ID, as the server keeps them. */
+  readonly results = new Map<number, Record<string, unknown>>()
+  /** Answers for the next result reports, consumed in order: a status code, or 'drop' to lose the answer after storing. */
+  resultFaults: (number | 'drop')[] = []
+  /** Items placed in the pending list as they are, to try a malformed one. */
+  rawPending: unknown[] = []
+  pollAfterMs = 2000
   readonly processed: { requestId: string; content: string }[] = []
   private conversationKeys = new Map<string, string>()
   private serverRequests = new Map<
@@ -232,6 +248,64 @@ export class FakeAuthServer {
         commands: this.withCommands
           ? [{ command_id: 8801, command_type: 'apps.launch', latest_result: null }]
           : []
+      })
+    }
+    if (path.startsWith('/device/commands/pending') && request.method === 'GET') {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      const items = [
+        ...this.commands.filter((command) => !this.results.has(command.command_id)),
+        ...this.rawPending
+      ]
+      return send(200, { items, poll_after_ms: this.pollAfterMs })
+    }
+    const report = /^\/commands\/(\d+)\/results$/.exec(path)
+    if (report && request.method === 'POST') {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      const commandId = Number(report[1])
+      const fault = this.resultFaults.shift()
+      if (typeof fault === 'number') return error(fault, 'FAULT')
+      if (!this.commands.some((command) => command.command_id === commandId))
+        return error(404, 'COMMAND_NOT_FOUND')
+      const allowed = new Set([
+        'attempt_no',
+        'status',
+        'observation_status',
+        'error_code',
+        'failure_stage',
+        'result_message',
+        'started_at',
+        'finished_at',
+        'reported_at',
+        'app',
+        'activity'
+      ])
+      const fields = Object.keys(body ?? {})
+      const required = [
+        'attempt_no',
+        'status',
+        'observation_status',
+        'started_at',
+        'finished_at',
+        'reported_at'
+      ]
+      const malformed =
+        fields.some((field) => !allowed.has(field)) ||
+        required.some((field) => !fields.includes(field)) ||
+        (['success', 'unknown'].includes(String(body?.status)) &&
+          body?.failure_stage !== undefined &&
+          body?.failure_stage !== null) ||
+        Date.parse(String(body?.finished_at)) < Date.parse(String(body?.started_at))
+      if (malformed) return error(422, 'VALIDATION_ERROR')
+      const prior = this.results.get(commandId)
+      if (prior && JSON.stringify(prior) !== JSON.stringify(body))
+        return error(409, 'COMMAND_RESULT_CONFLICT')
+      if (!prior) this.results.set(commandId, body ?? {})
+      if (fault === 'drop') return void request.socket.destroy()
+      return send(prior ? 200 : 201, {
+        command_id: commandId,
+        attempt_no: body?.attempt_no,
+        status: body?.status,
+        activity_recorded: false
       })
     }
     if (path === '/auth/logout') {

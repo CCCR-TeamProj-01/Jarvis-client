@@ -40,8 +40,6 @@ const BUSY_WAIT_MS = 1_000
 /** Remembered local → server pairings; a conversation lasts minutes, so this is generous. */
 const REMEMBERED = 64
 
-const COMMANDS_NOTE = '(참고: 이 기기에서는 아직 명령을 실행하지 않아요.)'
-
 const failure = (error: ClientError): { ok: false; error: ClientError } => ({ ok: false, error })
 
 const serverFailed = (): ClientError => ({
@@ -235,13 +233,12 @@ export class ServerAssistant implements AssistantPort {
           .map((message) => (message.content ?? '').trim())
           .filter((content) => content !== '')
         const hasCommands = (status.commands ?? []).length > 0
-        // A server answer that planned commands says they were sent; here they are not run (yet).
+        // The commands themselves reach this device through the command poller, not this reply.
         if (parts.length === 0)
           return hasCommands
-            ? { ok: true, value: { text: `요청을 처리했어요. ${COMMANDS_NOTE}` } }
+            ? { ok: true, value: { text: '요청을 처리했어요.' } }
             : failure(clientError('internal'))
-        const text = parts.join('\n')
-        return { ok: true, value: { text: hasCommands ? `${text}\n${COMMANDS_NOTE}` : text } }
+        return { ok: true, value: { text: parts.join('\n') } }
       }
       case 'rejected':
         return failure({ code: 'permission_denied', message: '이 요청은 처리할 수 없어요.' })

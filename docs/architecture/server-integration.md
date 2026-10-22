@@ -107,16 +107,38 @@ F-032([#69](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/69))에서 
 - `server-command.ts`: 명령 항목 스키마(`command_id`는 안전 정수, `requested_at`은 시간대가 있는 ISO 8601, 모르는 필드는 무시)와 `(command_id, attempt_no)`에서 만드는 안정적인 `executionId`.
 - `command-translator.ts`: 위 도구 인자 표대로 `ToolCommand`로 바꾸고 기존 도구 계약으로 다시 검증한다. 모르는 키·형식 오류는 `rejected`(`validation`, `invalid_input`), 허용 목록에 없는 앱 코드와 앱 명령의 `arguments`는 같은 검증 거절이다. 클라이언트가 실행하지 않는 명령(`apps.list`·`apps.close`·`browser.search`·`system.status`)과 모르는 `command_type`은 `rejected`(`capability`, `unsupported`)다.
 - `app-codes.ts`: 앱 코드 14개를 macOS 번들 ID로 매핑한다. 이 Mac에서 설치된 앱의 번들 ID를 읽어 확인한 것은 `chrome`·`vscode`·`notion`·`slack`·`kakaotalk`·`terminal`·`explorer`(Finder)·`notepad`(TextEdit)·`calculator`이고, `edge`·`whale`·`teams`·`outlook`·`spotify`는 제조사가 공개한 ID이며 기기에서 확인하지 못했다. 잘못된 ID는 "설치되어 있지 않음"으로만 나타난다(앱 제어가 OS가 알려 주는 앱 목록에서만 대상을 찾는다). Windows는 실행 파일 매핑이 없어 `rejected`(`capability`, `unsupported`)다.
-- `result-mapper.ts`: `ToolExecutionReport`를 위 결과 매핑 표와 `failure_stage` 표대로 서버 결과 본문으로 바꾼다. `result_message`는 도구 이름과 결과 종류로 만든 고정 문구라서 URL·경로·볼륨 수치·오류 원문이 들어가지 않는다. `app`은 앱 명령과 복귀(번들 ID가 고정 앱 코드 14개 중 하나일 때)에서만 붙는다.
+- `result-mapper.ts`: `ToolExecutionReport`를 위 결과 매핑 표와 `failure_stage` 표대로 서버 결과 본문으로 바꾼다. `result_message`는 도구 이름과 결과 종류로 만든 고정 문구라서 URL·경로·볼륨 수치·오류 원문이 들어가지 않는다. `app`은 앱 명령과 복귀(번들 ID가 고정 앱 코드 14개 중 하나일 때)에서만 붙고 `display_name`은 OS가 알려 준 이름, 없으면 매핑표의 이름이다. 시작·종료·보고 시각(서버가 필수로 요구)은 결과를 만들 때 한 번 정하며 보고 시각은 종료 시각과 같다. `success`·`unknown` 결과에는 `failure_stage`를 넣지 않는다(서버가 거부). 서버 규칙을 그대로 검사하는 `CommandResultSchema`로 확인한 본문만 보낸다.
+
+### 구현 현황: 명령 실행 저널
+
+F-033([#71](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/71))에서 `src/main/commands/command-journal.ts`에 실행 저널의 저장 계층을 구현했다. 폴러가 이 저널을 사용한다([명령 폴러](#구현-현황-명령-폴러와-결과-보고)). 위 [명령 전달 규칙](#명령-계획과-실행-결과)의 "이미 실행한 명령을 다시 받으면 재실행하지 않고 저장된 결과만 재전송한다"를 이 계층이 지킨다.
+
+- 상태는 `started`(실행 직전에 디스크에 기록) → `finished`(결과 포함, 전송 대기) → `reported`(서버가 저장)다. `started`를 기록하지 못하면 명령을 실행하지 않는다. 이미 본 `(command_id, attempt_no)`는 `existing`으로 돌려주며 같은 명령의 동시 요청 중 하나만 시작된다.
+- 앱이 실행 도중 종료되어 다음 시작에서도 `started`로 남은 명령은 `unknown` 결과로 바꾸고 다시 실행하지 않는다. 시작 시각은 명령이 시작된 때, 종료 시각은 앱이 다시 시작된 때다.
+- 결과는 서버에 보낼 본문 그대로(시작·종료·보고 시각 포함) 저장한다. 서버가 같은 결과의 재전송을 시각까지 비교하므로 다시 만들지 않는다.
+- 저장 내용은 사용자 ID·명령 ID·시도 번호·상태·고정 문구 결과(시각 포함)뿐이다. 명령 인자(URL·폴더)와 서버·OS 오류 원문은 담지 않는다. 파일 `command-journal.json`은 `installation.json`과 같은 소유자 전용 원자적 교체 방식으로 `userData`에 저장하며 설치 식별자·계정 설정과 섞지 않는다.
+- 사용자마다 격리하고 다른 계정이 로그인하면 이전 사용자의 기록을 지울 수 있다(`purgeOthers`). 보관 기한은 7일, 사용자당 상한은 500개이며 상한을 넘으면 보고가 끝난 오래된 항목부터 지운다(보고 대기 결과는 지우지 않음).
+- 읽거나 해석할 수 없는 파일(알 수 없는 버전·필드 포함)은 덮어쓰지 않고 모든 호출이 `unavailable`이다. 무엇을 실행했는지 모르는 채 실행하면 한 명령을 두 번 실행할 수 있기 때문이다.
+
+### 구현 현황: 명령 폴러와 결과 보고
+
+F-034([#72](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/72))에서 서버 명령을 받아 실행하고 보고하는 흐름을 앱에 연결했다(`src/main/commands/command-service.ts`, `command-api.ts`, `create-command-service.ts`). 서버 주소가 유효하고 개발용 로그인 대역(`JARVIS_DEV_AUTH=1`, 패키징 전에만)이 아닐 때 생기며, 로그인한 동안만 동작한다.
+
+- 받기: `GET /device/commands/pending?limit=10`을 2초 간격으로 부른다. 서버의 `poll_after_ms`를 1~30초 안에서 따르고, 오류가 계속되면 2·4·8·16·30초로 늘리며 성공하면 되돌린다(활성 상태 기준. 앱이 백그라운드일 때 10초로 늦추는 것은 아직 없다). 401은 서버 클라이언트가 한 번 갱신해 다시 보낸다.
+- 처리: 받은 명령을 서버가 준 순서대로 하나씩 처리한다. 앞 명령이 실패해도 뒤 명령은 계속한다(서버의 확인 대기, 잠정). 저널에 `started`를 기록한 뒤에만 실행하고 기록하지 못하면 아무것도 실행하지 않는다. 이미 본 명령은 실행하지 않고 저장된 결과만 다시 보낸다.
+- 거절: `requested_at`(서버 시각, 응답의 `Date`로 시계 차이를 보정)이 60초를 넘은 명령은 시작하지 않고 `failed`(`timeout`, `expired`)로 보고한다. 번역할 수 없는 명령은 `rejected`로 보고한다. 형식이 맞지 않아도 `command_id`가 있으면 `rejected`(`validation`)로 답하고, 그것도 없으면 건너뛴다. 한 항목의 문제가 나머지를 막지 않는다.
+- 보고: `POST /commands/{command_id}/results`로 보낸다(최초 201, 같은 결과 200). 보내지 못하면 `finished`로 남겨 다음 라운드(재시작 후 포함)에 같은 본문을 다시 보낸다. 서버가 받을 수 없다고 확정한 응답(403·404·409·422)이면 더 보내지 않고 닫는다. 로그에는 고정 문장만 남기며 명령의 내용을 쓰지 않는다.
+- 수명: 로그인하면 시작하고 로그아웃·세션 종료 시 멈추며 실행 중인 명령은 취소한다. 같은 사용자에게 다시 시작을 요청해도 실행 중인 명령을 건드리지 않는다. 다른 계정이 로그인하면 이전 사용자의 저널 기록을 지운다. 멈춘 동안 만든 결과는 저널에 남아 같은 사용자가 다시 로그인하면 보낸다.
+- 실행 결과를 화면에 보여 주는 것과 `apps.list`·`system.status` 값 보고, `activity` 보고는 아직 없다.
 
 ### 구현 현황: 대화·요청 어댑터
 
-F-030([#62](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/62))에서 글 입력 대화의 서버 어댑터(`src/main/conversation/server-assistant.ts`)를 구현했다. 서버 주소가 유효하고 `JARVIS_DEV_SPEECH=1`이 아니면 `AssistantPort`로 선택된다(개발용 대역이 우선, 서버가 없으면 연결 불가). 음성 입력은 아직 서버로 보내지 않고(음성 포트는 연결 불가 유지) 명령도 실행하지 않는다. 실제 서버와의 통합은 아직 확인하지 못했다.
+F-030([#62](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/62))에서 글 입력 대화의 서버 어댑터(`src/main/conversation/server-assistant.ts`)를 구현했다. 서버 주소가 유효하고 `JARVIS_DEV_SPEECH=1`이 아니면 `AssistantPort`로 선택된다(개발용 대역이 우선, 서버가 없으면 연결 불가). 음성 입력은 아직 서버로 보내지 않는다(음성 포트는 연결 불가 유지). 서버가 계획한 명령은 이 어댑터가 아니라 [명령 폴러](#구현-현황-명령-폴러와-결과-보고)가 받아 실행한다. 실제 서버와의 통합은 아직 확인하지 못했다.
 
 - 서버 대화는 로컬 대화마다 한 번만 만든다(`POST /conversations`, 로컬 대화 ID에서 만든 `Idempotency-Key`). 응답이 유실되면 같은 키로 다시 보낸다. 서버 대화 ID와 요청 ID는 어댑터 안에서만 쓴다.
 - 입력은 `POST /conversations/{conversation_id}/messages`(`request_id`는 `req_` + ULID 26자, `input_method=text`)로 제출한다. 요청 ID는 턴마다 한 번 만들고 모든 시도에 같은 값을 쓴다. 응답이 유실되면 같은 ID와 본문으로 최대 2번 다시 보내고(서버가 멱등 처리), `CONVERSATION_BUSY`는 1초씩 기다려 최대 5번 다시 보내며, 서버 대화가 없어졌으면(404) 새로 만들어 한 번만 다시 시도한다.
 - 결과는 `GET /requests/{request_id}`를 0.5~1초 간격으로 폴링한다. 일시 오류(5xx·호출 제한·형식 오류)는 지수 백오프(최대 10초, 429는 `Retry-After` 이상)로 다시 시도하고 연속 5번 실패하면 오류를 돌려준다. 없는 요청·세션 종료 같은 오류는 바로 돌려준다. 어댑터 자신의 최대 대기는 60초이며 대화 관리자의 응답 제한(20초)과 취소가 먼저 적용된다.
-- `success`는 어시스턴트 문장(비어 있지 않은 메시지를 줄바꿈으로 이어 붙임)을 화면 문장으로 쓴다. 명령이 포함된 응답에는 이 기기에서 명령을 아직 실행하지 않는다는 참고 문장을 덧붙인다. `rejected`는 `permission_denied`, `failed`는 `unavailable`로 바꾸며 서버의 오류 코드·문구는 쓰지 않는다. 알 수 없는 상태는 계속 기다린다. `success`는 서버 처리 완료로 취급하며 PC 명령의 실행 완료로 표시하지 않는다(명령 결과는 따로 확인한다).
+- `success`는 어시스턴트 문장(비어 있지 않은 메시지를 줄바꿈으로 이어 붙임)을 화면 문장으로 쓴다. 명령이 포함된 응답도 서버의 문장만 보여 준다(명령은 폴러가 따로 받는다). 문장 없이 명령만 있으면 "요청을 처리했어요."를 쓴다. `rejected`는 `permission_denied`, `failed`는 `unavailable`로 바꾸며 서버의 오류 코드·문구는 쓰지 않는다. 알 수 없는 상태는 계속 기다린다. `success`는 서버 처리 완료로 취급하며 PC 명령의 실행 완료로 표시하지 않는다(명령 결과는 따로 확인한다).
 - 사용자 입력·응답 문장·토큰은 오류 문구와 로그에 남기지 않는다.
 
 
@@ -164,7 +186,7 @@ F-030([#62](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/62))에서 
 | `precondition` | 앱 미설치·대상 없음 등 선행 조건 불충족 | 앱·폴더를 찾지 못함. `failed`, `not_found` |
 | `dispatch` | OS 전달 실패 | 앱 실행·파일 관리자·브라우저 전달 실패. `failed`, `unavailable` |
 | `execution` | 실행 중 오류 | 실행 도중 오류. `failed`, `unavailable` 또는 `internal`(부작용 가능성은 `observation_status=unknown`) |
-| `observation` | 실행 후 확인 실패 | 실행했는지 확인하지 못함. `status=unknown`, `unknown` |
+| `observation` | 실행 후 확인 실패 | 실행했는지 확인하지 못함. `status=unknown`, `unknown`. 서버는 `success`·`unknown` 결과의 `failure_stage`를 거부(422)하므로 `unknown` 결과에는 단계를 보내지 않는다 |
 | `timeout` | 기한 초과 | 명령 기한이 지나 시작하지 않음. `failed`, `expired` |
 | `cancellation` | 취소 | 사용자 취소·로그아웃. `failed`, `cancelled` |
 | `internal` | 클라이언트 내부 오류 | 예상하지 못한 내부 오류. `failed`, `internal` |

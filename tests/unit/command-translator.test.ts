@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { APP_CODES, appCodeFor, osAppIdFor } from '../../src/main/commands/app-codes'
+import {
+  APP_CODES,
+  appCodeFor,
+  appDisplayNameFor,
+  osAppIdFor
+} from '../../src/main/commands/app-codes'
 import { invocationFor, translateCommand } from '../../src/main/commands/command-translator'
 import { ServerCommandSchema, executionIdFor } from '../../src/main/commands/server-command'
 import type { ServerCommand } from '../../src/main/commands/server-command'
@@ -288,5 +293,14 @@ describe('invocationFor', () => {
     expect(ToolInvocationSchema.safeParse(invocation).success).toBe(true)
     expect(invocation.executionId).toBe(executionIdFor(source))
     expect(invocationFor(source, translated.value.command, 'req_1').requestId).toBe('req_1')
+  })
+})
+
+describe('app display names', () => {
+  it('has a name for every code on macOS and none elsewhere', () => {
+    for (const code of APP_CODES) {
+      expect(appDisplayNameFor(code, 'darwin')?.length).toBeGreaterThan(0)
+      expect(appDisplayNameFor(code, 'win32')).toBeUndefined()
+    }
   })
 })

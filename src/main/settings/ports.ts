@@ -1,7 +1,7 @@
 import type { Result } from '../../shared/contracts/common'
 import type { DeviceSettings, LocalStateSnapshot } from './schema'
 
-export type LocalFileName = 'installation.json' | 'device-settings.json'
+export type LocalFileName = 'installation.json' | 'device-settings.json' | 'command-journal.json'
 
 /** Throw on I/O errors; only an absent document is represented by null. */
 export interface LocalFilesPort {

@@ -1,9 +1,9 @@
 import type { ClientError } from '../../shared/contracts/common'
 import type { ToolExecutionReport, ToolName } from '../../shared/contracts/tools'
-import { appCodeFor } from './app-codes'
+import { appCodeFor, appDisplayNameFor } from './app-codes'
 import type { AppCode } from './app-codes'
 import { CommandResultSchema } from './command-result'
-import type { CommandRejection, CommandResult } from './command-result'
+import type { CommandRejection, CommandResult, CommandTiming } from './command-result'
 import type { ServerCommand } from './server-command'
 
 type ResultErrorCode = NonNullable<CommandResult['error_code']>
@@ -11,6 +11,7 @@ type FailureStage = NonNullable<CommandResult['failure_stage']>
 
 export interface ResultContext {
   platform: NodeJS.Platform
+  timing: CommandTiming
   /** The app the server named, when the command was about one. */
   app?: { appCode: AppCode; osAppId: string }
   /** The name the OS shows for an app, if known. */
@@ -29,18 +30,68 @@ const TOOL_LABEL: Record<ToolName, string> = {
   'system.mute': '음소거'
 }
 
+/**
+ * The three times of a result. The report time is the finish time: it is fixed here once, because
+ * a result sent again must be identical to the first (the server compares them).
+ */
+function timesOf(timing: CommandTiming) {
+  const finished = Math.max(timing.finishedAtMs, timing.startedAtMs)
+  const iso = (ms: number) => new Date(ms).toISOString()
+  return {
+    started_at: iso(timing.startedAtMs),
+    finished_at: iso(finished),
+    reported_at: iso(finished)
+  }
+}
+
 /** A command that was refused before it reached a tool. */
 export function rejectedResult(
   command: Pick<ServerCommand, 'attempt_no'>,
-  rejection: CommandRejection
+  rejection: CommandRejection,
+  timing: CommandTiming
 ): CommandResult {
   return CommandResultSchema.parse({
+    ...timesOf(timing),
     attempt_no: command.attempt_no,
     status: 'rejected',
     observation_status: 'not_applicable',
     error_code: rejection.errorCode,
     failure_stage: rejection.failureStage,
     result_message: rejection.message
+  })
+}
+
+/** A command that arrived too late to be worth running; nothing was run. */
+export function expiredResult(
+  command: Pick<ServerCommand, 'attempt_no'>,
+  timing: CommandTiming
+): CommandResult {
+  return CommandResultSchema.parse({
+    ...timesOf(timing),
+    attempt_no: command.attempt_no,
+    status: 'failed',
+    observation_status: 'not_applicable',
+    error_code: 'expired',
+    failure_stage: 'timeout',
+    result_message: '요청 시간이 지나 실행하지 않았어요.'
+  })
+}
+
+/**
+ * The result for a command that was started but whose outcome was lost, for example because the
+ * app ended while it ran. Nothing is claimed, and the command is never run again.
+ */
+export function interruptedResult(
+  command: Pick<ServerCommand, 'attempt_no'>,
+  timing: CommandTiming
+): CommandResult {
+  return CommandResultSchema.parse({
+    ...timesOf(timing),
+    attempt_no: command.attempt_no,
+    status: 'unknown',
+    observation_status: 'unknown',
+    error_code: 'unknown',
+    result_message: '명령이 실행됐는지 확인하지 못했어요.'
   })
 }
 
@@ -52,7 +103,7 @@ export function resultFromReport(
 ): CommandResult {
   const label = TOOL_LABEL[report.tool]
   const outcome = report.outcome
-  const base = { attempt_no: command.attempt_no }
+  const base = { attempt_no: command.attempt_no, ...timesOf(context.timing) }
 
   switch (outcome.status) {
     case 'observed': {
@@ -76,8 +127,8 @@ export function resultFromReport(
         ...base,
         status: 'unknown',
         observation_status: 'unknown',
+        // No stage: the server accepts one only on a failed or rejected result.
         error_code: 'unknown',
-        failure_stage: 'observation',
         result_message: `${label}이(가) 실행됐는지 확인하지 못했어요.`
       })
     case 'failed': {
@@ -125,7 +176,7 @@ export function resultFromReport(
 }
 
 function notStarted(
-  base: { attempt_no: number },
+  base: Pick<CommandResult, 'attempt_no' | 'started_at' | 'finished_at' | 'reported_at'>,
   status: 'failed' | 'rejected',
   errorCode: ResultErrorCode,
   stage: FailureStage,
@@ -155,7 +206,10 @@ function appOf(
   return {
     app_code: code,
     os_app_id: observation.appId,
-    display_name: context.displayName?.(observation.appId) ?? observation.appId
+    display_name:
+      context.displayName?.(observation.appId) ??
+      appDisplayNameFor(code, context.platform) ??
+      observation.appId
   }
 }
 

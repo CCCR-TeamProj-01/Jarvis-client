@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { AuthManager } from '../auth/auth-manager'
 import { createDefaultAuth } from '../auth/create-auth'
+import { createCommandService, runWhileSignedIn } from '../commands/create-command-service'
 import { ConversationManager } from '../conversation/conversation-manager'
 import { createGestureController } from '../gesture/create-gesture'
 import type { GestureController } from '../gesture/gesture-controller'
@@ -21,6 +22,7 @@ import type { SensorStack } from '../sensors/create-sensors'
 import { installMediaPermissionPolicy } from '../sensors/media-permissions'
 import { createSensorGate } from '../sensors/sensor-gate'
 import { createLocalState } from '../settings/create-local-state'
+import { NodeLocalFiles } from '../settings/node-local-files'
 import type { LocalStatePort } from '../settings/ports'
 import type { SensorManager } from '../sensors/sensor-manager'
 import { createVoiceStack } from '../speech/create-voice'
@@ -66,6 +68,7 @@ export class ApplicationManager {
   private disposeOverlay: (() => void) | null = null
   private disposeShortcuts: (() => void) | null = null
   private disposeSelfTests: (() => void) | null = null
+  private disposeCommands: (() => void) | null = null
   private disposeWakeWord: (() => void) | null = null
   private quitting = false
   private startPromise: Promise<void> | null = null
@@ -116,6 +119,18 @@ export class ApplicationManager {
       auth: this.auth
     })
     this.tools = createToolStack(this.auth)
+    // Commands the server sends to this device are received while someone is signed in.
+    const commands = login.api
+      ? createCommandService({
+          isPackaged: app.isPackaged,
+          env: process.env,
+          api: login.api,
+          executor: this.tools.executor,
+          files: new NodeLocalFiles(app.getPath('userData')),
+          platform: process.platform
+        })
+      : null
+    if (commands) this.disposeCommands = runWhileSignedIn(this.auth, commands)
     const mediaEntryUrl =
       dependencies.media?.entryUrl ?? entryUrl.replace(/\/ui\/index\.html$/, '/media/index.html')
     const mediaPreloadPath =
@@ -290,6 +305,7 @@ export class ApplicationManager {
         | 'disposeOverlay'
         | 'disposeShortcuts'
         | 'disposeSelfTests'
+        | 'disposeCommands'
         | 'disposeWakeWord'
     ) => {
       const release = this[name]
@@ -304,6 +320,7 @@ export class ApplicationManager {
       take('disposeAuthIpc'),
       take('disposeState'),
       take('disposeSelfTests'),
+      take('disposeCommands'),
       take('disposeOverlay'),
       take('disposeMediaIpc'),
       () => {

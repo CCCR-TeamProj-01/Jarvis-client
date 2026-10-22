@@ -7,7 +7,11 @@ import { ToolExecutionReportSchema } from '../../src/shared/contracts/tools'
 import type { ToolExecutionReport, ToolName } from '../../src/shared/contracts/tools'
 
 const command = { attempt_no: 3 }
-const context: ResultContext = { platform: 'darwin' }
+const timing = {
+  startedAtMs: Date.parse('2026-10-22T03:00:00.000Z'),
+  finishedAtMs: Date.parse('2026-10-22T03:00:01.500Z')
+}
+const context: ResultContext = { platform: 'darwin', timing }
 
 function report(
   tool: ToolName,
@@ -80,7 +84,7 @@ describe('observed results', () => {
     expect(result).toMatchObject({ status: 'success', observation_status: 'not_applicable' })
   })
 
-  it('names the display name when known and falls back to the OS ID', () => {
+  it('names the display name the OS gave, then the built-in name', () => {
     const observed = report('apps.activate', {
       status: 'observed',
       observation: { kind: 'app', appId: 'com.tinyspeck.slackmacgap', status: 'confirmed' }
@@ -88,14 +92,14 @@ describe('observed results', () => {
     const withName = resultFromReport(command, observed, {
       ...context,
       app: { appCode: 'slack', osAppId: 'com.tinyspeck.slackmacgap' },
-      displayName: () => 'Slack'
+      displayName: () => 'Slack 데스크톱'
     })
     const withoutName = resultFromReport(command, observed, {
       ...context,
       app: { appCode: 'slack', osAppId: 'com.tinyspeck.slackmacgap' }
     })
-    expect(withName.app?.display_name).toBe('Slack')
-    expect(withoutName.app?.display_name).toBe('com.tinyspeck.slackmacgap')
+    expect(withName.app?.display_name).toBe('Slack 데스크톱')
+    expect(withoutName.app?.display_name).toBe('Slack')
   })
 
   it('finds the app of a restore from its OS ID, and omits it when it is not a known one', () => {
@@ -118,7 +122,7 @@ describe('observed results', () => {
     expect(known.app).toEqual({
       app_code: 'terminal',
       os_app_id: 'com.apple.Terminal',
-      display_name: 'com.apple.Terminal'
+      display_name: 'Terminal'
     })
     expect(other.app).toBeUndefined()
   })
@@ -185,7 +189,7 @@ describe('failed and unknown results', () => {
     }
   )
 
-  it('reports an unknown outcome as unknown and never as a failure', () => {
+  it('reports an unknown outcome as unknown, without a failure stage, and never as a failure', () => {
     const result = resultFromReport(
       command,
       report('system.volume', { status: 'unknown', reason: '읽어 온 값을 알 수 없어요' }),
@@ -194,9 +198,10 @@ describe('failed and unknown results', () => {
     expect(result).toMatchObject({
       status: 'unknown',
       observation_status: 'unknown',
-      failure_stage: 'observation',
       error_code: 'unknown'
     })
+    // The server refuses a stage on an unknown result.
+    expect(result.failure_stage).toBeUndefined()
   })
 })
 
@@ -282,12 +287,19 @@ describe('results of commands that never started', () => {
 describe('rejectedResult', () => {
   it('turns a translation refusal into a rejected result', () => {
     expect(
-      rejectedResult(command, {
-        failureStage: 'validation',
-        errorCode: 'invalid_input',
-        message: '명령의 인자가 올바르지 않아 실행하지 않았어요.'
-      })
+      rejectedResult(
+        command,
+        {
+          failureStage: 'validation',
+          errorCode: 'invalid_input',
+          message: '명령의 인자가 올바르지 않아 실행하지 않았어요.'
+        },
+        timing
+      )
     ).toEqual({
+      started_at: '2026-10-22T03:00:00.000Z',
+      finished_at: '2026-10-22T03:00:01.500Z',
+      reported_at: '2026-10-22T03:00:01.500Z',
       attempt_no: 3,
       status: 'rejected',
       observation_status: 'not_applicable',
@@ -360,5 +372,87 @@ describe('what the server is never told', () => {
         expect(CommandResultSchema.safeParse(result).success).toBe(true)
       }
     }
+  })
+})
+
+describe("times and the server's own rules", () => {
+  const failed = report('folder.open', {
+    status: 'failed',
+    error: error('not_found'),
+    effect: 'none'
+  })
+
+  it('fixes the three times when the result is made, so a resend is identical', () => {
+    const first = resultFromReport(command, failed, context)
+    const again = resultFromReport(command, failed, { ...context })
+    expect(first).toEqual(again)
+    expect(first.started_at).toBe('2026-10-22T03:00:00.000Z')
+    expect(first.finished_at).toBe('2026-10-22T03:00:01.500Z')
+    expect(first.reported_at).toBe(first.finished_at)
+  })
+
+  it('never lets the finish precede the start when the clock went backwards', () => {
+    const result = resultFromReport(command, failed, {
+      ...context,
+      timing: { startedAtMs: timing.startedAtMs, finishedAtMs: timing.startedAtMs - 5000 }
+    })
+    expect(result.finished_at).toBe(result.started_at)
+  })
+
+  it('refuses a stage on a success or an unknown result, as the server does', () => {
+    const base = {
+      attempt_no: 1,
+      observation_status: 'unknown',
+      started_at: '2026-10-22T03:00:00.000Z',
+      finished_at: '2026-10-22T03:00:01.000Z',
+      reported_at: '2026-10-22T03:00:01.000Z'
+    }
+    for (const status of ['success', 'unknown']) {
+      expect(
+        CommandResultSchema.safeParse({ ...base, status, failure_stage: 'observation' }).success
+      ).toBe(false)
+      expect(CommandResultSchema.safeParse({ ...base, status }).success).toBe(true)
+    }
+    for (const status of ['failed', 'rejected']) {
+      expect(
+        CommandResultSchema.safeParse({ ...base, status, failure_stage: 'execution' }).success
+      ).toBe(true)
+    }
+  })
+
+  it('refuses a body whose finish precedes its start, and a missing or zoneless time', () => {
+    const base = {
+      attempt_no: 1,
+      status: 'failed',
+      observation_status: 'not_applicable',
+      started_at: '2026-10-22T03:00:05.000Z',
+      finished_at: '2026-10-22T03:00:01.000Z',
+      reported_at: '2026-10-22T03:00:05.000Z'
+    }
+    expect(CommandResultSchema.safeParse(base).success).toBe(false)
+    expect(CommandResultSchema.safeParse({ ...base, finished_at: base.started_at }).success).toBe(
+      true
+    )
+    expect(
+      CommandResultSchema.safeParse({
+        ...base,
+        finished_at: base.started_at,
+        reported_at: undefined
+      }).success
+    ).toBe(false)
+    expect(
+      CommandResultSchema.safeParse({
+        ...base,
+        finished_at: base.started_at,
+        started_at: '2026-10-22T03:00:05'
+      }).success
+    ).toBe(false)
+  })
+
+  it('refuses unknown fields, which the server refuses too', () => {
+    const result = resultFromReport(command, failed, context)
+    expect(CommandResultSchema.safeParse({ ...result, url: 'https://example.com' }).success).toBe(
+      false
+    )
   })
 })
