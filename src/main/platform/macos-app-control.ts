@@ -1,4 +1,4 @@
-import type { ClientError, Result } from '../../shared/contracts/common'
+import type { Result } from '../../shared/contracts/common'
 import type {
   AppDescriptor,
   AppObservation,
@@ -6,8 +6,9 @@ import type {
   UrlObservation,
   WindowReference
 } from '../../shared/contracts/tools'
-import { HttpUrlSchema } from '../../shared/contracts/tools'
 import type { LocalExecutionOptions } from '../ports'
+import { failure, handOffUrl, observed, parseJson, pollUntil } from './app-control-support'
+import type { PollClock } from './app-control-support'
 import type { CommandRunner } from './command-runner'
 import type { AppControlPort, InputExecutionOptions } from './ports'
 
@@ -73,26 +74,17 @@ interface RunningSnapshot {
   front: { id: string; pid: number } | null
 }
 
-interface MacAppControlOptions {
+interface MacAppControlOptions extends PollClock {
   runner: CommandRunner
   /** Hands a validated URL to the default browser (Electron `shell.openExternal`). */
   openUrl(url: string): Promise<void>
   /** This process, so Jarvis itself is never reported as the app to return to. */
   selfPid: number
-  /** Resolves after `ms`, or early when aborted. Injected so confirmation polling can be tested. */
-  delay(ms: number, signal?: AbortSignal): Promise<void>
   /** Lifetime of the installed-app scan. Running state is always read fresh. */
   catalogTtlMs?: number
-  now(): number
   launchConfirmMs?: number
   activateConfirmMs?: number
-  pollMs?: number
 }
-
-const failure = (code: ClientError['code'], message: string): Result<never> => ({
-  ok: false,
-  error: { code, message }
-})
 
 /**
  * App control for macOS. App IDs are bundle identifiers, resolved only against apps the OS reports
@@ -137,12 +129,13 @@ export class MacAppControl implements AppControlPort {
     const opened = await this.open(appId, options)
     if (!opened.ok) return opened
     // `open` only reports that the request was accepted; confirm the process really appeared.
-    const confirmed = await this.waitUntil(
+    const confirmed = await pollUntil(
       async () => {
         const snapshot = await this.runningApps(options)
         return snapshot.ok && snapshot.value.running.some((app) => app.id === appId)
       },
       this.options.launchConfirmMs ?? 5_000,
+      this.options,
       options
     )
     return observed(appId, confirmed ? 'confirmed' : 'dispatched')
@@ -164,12 +157,13 @@ export class MacAppControl implements AppControlPort {
     const opened = await this.open(appId, options)
     if (!opened.ok) return opened
     // The OS may decline to move focus (for example while another app holds it); say so honestly.
-    const confirmed = await this.waitUntil(
+    const confirmed = await pollUntil(
       async () => {
         const snapshot = await this.runningApps(options)
         return snapshot.ok && snapshot.value.front?.id === appId
       },
       this.options.activateConfirmMs ?? 1_500,
+      this.options,
       options
     )
     return observed(appId, confirmed ? 'confirmed' : 'dispatched')
@@ -196,17 +190,8 @@ export class MacAppControl implements AppControlPort {
     return failure('unsupported', '최근 작업 전환은 입력 어댑터와 함께 제공됩니다.')
   }
 
-  async openUrl(url: string, options?: LocalExecutionOptions): Promise<Result<UrlObservation>> {
-    const parsed = HttpUrlSchema.safeParse(url)
-    if (!parsed.success) return failure('invalid_input', 'http 또는 https 주소만 열 수 있습니다.')
-    if (options?.signal?.aborted) return failure('cancelled', '요청이 취소되었습니다.')
-    try {
-      await this.options.openUrl(parsed.data)
-    } catch {
-      return failure('unavailable', '기본 브라우저로 주소를 전달하지 못했습니다.')
-    }
-    // Handing over the URL says nothing about whether the page loaded.
-    return { ok: true, value: { kind: 'url', url: parsed.data, status: 'dispatched' } }
+  openUrl(url: string, options?: LocalExecutionOptions): Promise<Result<UrlObservation>> {
+    return handOffUrl(url, this.options.openUrl, options)
   }
 
   // --- internals -------------------------------------------------------------------------------
@@ -270,34 +255,6 @@ export class MacAppControl implements AppControlPort {
     if (!result.ok) return result
     if (result.value.code !== 0) return failure('unavailable', '앱 정보를 읽지 못했습니다.')
     return { ok: true, value: result.value.stdout.trim() }
-  }
-
-  /** Poll until `check` holds, the window closes or the caller cancels. Never throws. */
-  private async waitUntil(
-    check: () => Promise<boolean>,
-    withinMs: number,
-    options?: LocalExecutionOptions
-  ): Promise<boolean> {
-    const pollMs = this.options.pollMs ?? 250
-    const end = this.options.now() + withinMs
-    for (;;) {
-      if (options?.signal?.aborted) return false
-      if (await check()) return true
-      if (this.options.now() >= end) return false
-      await this.options.delay(pollMs, options?.signal)
-    }
-  }
-}
-
-function observed(appId: string, status: AppObservation['status']): Result<AppObservation> {
-  return { ok: true, value: { kind: 'app', appId, status } }
-}
-
-function parseJson<T>(text: string): T | null {
-  try {
-    return JSON.parse(text) as T
-  } catch {
-    return null
   }
 }
 
