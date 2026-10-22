@@ -47,14 +47,50 @@ const MACOS_APPS: Readonly<Record<AppCode, { id: string; name: string }>> = {
   calculator: { id: 'com.apple.calculator', name: 'Calculator' } // checked
 }
 
+/**
+ * Windows AppUserModelIDs, as `Get-StartApps` reports them. Those marked "checked" were read from
+ * a Windows 11 PC that has the app installed; the others are the vendors' published identifiers
+ * (installers can register another ID, for example per-user and Store builds of the same app) and
+ * have not been checked on a device. A wrong ID can only cause "not installed", never a different
+ * app being opened, because the app control resolves it against the apps the Start menu lists.
+ */
+const WINDOWS_APPS: Readonly<Record<AppCode, { id: string; name: string }>> = {
+  chrome: { id: 'Chrome', name: 'Google Chrome' }, // checked
+  edge: { id: 'MSEdge', name: 'Microsoft Edge' }, // checked
+  whale: { id: 'Whale', name: 'Whale' },
+  vscode: { id: 'Microsoft.VisualStudioCode', name: 'Visual Studio Code' }, // checked
+  notion: { id: 'com.electron.notion', name: 'Notion' }, // checked
+  slack: { id: 'com.squirrel.slack.slack', name: 'Slack' },
+  teams: { id: 'MSTeams_8wekyb3d8bbwe!MSTeams', name: 'Microsoft Teams' }, // checked: new Teams
+  outlook: {
+    id: 'Microsoft.OutlookForWindows_8wekyb3d8bbwe!Microsoft.OutlookforWindows',
+    name: 'Microsoft Outlook'
+  }, // checked: new Outlook
+  spotify: { id: 'SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify', name: 'Spotify' }, // Store build
+  kakaotalk: {
+    id: '{7C5A40EF-A0FB-4BFC-874A-C0F2E0B9FA8E}\\Kakao\\KakaoTalk\\KakaoTalk.exe',
+    name: '카카오톡'
+  }, // checked: the folder GUID is Program Files (x86)
+  terminal: { id: 'Microsoft.WindowsTerminal_8wekyb3d8bbwe!App', name: 'Windows Terminal' }, // checked
+  explorer: { id: 'Microsoft.Windows.Explorer', name: 'File Explorer' }, // checked: the file manager
+  notepad: { id: 'Microsoft.WindowsNotepad_8wekyb3d8bbwe!App', name: 'Notepad' }, // checked
+  calculator: { id: 'Microsoft.WindowsCalculator_8wekyb3d8bbwe!App', name: 'Calculator' } // checked
+}
+
+function appsFor(platform: NodeJS.Platform) {
+  if (platform === 'darwin') return MACOS_APPS
+  if (platform === 'win32') return WINDOWS_APPS
+  return undefined
+}
+
 /** The OS application ID for a code on a platform; undefined when it is not supported there. */
 export function osAppIdFor(code: AppCode, platform: NodeJS.Platform): string | undefined {
-  return platform === 'darwin' ? MACOS_APPS[code].id : undefined
+  return appsFor(platform)?.[code].id
 }
 
 /** The name the app goes by on that platform, for telling the server which app was meant. */
 export function appDisplayNameFor(code: AppCode, platform: NodeJS.Platform): string | undefined {
-  return platform === 'darwin' ? MACOS_APPS[code].name : undefined
+  return appsFor(platform)?.[code].name
 }
 
 /** The server code for an OS application ID, when it is one of the fixed set. */

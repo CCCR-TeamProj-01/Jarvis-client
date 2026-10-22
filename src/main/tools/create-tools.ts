@@ -5,6 +5,7 @@ import { nodeCommandRunner } from '../platform/command-runner'
 import { createFolderOpener } from '../platform/folder-opener'
 import { MacSystemAudio } from '../platform/macos-system-audio'
 import { MacAppControl } from '../platform/macos-app-control'
+import { WindowsAppControl } from '../platform/windows-app-control'
 import type { AppControlPort } from '../platform/ports'
 import { createUnsupportedAppControl } from '../platform/unsupported-app-control'
 import { unsupportedSystemAudio } from '../platform/unsupported-system-audio'
@@ -26,16 +27,19 @@ export function createToolStack(auth: { requireSignedIn(): Result<unknown> }): T
   const now = () => performance.now()
   // `shell` is read when a URL is opened, not at construction.
   const openUrl = (url: string) => shell.openExternal(url)
+  const appControlOptions = {
+    runner: nodeCommandRunner,
+    openUrl,
+    selfPid: process.pid,
+    delay: sleep,
+    now
+  }
   const appControl =
     platform === 'darwin'
-      ? new MacAppControl({
-          runner: nodeCommandRunner,
-          openUrl,
-          selfPid: process.pid,
-          delay: sleep,
-          now
-        })
-      : createUnsupportedAppControl(openUrl)
+      ? new MacAppControl(appControlOptions)
+      : platform === 'win32'
+        ? new WindowsAppControl(appControlOptions)
+        : createUnsupportedAppControl(openUrl)
   const folders = createFolderOpener({
     // The aliases are Electron's own names for the standard folders.
     resolve: (alias) => app.getPath(alias),

@@ -277,6 +277,20 @@
       "description": "앱을 실행·활성화한 명령이 확인된 성공일 때 결과에 activity(event_key·event_type·occurred_at·collection_revision·running_apps)를 담는다. 명령 실행 전에 두 동의와 collection_revision을 읽고 동의가 없으면 앱 목록을 보지 않으며, launched/activated는 실행 전 앱 목록으로 구분하고 running_apps는 서버의 고정 앱 코드만 담는다. 결과 본문을 저널에 고정하고 보내는 시점에 동의를 다시 확인해 철회분을 빼며 응답의 activity_recorded를 구분한다.",
       "status": "done",
       "issue": 91
+    },
+    {
+      "id": "F-043",
+      "title": "Windows 앱 제어 어댑터",
+      "description": "Windows에서 시작 메뉴 앱의 AUMID를 앱 ID로 쓰는 앱 목록·실행·전환·복귀·전면 앱 조회·URL 전달 어댑터를 추가한다. PowerShell 고정 스크립트(EncodedCommand, 셸 없음)로 설치·실행 상태를 읽고 explorer.exe shell:AppsFolder로 실행하며, 프로세스 경로로 확인하고 판별할 수 없는 앱은 unknown·dispatched로만 보고한다. 서버 앱 코드 14개의 Windows 매핑과 앱 도구 가용 상태를 열고, macOS와 공통 보조 함수를 분리한다.",
+      "status": "done",
+      "issue": 96
+    },
+    {
+      "id": "F-044",
+      "title": "Windows 시스템 볼륨·음소거 어댑터",
+      "description": "Windows에서 system.volume·system.mute를 구현한다. 출력 볼륨과 음소거를 바꾼 뒤 OS 상태를 다시 읽어 confirmed·dispatched·unknown을 구분하고, 범위·정수 검증과 읽지 못하는 장치 처리는 macOS와 같게 한다. 구현 뒤 Windows의 볼륨 도구 가용 상태를 연다.",
+      "status": "todo",
+      "issue": 96
     }
   ]
 }
