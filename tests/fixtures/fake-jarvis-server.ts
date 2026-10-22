@@ -19,7 +19,7 @@ export interface Call {
  * sign-up, sign-in and token renewal (it rotates refresh tokens, treats a retired one as a leak and
  * revokes the session, and can lose, break or fail a refresh answer on demand), conversations and
  * requests (typed and spoken), speech synthesis, device commands and their results, and
- * recommendations. Each area has switches to make it slow, wrong or silent on demand.
+ * recommendations and calendar reads. Each area has switches to make it slow, wrong or silent on demand.
  */
 export class FakeJarvisServer {
   readonly users = new Map<string, string>()
@@ -32,6 +32,11 @@ export class FakeJarvisServer {
   /** How long after a renewal the previous refresh token is still accepted once more. */
   graceMs = 30_000
   rateLimitChecks = false
+  calendarSettings: unknown = { timezone: 'Asia/Seoul' }
+  calendarAnswer: unknown = { items: [], todos: [] }
+  calendarFaults: number[] = []
+  /** Hold an event response to test sign-out or a newer read overtaking it. */
+  calendarGate: Promise<void> | null = null
   /** How long a submitted request takes before the server has an answer. */
   processingMs = 20
   /** What a finished request turns out as. */
@@ -216,6 +221,21 @@ export class FakeJarvisServer {
     if (path === '/ping') {
       if (!valid) return error(401, 'INVALID_SESSION')
       return send(200, { ok: true, user: session.user })
+    }
+    if (path === '/me/settings' && request.method === 'GET') {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      return send(200, this.calendarSettings)
+    }
+    if (path.startsWith('/calendar/events?') && request.method === 'GET') {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      const status = this.calendarFaults.shift() ?? 200
+      if (status !== 200) return error(status, 'SERVICE_UNAVAILABLE')
+      const answer = this.calendarAnswer
+      if (this.calendarGate) {
+        void this.calendarGate.then(() => send(200, answer))
+        return
+      }
+      return send(200, answer)
     }
     if (path === '/conversations' && request.method === 'POST') {
       if (!valid) return error(401, 'INVALID_SESSION')
