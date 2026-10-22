@@ -72,8 +72,11 @@ export class ApplicationManager {
   private ready = false
 
   constructor(entryUrl: string, preloadPath: string, dependencies: ApplicationDependencies = {}) {
-    this.auth = dependencies.auth ?? createDefaultAuth()
     this.localState = dependencies.localState ?? createLocalState()
+    // The installation key is read when a login or recovery needs it, after the state is loaded.
+    this.auth =
+      dependencies.auth ??
+      createDefaultAuth({ deviceKey: () => this.localState.getSnapshot()?.deviceKey ?? null })
     this.window = new UiWindow({
       entryUrl,
       preloadPath,
