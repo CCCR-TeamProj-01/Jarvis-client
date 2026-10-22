@@ -237,7 +237,7 @@ describe('execution and reporting', () => {
   it('does not change the volume where there is no audio adapter', async () => {
     const audio = fakeAudio()
     const executor = new ToolExecutor({
-      registry: new CapabilityRegistry(platformCapabilities('win32')),
+      registry: new CapabilityRegistry(platformCapabilities('linux')),
       appControl: fakeAppControl().control,
       folders: fakeFolders(),
       audio,
@@ -620,11 +620,12 @@ describe('CapabilityRegistry', () => {
       'system.mute': 'available'
     })
     expect(byTool('win32')).toMatchObject({
-      'apps.launch': 'unsupported',
+      'apps.launch': 'available',
+      'apps.restore': 'available',
       'browser.open': 'available',
       'folder.open': 'available',
-      'system.volume': 'unsupported',
-      'system.mute': 'unsupported'
+      'system.volume': 'available',
+      'system.mute': 'available'
     })
     expect(byTool('linux')['apps.list']).toBe('unsupported')
     expect(byTool('linux')['folder.open']).toBe('unsupported')

@@ -79,8 +79,8 @@ describe('createOpenAppsCheck', () => {
   })
 
   it('cannot tell where the platform has no mapping, without asking for the apps', async () => {
-    const list = control({ ok: true, value: [app('chrome.exe', 'running')] })
-    expect(await createOpenAppsCheck(list, 'win32')([chrome])).toBe(false)
+    const list = control({ ok: true, value: [app('Chrome', 'running')] })
+    expect(await createOpenAppsCheck(list, 'linux')([chrome])).toBe(false)
     expect(list.list).not.toHaveBeenCalled()
   })
 

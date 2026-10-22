@@ -3,6 +3,8 @@ import type { AudioObservation } from '../../shared/contracts/tools'
 import type { LocalExecutionOptions } from '../ports'
 import type { CommandRunner } from './command-runner'
 import type { SystemAudioPort } from './ports'
+import { isPercent, verifyAudio } from './system-audio-support'
+import type { AudioState } from './system-audio-support'
 
 const OSASCRIPT = '/usr/bin/osascript'
 
@@ -12,11 +14,6 @@ const OSASCRIPT = '/usr/bin/osascript'
  */
 const LEVEL_TOLERANCE = 4
 
-interface AudioState {
-  level: number | null
-  muted: boolean | null
-}
-
 interface MacSystemAudioOptions {
   runner: CommandRunner
 }
@@ -25,9 +22,6 @@ const failure = (code: ClientError['code'], message: string): Result<never> => (
   ok: false,
   error: { code, message }
 })
-
-const isPercent = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100
 
 /**
  * The AppleScript standard commands for the output volume. They are not addressed to another
@@ -95,25 +89,11 @@ export class MacSystemAudio implements SystemAudioPort {
     return { ok: true, value: result.value.stdout }
   }
 
-  /**
-   * Reads the state back. `check` says whether it matches the request, or null when the device
-   * cannot report the value in question. A match is `confirmed`, a mismatch `unknown`, and a
-   * state that could not be read at all (or not judged) is only `dispatched`.
-   */
-  private async verify(
+  private verify(
     options: LocalExecutionOptions | undefined,
     check: (state: AudioState) => boolean | null
   ): Promise<Result<AudioObservation>> {
-    const state = await this.read(options)
-    if (!state.ok)
-      return {
-        ok: true,
-        value: { kind: 'audio', level: null, muted: null, status: 'dispatched' }
-      }
-    const { level, muted } = state.value
-    const matched = check(state.value)
-    const status = matched === true ? 'confirmed' : matched === null ? 'dispatched' : 'unknown'
-    return { ok: true, value: { kind: 'audio', level, muted, status } }
+    return verifyAudio(() => this.read(options), check)
   }
 
   private async read(options?: LocalExecutionOptions): Promise<Result<AudioState>> {

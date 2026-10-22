@@ -86,17 +86,23 @@ describe('app codes', () => {
     expect(new Set(ids).size).toBe(14)
   })
 
-  it('has no mapping on Windows or Linux', () => {
-    for (const code of APP_CODES) {
-      expect(osAppIdFor(code, 'win32')).toBeUndefined()
-      expect(osAppIdFor(code, 'linux')).toBeUndefined()
-    }
+  it('maps all fourteen codes on Windows to distinct AppUserModelIDs', () => {
+    const ids = APP_CODES.map((code) => osAppIdFor(code, 'win32'))
+    expect(ids.every((id) => typeof id === 'string' && id.length > 0)).toBe(true)
+    expect(new Set(ids.map((id) => id!.toLowerCase())).size).toBe(14)
+    expect(osAppIdFor('calculator', 'win32')).toBe('Microsoft.WindowsCalculator_8wekyb3d8bbwe!App')
+  })
+
+  it('has no mapping on Linux', () => {
+    for (const code of APP_CODES) expect(osAppIdFor(code, 'linux')).toBeUndefined()
   })
 
   it('finds the code of a known application and nothing for others', () => {
     expect(appCodeFor('com.google.Chrome', 'darwin')).toBe('chrome')
     expect(appCodeFor('com.example.Other', 'darwin')).toBeUndefined()
     expect(appCodeFor('com.google.Chrome', 'win32')).toBeUndefined()
+    expect(appCodeFor('Chrome', 'win32')).toBe('chrome')
+    expect(appCodeFor('Chrome', 'darwin')).toBeUndefined()
   })
 })
 
@@ -131,7 +137,7 @@ describe('translateCommand: applications', () => {
 
   it('refuses a known code where the platform has no mapping', () => {
     expect(
-      translate({ command_type: 'apps.activate', requested_app_code: 'chrome' }, 'win32')
+      translate({ command_type: 'apps.activate', requested_app_code: 'chrome' }, 'linux')
     ).toMatchObject({
       ok: false,
       rejection: { failureStage: 'capability', errorCode: 'unsupported' }
@@ -298,10 +304,11 @@ describe('invocationFor', () => {
 })
 
 describe('app display names', () => {
-  it('has a name for every code on macOS and none elsewhere', () => {
+  it('has a name for every code on macOS and Windows and none elsewhere', () => {
     for (const code of APP_CODES) {
       expect(appDisplayNameFor(code, 'darwin')?.length).toBeGreaterThan(0)
-      expect(appDisplayNameFor(code, 'win32')).toBeUndefined()
+      expect(appDisplayNameFor(code, 'win32')?.length).toBeGreaterThan(0)
+      expect(appDisplayNameFor(code, 'linux')).toBeUndefined()
     }
   })
 })
