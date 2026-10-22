@@ -3,6 +3,8 @@ import type { ClientError, Result } from '../../shared/contracts/common'
 import { idempotencyKeyFor, newUlid } from '../connection/ids'
 import type { ServerClient, ServerResult } from '../connection/server-client'
 import { clientError } from '../connection/server-errors'
+import type { Synthesizer } from '../speech/remote-speech/server-synthesis'
+import type { Transcription } from '../speech/remote-speech/ports'
 import type { AssistantPort, AssistantReply, AssistantRespondOptions, TurnContext } from './ports'
 
 export interface ServerAssistantOptions {
@@ -14,6 +16,10 @@ export interface ServerAssistantOptions {
   random?(size: number): Uint8Array
   /** The longest the adapter itself waits for one answer; the conversation's own limit applies first. */
   maxWaitMs?: number
+  /** Turns an answer to a spoken request into audio. Without it, answers are text only. */
+  synthesizer?: Synthesizer
+  /** Whether answers are to be spoken right now (the device's setting). Read for each answer. */
+  speechEnabled?(): boolean
 }
 
 const ConversationResponse = z.looseObject({ conversation_id: z.string().min(1) })
@@ -21,6 +27,7 @@ const SubmitResponse = z.looseObject({ poll_after_ms: z.number().int().positive(
 const RequestStatusResponse = z.looseObject({
   processing_status: z.string(),
   error_code: z.string().nullable().optional(),
+  transcript: z.string().nullable().optional(),
   assistant_messages: z
     .array(z.looseObject({ content: z.string().nullable().optional() }))
     .optional(),
@@ -59,10 +66,15 @@ const defaultWait = (ms: number, signal?: AbortSignal) =>
     signal?.addEventListener('abort', done, { once: true })
   })
 
+/** What a request carries: the typed words, or one recorded utterance as a WAV file. */
+type Content = { kind: 'text'; text: string } | { kind: 'voice'; wav: Uint8Array }
+
 /**
- * The server answering what the user typed: it opens a server conversation per local one, submits
- * each input as a request and polls for the answer. Commands the server plans for this device are
- * not run here yet (that is the command poller's job), and voice is not sent: this carries text.
+ * The server answering what the user typed or said: it opens a server conversation per local one,
+ * submits each input as a request and polls for the answer. A spoken request goes up as audio under
+ * the turn's request ID; the server recognises it and answers in the same request, so the answer to
+ * that turn is waited for on that request and the recognised words are never submitted again.
+ * Commands the server plans for this device are the command poller's job, not this one's.
  *
  * The ID of the server conversation and of each server request live only in this object. A late
  * answer, after the conversation asked to stop, is simply not waited for.
@@ -70,6 +82,8 @@ const defaultWait = (ms: number, signal?: AbortSignal) =>
 export class ServerAssistant implements AssistantPort {
   private readonly conversations = new Map<string, Promise<Result<string>>>()
   private readonly requests = new Map<string, string>()
+  /** Turns whose request was submitted as audio, by `conversation:turn`. */
+  private readonly voiceTurns = new Set<string>()
   private readonly now: () => number
   private readonly wait: (ms: number, signal?: AbortSignal) => Promise<void>
   private readonly random: (size: number) => Uint8Array
@@ -90,9 +104,58 @@ export class ServerAssistant implements AssistantPort {
     const requestId = this.requestIdFor(turn)
     const started = this.now()
 
-    const submitted = await this.submit(turn.conversationId, requestId, text, signal)
+    // A spoken turn is already with the server; only its answer is left to wait for.
+    const voice = this.voiceTurns.has(turnKey(turn))
+    let hint: number | undefined
+    if (!voice) {
+      const submitted = await this.submit(
+        turn.conversationId,
+        requestId,
+        { kind: 'text', text },
+        signal
+      )
+      if (!submitted.ok) return submitted
+      hint = submitted.value
+    }
+    const answer = await this.awaitAnswer(requestId, hint, started, signal)
+    this.voiceTurns.delete(turnKey(turn))
+    if (!answer.ok || !voice) return answer
+    return { ok: true, value: await this.withSpeech(answer.value, signal) }
+  }
+
+  /**
+   * Sends one utterance as the turn's request and waits until the server has recognised it. The
+   * answer to the same request is then taken by `respond`. Empty means nothing intelligible was heard.
+   */
+  async transcribe(
+    turn: TurnContext,
+    wav: Uint8Array,
+    signal?: AbortSignal
+  ): Promise<Result<Transcription>> {
+    if (signal?.aborted) return failure(clientError('cancelled'))
+    const requestId = this.requestIdFor(turn)
+    const started = this.now()
+    const submitted = await this.submit(
+      turn.conversationId,
+      requestId,
+      { kind: 'voice', wav },
+      signal
+    )
     if (!submitted.ok) return submitted
-    return this.awaitAnswer(requestId, submitted.value, started, signal)
+    // From here on the server has this turn, even if recognition then fails.
+    this.voiceTurns.add(turnKey(turn))
+    this.trim(this.voiceTurns)
+    const heard = await this.awaitTranscript(requestId, submitted.value, started, signal)
+    if (!heard.ok || heard.value.status !== 'transcribed') this.voiceTurns.delete(turnKey(turn))
+    return heard
+  }
+
+  /** Spoken audio for an answer, when the device is set to speak. Never costs the answer itself. */
+  private async withSpeech(reply: AssistantReply, signal?: AbortSignal): Promise<AssistantReply> {
+    const { synthesizer, speechEnabled } = this.options
+    if (!synthesizer || !(speechEnabled?.() ?? true) || signal?.aborted) return reply
+    const audio = await synthesizer.synthesize(reply.text, signal)
+    return audio.ok ? { ...reply, audio: audio.value } : reply
   }
 
   // --- conversation ----------------------------------------------------------------------------
@@ -133,7 +196,7 @@ export class ServerAssistant implements AssistantPort {
   private async submit(
     localConversationId: string,
     requestId: string,
-    text: string,
+    content: Content,
     signal?: AbortSignal
   ): Promise<Result<number | undefined>> {
     let lost = 0
@@ -145,7 +208,19 @@ export class ServerAssistant implements AssistantPort {
       const result = await this.options.client.request({
         method: 'POST',
         path: `/conversations/${encodeURIComponent(conversation.value)}/messages`,
-        body: { request_id: requestId, input_method: 'text', content: text },
+        ...(content.kind === 'text'
+          ? { body: { request_id: requestId, input_method: 'text', content: content.text } }
+          : {
+              multipart: {
+                fields: { request_id: requestId, input_method: 'voice' },
+                file: {
+                  field: 'audio',
+                  filename: 'utterance.wav',
+                  mimeType: 'audio/wav',
+                  bytes: content.wav
+                }
+              }
+            }),
         response: SubmitResponse,
         ...signalOf(signal)
       })
@@ -219,6 +294,65 @@ export class ServerAssistant implements AssistantPort {
     }
   }
 
+  /** Polls the request until the server says what it heard, or that it heard nothing. */
+  private async awaitTranscript(
+    requestId: string,
+    hint: number | undefined,
+    started: number,
+    signal?: AbortSignal
+  ): Promise<Result<Transcription>> {
+    const maxWait = this.options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS
+    let delay = Math.min(Math.max(hint ?? POLL_MIN_MS, POLL_MIN_MS), POLL_MAX_MS)
+    let failures = 0
+    for (;;) {
+      await this.wait(delay, signal)
+      if (signal?.aborted) return failure(clientError('cancelled'))
+      if (this.now() - started > maxWait) return failure(clientError('expired'))
+
+      const result = await this.options.client.request({
+        method: 'GET',
+        path: `/requests/${encodeURIComponent(requestId)}`,
+        response: RequestStatusResponse,
+        ...signalOf(signal)
+      })
+      if (!result.ok) {
+        if (result.error.code === 'cancelled') return failure(result.error)
+        if (!this.transient(result.error)) return failure(result.error)
+        failures += 1
+        if (failures >= MAX_POLL_FAILURES) return failure(result.error)
+        delay = Math.min(
+          Math.max(delay * 2, result.detail.retryAfterMs ?? 0, POLL_MIN_MS),
+          BACKOFF_MAX_MS
+        )
+        continue
+      }
+      failures = 0
+      const heard = this.heard(result.value)
+      if (heard) return heard
+      delay = Math.min(delay + 100, POLL_MAX_MS)
+    }
+  }
+
+  /** What recognition came to, or null while the server is still working on it. */
+  private heard(status: RequestStatus): Result<Transcription> | null {
+    const text = (status.transcript ?? '').trim()
+    // The words are known as soon as recognition ends, while the answer is still being made.
+    if (text !== '') return { ok: true, value: { status: 'transcribed', text } }
+    switch (status.processing_status) {
+      case 'failed':
+        // Nothing intelligible is a normal outcome of speaking; the other codes are the service.
+        return status.error_code === 'SPEECH_NOT_RECOGNIZED'
+          ? { ok: true, value: { status: 'empty' } }
+          : failure(serverFailed())
+      case 'rejected':
+        return failure({ code: 'permission_denied', message: '이 요청은 처리할 수 없어요.' })
+      case 'success':
+        return { ok: true, value: { status: 'empty' } }
+      default:
+        return null
+    }
+  }
+
   private transient(error: ClientError): boolean {
     return (
       error.code === 'unavailable' || error.code === 'rate_limited' || error.code === 'internal'
@@ -263,7 +397,11 @@ export class ServerAssistant implements AssistantPort {
     return created
   }
 
-  private trim(map: Map<string, unknown>): void {
+  private trim(map: {
+    readonly size: number
+    keys(): IterableIterator<string>
+    delete(key: string): boolean
+  }): void {
     while (map.size > REMEMBERED) {
       const oldest = map.keys().next().value
       if (oldest === undefined) return
@@ -273,3 +411,5 @@ export class ServerAssistant implements AssistantPort {
 }
 
 const signalOf = (signal?: AbortSignal) => (signal ? { signal } : {})
+
+const turnKey = (turn: TurnContext): string => `${turn.conversationId}:${turn.requestId}`

@@ -37,6 +37,17 @@ export class FakeAuthServer {
   /** Process the next submit, then drop the connection without answering. */
   dropNextSubmitAnswer = false
   readonly conversationsMade: string[] = []
+  /** What recognition makes of the next spoken requests, in order; then `defaultTranscript`. */
+  transcripts: string[] = []
+  defaultTranscript = '크롬 열어줘'
+  /** What happens to recognition of the next spoken requests: it hears, hears nothing, or breaks. */
+  sttModes: ('ok' | 'empty' | 'error')[] = []
+  /** How long recognition takes, before the transcript can be read; the answer takes `processingMs`. */
+  sttMs = 40
+  readonly voiceUploads: { requestId: string; bytes: number; filename: string }[] = []
+  readonly ttsTexts: string[] = []
+  /** Answers for the next speech syntheses: a status code, or 'ok'. */
+  ttsFaults: (number | 'ok')[] = []
   /** Commands the server has for the device, in order. A command with a stored result is not pending. */
   readonly commands: {
     command_id: number
@@ -57,7 +68,12 @@ export class FakeAuthServer {
   private conversationKeys = new Map<string, string>()
   private serverRequests = new Map<
     string,
-    { conversation: string; content: string; doneAt: number }
+    {
+      conversation: string
+      content: string
+      doneAt: number
+      voice?: { transcript: string; mode: 'ok' | 'empty' | 'error'; sttAt: number }
+    }
   >()
   private sessions: {
     id: string
@@ -80,8 +96,17 @@ export class FakeAuthServer {
     return this.calls.filter((call) => call.path === path).length
   }
 
-  handle(request: IncomingMessage, response: ServerResponse, raw: string): void {
-    const body = raw === '' ? null : (JSON.parse(raw) as Record<string, unknown>)
+  handle(
+    request: IncomingMessage,
+    response: ServerResponse,
+    raw: string,
+    bytes: Buffer = Buffer.from(raw)
+  ): void {
+    const contentType = String(request.headers['content-type'] ?? '')
+    const multipart = contentType.startsWith('multipart/form-data')
+      ? parseMultipart(bytes, contentType)
+      : null
+    const body = raw === '' || multipart ? null : (JSON.parse(raw) as Record<string, unknown>)
     const path = (request.url ?? '').replace('/api/v1', '')
     this.calls.push({
       method: request.method ?? '',
@@ -185,19 +210,49 @@ export class FakeAuthServer {
       if (!valid) return error(401, 'INVALID_SESSION')
       const conversation = decodeURIComponent(messages[1]!)
       if (!this.conversationsMade.includes(conversation)) return error(404, 'RESOURCE_NOT_FOUND')
-      const requestId = String(body?.request_id)
+      let voiceBytes: Buffer | null = null
+      if (multipart) {
+        // The server's own checks on an uploaded utterance.
+        const upload = multipart.files.find((file) => file.name === 'audio')
+        if (
+          typeof multipart.fields.request_id !== 'string' ||
+          multipart.fields.input_method !== 'voice' ||
+          !upload
+        )
+          return error(422, 'VALIDATION_ERROR')
+        if (upload.bytes.length > 700_000) return error(413, 'AUDIO_TOO_LARGE')
+        const format = wavFormat(upload.bytes)
+        if (!format) return error(422, 'UNSUPPORTED_AUDIO_FORMAT')
+        if (format.seconds < 0.1 || format.seconds > 20) return error(422, 'VALIDATION_ERROR')
+        voiceBytes = upload.bytes
+        this.voiceUploads.push({
+          requestId: multipart.fields.request_id,
+          bytes: upload.bytes.length,
+          filename: upload.filename
+        })
+      }
+      const requestId = String(multipart ? multipart.fields.request_id : body?.request_id)
       const existing = this.serverRequests.get(requestId)
       if (!existing) {
         const busy = [...this.serverRequests.values()].some(
           (other) => other.conversation === conversation && other.doneAt > Date.now()
         )
         if (busy) return error(409, 'CONVERSATION_BUSY')
+        const voice = voiceBytes
+          ? {
+              transcript: this.transcripts.shift() ?? this.defaultTranscript,
+              mode: this.sttModes.shift() ?? 'ok',
+              sttAt: Date.now() + this.sttMs
+            }
+          : undefined
+        const content = voice ? voice.transcript : String(body?.content)
         this.serverRequests.set(requestId, {
           conversation,
-          content: String(body?.content),
-          doneAt: Date.now() + this.processingMs
+          content,
+          doneAt: Date.now() + this.processingMs,
+          ...(voice ? { voice } : {})
         })
-        this.processed.push({ requestId, content: String(body?.content) })
+        this.processed.push({ requestId, content })
         if (this.dropNextSubmitAnswer) {
           this.dropNextSubmitAnswer = false
           return void request.socket.destroy()
@@ -216,12 +271,25 @@ export class FakeAuthServer {
       if (!valid) return error(401, 'INVALID_SESSION')
       const found = this.serverRequests.get(decodeURIComponent(requestStatus[1]!))
       if (!found) return error(404, 'RESOURCE_NOT_FOUND')
+      // Recognition always ends before the answer does, as on the real server.
+      const heard =
+        found.voice &&
+        found.voice.mode === 'ok' &&
+        (Date.now() >= found.voice.sttAt || Date.now() >= found.doneAt)
       const base = {
         request_id: decodeURIComponent(requestStatus[1]!),
         conversation_id: found.conversation,
-        transcript: null,
+        transcript: heard ? found.voice!.transcript : null,
         recommendation: null
       }
+      if (found.voice && found.voice.mode !== 'ok' && Date.now() >= found.voice.sttAt)
+        return send(200, {
+          ...base,
+          processing_status: 'failed',
+          error_code: found.voice.mode === 'empty' ? 'SPEECH_NOT_RECOGNIZED' : 'STT_FAILED',
+          assistant_messages: [],
+          commands: []
+        })
       if (Date.now() < found.doneAt)
         return send(200, {
           ...base,
@@ -308,6 +376,18 @@ export class FakeAuthServer {
         activity_recorded: false
       })
     }
+    if (path === '/speech/syntheses' && request.method === 'POST') {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      const fault = this.ttsFaults.shift()
+      if (typeof fault === 'number') return error(fault, 'UPSTREAM_ERROR')
+      const text = String(body?.text ?? '').trim()
+      if (text === '' || [...text].length > 300) return error(422, 'VALIDATION_ERROR')
+      this.ttsTexts.push(text)
+      response.writeHead(200, { 'content-type': 'audio/mpeg', 'cache-control': 'no-store' })
+      return void response.end(
+        Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0xff, 0xfb])
+      )
+    }
     if (path === '/auth/logout') {
       if (!valid) return error(401, 'INVALID_SESSION')
       session.revoked = true
@@ -346,9 +426,12 @@ const running: Server[] = []
 /** A real server on this machine for the fake to answer from, so requests cross the network stack. */
 export async function startFakeServer(fake = new FakeAuthServer()) {
   const server = createServer((request, response) => {
-    let raw = ''
-    request.on('data', (chunk) => (raw += chunk))
-    request.on('end', () => fake.handle(request, response, raw))
+    const chunks: Buffer[] = []
+    request.on('data', (chunk: Buffer) => chunks.push(chunk))
+    request.on('end', () => {
+      const bytes = Buffer.concat(chunks)
+      fake.handle(request, response, bytes.toString('utf8'), bytes)
+    })
   })
   running.push(server)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -366,4 +449,50 @@ export async function stopServer(server: Server): Promise<void> {
 /** For `afterEach`: closes whatever `startFakeServer` started. */
 export async function stopAllFakeServers(): Promise<void> {
   await Promise.all(running.splice(0).map(stopServer))
+}
+
+/** The parts of a `multipart/form-data` body: text fields and files with their bytes. */
+export function parseMultipart(
+  bytes: Buffer,
+  contentType: string
+): { fields: Record<string, string>; files: { name: string; filename: string; bytes: Buffer }[] } {
+  const boundary = /boundary=(?:"([^"]+)"|([^;]+))/.exec(contentType)
+  const marker = Buffer.from(`--${boundary?.[1] ?? boundary?.[2] ?? ''}`)
+  const fields: Record<string, string> = {}
+  const files: { name: string; filename: string; bytes: Buffer }[] = []
+  let position = bytes.indexOf(marker)
+  while (position >= 0) {
+    const start = position + marker.length
+    const next = bytes.indexOf(marker, start)
+    if (next < 0) break
+    // Skip the line break after the boundary, and the one before the next.
+    const part = bytes.subarray(start + 2, next - 2)
+    const split = part.indexOf('\r\n\r\n')
+    const head = part.subarray(0, split).toString('utf8')
+    const content = part.subarray(split + 4)
+    const name = /name="([^"]*)"/.exec(head)?.[1] ?? ''
+    const filename = /filename="([^"]*)"/.exec(head)?.[1]
+    if (filename !== undefined) files.push({ name, filename, bytes: Buffer.from(content) })
+    else fields[name] = content.toString('utf8')
+    position = next
+  }
+  return { fields, files }
+}
+
+/** Sample format and length of a 16-bit PCM WAV file, or null for anything the server refuses. */
+export function wavFormat(bytes: Buffer): { seconds: number } | null {
+  if (
+    bytes.length < 44 ||
+    bytes.toString('ascii', 0, 4) !== 'RIFF' ||
+    bytes.toString('ascii', 8, 12) !== 'WAVE'
+  )
+    return null
+  const compression = bytes.readUInt16LE(20)
+  const channels = bytes.readUInt16LE(22)
+  const rate = bytes.readUInt32LE(24)
+  const bits = bytes.readUInt16LE(34)
+  const dataBytes = bytes.readUInt32LE(40)
+  if (compression !== 1 || channels !== 1 || rate !== 16_000 || bits !== 16) return null
+  if (bytes.toString('ascii', 36, 40) !== 'data' || dataBytes > bytes.length - 44) return null
+  return { seconds: dataBytes / 2 / rate }
 }

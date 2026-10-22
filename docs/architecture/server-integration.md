@@ -131,9 +131,19 @@ F-034([#72](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/72))에서 
 - 수명: 로그인하면 시작하고 로그아웃·세션 종료 시 멈추며 실행 중인 명령은 취소한다. 같은 사용자에게 다시 시작을 요청해도 실행 중인 명령을 건드리지 않는다. 다른 계정이 로그인하면 이전 사용자의 저널 기록을 지운다. 멈춘 동안 만든 결과는 저널에 남아 같은 사용자가 다시 로그인하면 보낸다.
 - 실행 결과를 화면에 보여 주는 것과 `apps.list`·`system.status` 값 보고, `activity` 보고는 아직 없다.
 
+### 구현 현황: 음성 연동
+
+F-035([#74](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/74))에서 서버 모드의 음성을 연결했다(`src/main/speech/remote-speech/server-speech.ts`·`server-synthesis.ts`·`wav.ts`, `ServerAssistant`의 음성 부분). 서버 주소가 유효하면 개발용 대역(`JARVIS_DEV_SPEECH=1`)이 없는 한 `RemoteSpeechPort`와 `AssistantPort`가 모두 서버로 연결된다. 실제 서버와의 통합은 아직 확인하지 못했다.
+
+- 올리기: 완료된 발화(PCM)에 44바이트 WAV 헤더를 붙여(16kHz·모노·16비트) 그 턴의 요청 ID로 `POST /conversations/{id}/messages`(멀티파트, `input_method=voice`)에 한 번 올린다. 서버가 받지 않을 형식·길이(0.1~20초, 700,000바이트 이하)는 올리지 않고 "듣지 못함"으로 처리한다. 응답이 유실되면 같은 요청 ID와 같은 음성으로 다시 보내며 음성은 저장하지 않는다.
+- 인식: 같은 요청을 폴링해 `transcript`가 나오면 문장으로 쓴다. 서버는 인식이 끝나면 응답을 만드는 중에도 `transcript`를 주므로 응답 전에 문장을 보여 줄 수 있다. `SPEECH_NOT_RECOGNIZED`와 빈 결과는 "듣지 못함"(다시 말하기), 다른 인식 오류(`STT_FAILED`·`STT_UNAVAILABLE`)는 서버 문구 없이 "서버 처리 실패"다.
+- 응답: 인식된 문장을 대화에 넘기되 서버에는 다시 제출하지 않는다. 같은 턴의 응답은 올린 요청에서 이어서 기다린다(그래서 인식과 응답을 한 어댑터가 맡는다).
+- 읽어 주기: 음성으로 들어온 요청의 응답만, 기기의 음성 응답 설정이 켜져 있을 때 `POST /speech/syntheses`로 MP3(`audio/mpeg`)를 받아 재생한다. 서버가 300자까지만 읽으므로 그보다 길면 300자 안의 마지막 온전한 문장(`.`·`!`·`?`·`。`·줄바꿈)까지만 읽고, 그런 끝이 앞쪽 3분의 1 안에만 있으면 300자에서 자른다. 화면에는 항상 전체를 보여 준다. 음성을 만들지 못하면 글 응답만 보여 주고 오류로 알리지 않는다. 글로 입력한 요청은 읽지 않는다.
+- 클라이언트: `ServerClient`가 멀티파트 업로드와 바이너리 응답(`requestBytes`, 요청 단위 크기 한도)을 다룬다. 토큰 갱신·오류 분류는 JSON 요청과 같다.
+
 ### 구현 현황: 대화·요청 어댑터
 
-F-030([#62](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/62))에서 글 입력 대화의 서버 어댑터(`src/main/conversation/server-assistant.ts`)를 구현했다. 서버 주소가 유효하고 `JARVIS_DEV_SPEECH=1`이 아니면 `AssistantPort`로 선택된다(개발용 대역이 우선, 서버가 없으면 연결 불가). 음성 입력은 아직 서버로 보내지 않는다(음성 포트는 연결 불가 유지). 서버가 계획한 명령은 이 어댑터가 아니라 [명령 폴러](#구현-현황-명령-폴러와-결과-보고)가 받아 실행한다. 실제 서버와의 통합은 아직 확인하지 못했다.
+F-030([#62](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/62))에서 글 입력 대화의 서버 어댑터(`src/main/conversation/server-assistant.ts`)를 구현했다. 서버 주소가 유효하고 `JARVIS_DEV_SPEECH=1`이 아니면 `AssistantPort`로 선택된다(개발용 대역이 우선, 서버가 없으면 연결 불가). 음성 입력은 [음성 연동](#구현-현황-음성-연동)이 같은 어댑터로 처리한다. 서버가 계획한 명령은 이 어댑터가 아니라 [명령 폴러](#구현-현황-명령-폴러와-결과-보고)가 받아 실행한다. 실제 서버와의 통합은 아직 확인하지 못했다.
 
 - 서버 대화는 로컬 대화마다 한 번만 만든다(`POST /conversations`, 로컬 대화 ID에서 만든 `Idempotency-Key`). 응답이 유실되면 같은 키로 다시 보낸다. 서버 대화 ID와 요청 ID는 어댑터 안에서만 쓴다.
 - 입력은 `POST /conversations/{conversation_id}/messages`(`request_id`는 `req_` + ULID 26자, `input_method=text`)로 제출한다. 요청 ID는 턴마다 한 번 만들고 모든 시도에 같은 값을 쓴다. 응답이 유실되면 같은 ID와 본문으로 최대 2번 다시 보내고(서버가 멱등 처리), `CONVERSATION_BUSY`는 1초씩 기다려 최대 5번 다시 보내며, 서버 대화가 없어졌으면(404) 새로 만들어 한 번만 다시 시도한다.

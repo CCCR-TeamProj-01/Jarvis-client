@@ -603,3 +603,158 @@ describe('keeping the access token good', () => {
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('uploading a file', () => {
+  const upload = {
+    fields: { request_id: 'req_1', input_method: 'voice' },
+    file: {
+      field: 'audio',
+      filename: 'utterance.wav',
+      mimeType: 'audio/wav',
+      bytes: new Uint8Array([1, 2, 3, 4])
+    }
+  }
+
+  it('sends the fields and the file as a form, leaving the content type to the form', async () => {
+    const { client, fetch } = setup(() => json({ ok: true }, { status: 202 }))
+    const result = await client.request({
+      method: 'POST',
+      path: '/conversations/c1/messages',
+      multipart: upload,
+      response: z.looseObject({ ok: z.boolean() })
+    })
+    expect(result.ok).toBe(true)
+    const init = fetch.mock.calls[0]![1]
+    expect(init.body).toBeInstanceOf(FormData)
+    const form = init.body as FormData
+    expect(form.get('request_id')).toBe('req_1')
+    expect(form.get('input_method')).toBe('voice')
+    const file = form.get('audio') as File
+    expect(file.name).toBe('utterance.wav')
+    expect(file.type).toBe('audio/wav')
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]))
+    const headers = init.headers as Record<string, string>
+    expect(headers['Content-Type']).toBeUndefined()
+    expect(headers.Authorization).toBe(`Bearer ${TOKEN}`)
+  })
+
+  it('refuses a request that has both a JSON body and a file, without sending it', async () => {
+    const { client, fetch } = setup(() => json({}))
+    const result = await client.request({
+      method: 'POST',
+      path: '/x',
+      body: { a: 1 },
+      multipart: upload,
+      response: z.unknown()
+    })
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_input' },
+      detail: { delivery: 'not_sent' }
+    })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('receiving a file', () => {
+  const audio = (bytes: number[], type = 'audio/mpeg') =>
+    new Response(new Uint8Array(bytes), { status: 200, headers: { 'content-type': type } })
+
+  it('returns the bytes and their media type, asking for that type', async () => {
+    const { client, fetch } = setup(() => audio([9, 8, 7]))
+    const result = await client.requestBytes({
+      method: 'POST',
+      path: '/speech/syntheses',
+      body: { text: '안녕' },
+      accept: 'audio/mpeg'
+    })
+    expect(result).toEqual({
+      ok: true,
+      value: { bytes: new Uint8Array([9, 8, 7]), mimeType: 'audio/mpeg' },
+      status: 200
+    })
+    expect((fetch.mock.calls[0]![1].headers as Record<string, string>).Accept).toBe('audio/mpeg')
+  })
+
+  it('takes a media type with parameters', async () => {
+    const { client } = setup(() => audio([1], 'Audio/MPEG; charset=binary'))
+    expect(
+      await client.requestBytes({ method: 'GET', path: '/x', accept: 'audio/mpeg' })
+    ).toMatchObject({ ok: true, value: { mimeType: 'audio/mpeg' } })
+  })
+
+  it('refuses another media type and an empty answer', async () => {
+    for (const response of [
+      audio([1, 2], 'application/json'),
+      audio([1], 'text/html'),
+      audio([])
+    ]) {
+      const { client } = setup(() => response)
+      expect(
+        await client.requestBytes({ method: 'GET', path: '/x', accept: 'audio/mpeg' })
+      ).toMatchObject({ ok: false, error: { code: 'internal' } })
+    }
+  })
+
+  it('refuses an answer larger than the limit for that request', async () => {
+    const { client } = setup(() => audio(new Array(2000).fill(1)))
+    expect(
+      await client.requestBytes({
+        method: 'GET',
+        path: '/x',
+        accept: 'audio/mpeg',
+        maxResponseBytes: 1000
+      })
+    ).toMatchObject({ ok: false, error: { code: 'internal' } })
+  })
+
+  it('allows a larger answer where the request says so', async () => {
+    const { client } = setup(() => audio(new Array(2000).fill(1)), { maxResponseBytes: 1000 })
+    expect(
+      await client.requestBytes({
+        method: 'GET',
+        path: '/x',
+        accept: 'audio/mpeg',
+        maxResponseBytes: 5000
+      })
+    ).toMatchObject({ ok: true })
+  })
+
+  it('reads an error as an error, whatever was asked for', async () => {
+    const { client } = setup(
+      () =>
+        new Response(JSON.stringify({ error: { code: 'UPSTREAM_ERROR', message: 'x' } }), {
+          status: 502,
+          headers: { 'content-type': 'application/json' }
+        })
+    )
+    expect(
+      await client.requestBytes({ method: 'POST', path: '/x', accept: 'audio/mpeg' })
+    ).toMatchObject({ ok: false, error: { code: 'unavailable' }, detail: { status: 502 } })
+  })
+
+  it('renews the session once on a refused token, like any other request', async () => {
+    let calls = 0
+    const fetch = vi.fn<FetchLike>(async () => {
+      calls += 1
+      return calls === 1
+        ? new Response(JSON.stringify({ error: { code: 'INVALID_SESSION', message: 'x' } }), {
+            status: 401,
+            headers: { 'content-type': 'application/json' }
+          })
+        : audio([5])
+    })
+    const renew = vi.fn<() => Promise<boolean>>(async () => true)
+    const client = new ServerClient({
+      baseUrl: BASE,
+      fetch,
+      accessToken: () => TOKEN,
+      renewAccessToken: renew
+    })
+    expect(
+      await client.requestBytes({ method: 'POST', path: '/x', accept: 'audio/mpeg' })
+    ).toMatchObject({ ok: true })
+    expect(renew).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+})

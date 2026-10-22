@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MediaAudioPlayback } from '../../src/main/speech/playback'
 import { DevRemoteSpeech } from '../../src/main/speech/remote-speech/dev-remote-speech'
+import { ServerClient } from '../../src/main/connection/server-client'
+import { ServerAssistant } from '../../src/main/conversation/server-assistant'
+import { ServerSpeech } from '../../src/main/speech/remote-speech/server-speech'
 import { createRemoteSpeech } from '../../src/main/speech/remote-speech/create-remote-speech'
 import { createToneWav } from '../../src/main/speech/remote-speech/tone'
 import {
@@ -264,6 +267,29 @@ describe('server stand-in', () => {
       ok: false,
       error: { code: 'cancelled' }
     })
+  })
+
+  it('uses the server for both speech and answers when there is one, even in a packaged app', () => {
+    const api = new ServerClient({
+      baseUrl: 'http://127.0.0.1:1/api/v1',
+      fetch,
+      accessToken: () => null
+    })
+    for (const isPackaged of [false, true]) {
+      const choice = createRemoteSpeech({ isPackaged, env: {}, api })
+      expect(choice.speech).toBeInstanceOf(ServerSpeech)
+      expect(choice.assistant).toBeInstanceOf(ServerAssistant)
+    }
+  })
+
+  it('prefers the development stand-in to a server when asked for', () => {
+    const api = new ServerClient({
+      baseUrl: 'http://127.0.0.1:1/api/v1',
+      fetch,
+      accessToken: () => null
+    })
+    const choice = createRemoteSpeech({ isPackaged: false, env: { JARVIS_DEV_SPEECH: '1' }, api })
+    expect(choice.speech).toBeInstanceOf(DevRemoteSpeech)
   })
 
   it('is chosen only for an unpackaged app that asks for it', async () => {

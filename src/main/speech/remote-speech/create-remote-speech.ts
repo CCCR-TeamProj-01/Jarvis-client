@@ -3,6 +3,8 @@ import type { RemoteSpeechPort } from './ports'
 import type { AssistantPort } from '../../conversation/ports'
 import { ServerAssistant } from '../../conversation/server-assistant'
 import type { ServerClient } from '../../connection/server-client'
+import { ServerSpeech } from './server-speech'
+import { ServerSynthesizer } from './server-synthesis'
 import { unavailableAssistant, unavailableRemoteSpeech } from './unavailable-remote-speech'
 
 interface Selection {
@@ -10,14 +12,21 @@ interface Selection {
   env: Readonly<Record<string, string | undefined>>
   /** The client for server calls; null when there is no usable server. */
   api?: ServerClient | null
+  /** Whether answers to spoken requests are to be read aloud (the device's setting). */
+  speechOutputEnabled?(): boolean
 }
 
 /**
  * The stand-in needs an unpackaged app and an explicit JARVIS_DEV_SPEECH=1, and wins over a
- * server so that choosing it is always deliberate. With a server, typed input is answered by it;
- * recognising speech there is not connected yet, so the speech side stays unreachable.
+ * server so that choosing it is always deliberate. With a server, typed and spoken input are both
+ * answered by it.
  */
-export function createRemoteSpeech({ isPackaged, env, api = null }: Selection): {
+export function createRemoteSpeech({
+  isPackaged,
+  env,
+  api = null,
+  speechOutputEnabled
+}: Selection): {
   speech: RemoteSpeechPort
   assistant: AssistantPort
 } {
@@ -28,7 +37,14 @@ export function createRemoteSpeech({ isPackaged, env, api = null }: Selection): 
     })
     return { speech: server, assistant: server }
   }
-  if (api)
-    return { speech: unavailableRemoteSpeech, assistant: new ServerAssistant({ client: api }) }
+  if (api) {
+    // One adapter holds both, because a spoken request and its answer are the same server request.
+    const assistant = new ServerAssistant({
+      client: api,
+      synthesizer: new ServerSynthesizer(api),
+      ...(speechOutputEnabled ? { speechEnabled: speechOutputEnabled } : {})
+    })
+    return { speech: new ServerSpeech(assistant), assistant }
+  }
   return { speech: unavailableRemoteSpeech, assistant: unavailableAssistant }
 }
