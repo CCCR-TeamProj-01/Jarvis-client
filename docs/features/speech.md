@@ -112,7 +112,7 @@ F-015([#16](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/16))에서 
 - VAD 정책(`VadPolicy`)은 세션이 주입한다. 기본값은 측정 전 잠정값이다: 시작 대기 6초, 종료 무음 700 ms, 최대 발화 15초, 사전 구간 300 ms, 최소 발화 150 ms. 오디오 처리 제약(에코 제거·잡음 억제·자동 이득)은 브라우저 기본값이며 실기기 측정 후 정한다.
 - 발화 하나가 끝나면 VAD는 종료된다. 다음 발화는 새로 시작한다(후속 발화는 세션이 다시 `listen()`을 호출).
 - 모델은 저장소에 없다. `pnpm models:fetch`가 `resources/models/`에 내려받아 해시를 검증하고, 패키징은 `resources/models/*.onnx`를 포함한다.
-- 개발용: 패키징되지 않은 앱에서 `JARVIS_FAKE_MEDIA=1`과 `JARVIS_FAKE_AUDIO_FILE=<wav>`로 파일을 마이크 입력으로 쓰고, `JARVIS_VOICE_SELFTEST=<횟수>`로 로그인 후 그 횟수만큼 `listen()`한 결과(오디오 제외)를 `VOICE_SELFTEST` 줄로 출력한다. 가짜 마이크는 사용권을 다시 열 때마다 파일을 처음부터 재생한다.
+- 개발용: 패키징되지 않은 앱에서 `JARVIS_FAKE_MEDIA=1`과 `JARVIS_FAKE_AUDIO_FILE=<wav>`로 파일을 마이크 입력으로 쓰고, `JARVIS_VOICE_SELFTEST=<횟수>`로 로그인 후 그 횟수만큼 `listen()`한 결과(오디오 제외)를 `VOICE_SELFTEST` 줄로 출력한다. 가짜 마이크는 사용권을 다시 열 때마다 파일을 처음부터 재생한다. 이 Electron/macOS에서는 오디오 서비스의 샌드박스가 파일을 읽지 못해 `Failed to read … Try disabling the sandbox`가 나올 수 있다. 그때는 개발 실행에 한해 `--no-sandbox`를 붙인다(보안 약화이므로 이 확인에만 쓴다). 파일은 16kHz 모노 16비트 WAV여야 하고 `LIST` 같은 부가 청크가 없는 편이 안전하다.
 
 ## 호출어 감지 구현과 검증
 

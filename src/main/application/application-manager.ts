@@ -150,7 +150,9 @@ export class ApplicationManager {
     const server = createRemoteSpeech({
       isPackaged: app.isPackaged,
       env: process.env,
-      api: login.api
+      api: login.api,
+      speechOutputEnabled: () =>
+        this.localState.getSnapshot()?.settings.speechOutputEnabled ?? false
     })
     this.conversation = new ConversationManager({
       gate: sensorGate,

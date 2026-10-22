@@ -27,19 +27,43 @@ export type FetchLike = (input: string, init: RequestInit) => Promise<Response>
 /** For a call whose success carries no body (204). */
 export const EmptyResponse = z.undefined()
 
-export interface ServerRequest<T> {
+/** One file sent with a few text fields, as a browser form would. */
+export interface MultipartBody {
+  fields: Readonly<Record<string, string>>
+  file: { field: string; filename: string; mimeType: string; bytes: Uint8Array }
+}
+
+interface RequestBase {
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE'
   /** A fixed path such as `/auth/login`. IDs inside it must already be encoded. */
   path: string
   query?: Readonly<Record<string, string | number | boolean | undefined>>
+  /** A JSON body. Not together with `multipart`. */
   body?: unknown
+  multipart?: MultipartBody
   idempotencyKey?: string
   /** Defaults to `bearer`. */
   auth?: 'bearer' | 'none'
-  /** Validates a successful body; use `EmptyResponse` when there is none. */
-  response: z.ZodType<T>
   signal?: AbortSignal
   timeoutMs?: number
+  /** The largest answer taken, in bytes. Defaults to the client's limit. */
+  maxResponseBytes?: number
+}
+
+export interface ServerRequest<T> extends RequestBase {
+  /** Validates a successful body; use `EmptyResponse` when there is none. */
+  response: z.ZodType<T>
+}
+
+/** A request whose successful answer is a file (audio), not JSON. */
+export interface ServerBytesRequest extends RequestBase {
+  /** The media type asked for and required back, such as `audio/mpeg`. */
+  accept: string
+}
+
+export interface ServerBytes {
+  bytes: Uint8Array
+  mimeType: string
 }
 
 export interface ServerClientOptions {
@@ -143,17 +167,37 @@ export class ServerClient {
   }
 
   async request<T>(request: ServerRequest<T>): Promise<ServerResult<T>> {
-    const first = await this.attempt(request)
+    const parse: Parse<T> = (status, response, bytes, responded) =>
+      this.success(request.response, status, response, decodeText(bytes), responded)
+    return this.withRenewal(request, () => this.attempt(request, parse))
+  }
+
+  /** Like `request`, for an answer that is a file. The media type must be the one asked for. */
+  async requestBytes(request: ServerBytesRequest): Promise<ServerResult<ServerBytes>> {
+    const parse: Parse<ServerBytes> = (status, response, bytes, responded) => {
+      const type = (response.headers.get('content-type') ?? '').toLowerCase().split(';')[0]!.trim()
+      if (type !== request.accept.toLowerCase() || bytes.byteLength === 0)
+        return failure(clientError('internal'), responded)
+      return { ok: true, value: { bytes, mimeType: type }, status }
+    }
+    return this.withRenewal(request, () => this.attempt(request, parse))
+  }
+
+  private async withRenewal<T>(
+    request: RequestBase,
+    run: () => Promise<ServerResult<T>>
+  ): Promise<ServerResult<T>> {
+    const first = await run()
     if (first.ok || !this.options.renewAccessToken) return first
     if ((request.auth ?? 'bearer') !== 'bearer') return first
     // A refused session is retried once, after renewing; never in a loop and never after a cancel.
     if (first.detail.status !== 401 || first.error.code !== 'session_expired') return first
     if (request.signal?.aborted) return first
     if (!(await this.options.renewAccessToken())) return first
-    return this.attempt(request)
+    return run()
   }
 
-  private async attempt<T>(request: ServerRequest<T>): Promise<ServerResult<T>> {
+  private async attempt<T>(request: RequestBase, parse: Parse<T>): Promise<ServerResult<T>> {
     const prepared = await this.prepare(request)
     if (!prepared.ok) return prepared
     if (request.signal?.aborted) return failure(clientError('cancelled'), { delivery: 'not_sent' })
@@ -184,7 +228,7 @@ export class ServerClient {
 
     const body = await readBody(
       response,
-      this.options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES
+      request.maxResponseBytes ?? this.options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES
     )
     if (!body.ok) {
       if (request.signal?.aborted) return failure(clientError('cancelled'), responded)
@@ -194,15 +238,14 @@ export class ServerClient {
       )
     }
 
-    if (status >= 200 && status < 300)
-      return this.success(request.response, status, response, body.text, responded)
-    return failure(...this.failureFrom(status, response, body.text))
+    if (status >= 200 && status < 300) return parse(status, response, body.bytes, responded)
+    return failure(...this.failureFrom(status, response, decodeText(body.bytes)))
   }
 
   // --- internals -------------------------------------------------------------------------------
 
-  private async prepare<T>(
-    request: ServerRequest<T>
+  private async prepare(
+    request: RequestBase & { accept?: string }
   ): Promise<
     | { ok: true; url: string; init: RequestInit }
     | { ok: false; error: ClientError; detail: ServerErrorDetail }
@@ -223,7 +266,7 @@ export class ServerClient {
     for (const [key, value] of Object.entries(request.query ?? {}))
       if (value !== undefined) url.searchParams.set(key, String(value))
 
-    const headers: Record<string, string> = { Accept: 'application/json' }
+    const headers: Record<string, string> = { Accept: request.accept ?? 'application/json' }
     if ((request.auth ?? 'bearer') === 'bearer') {
       const token = await this.options.accessToken()
       if (token === null || !TOKEN.test(token)) return refuse('authentication_required')
@@ -231,7 +274,9 @@ export class ServerClient {
     }
     if (request.idempotencyKey !== undefined) headers['Idempotency-Key'] = request.idempotencyKey
 
-    let body: string | undefined
+    let body: string | FormData | undefined
+    if (request.body !== undefined && request.multipart !== undefined)
+      return refuse('invalid_input')
     if (request.body !== undefined) {
       try {
         body = JSON.stringify(request.body)
@@ -239,6 +284,13 @@ export class ServerClient {
         return refuse('invalid_input')
       }
       headers['Content-Type'] = 'application/json'
+    } else if (request.multipart !== undefined) {
+      // No Content-Type here: the boundary is chosen, and the header set, when the form is sent.
+      const form = new FormData()
+      for (const [name, value] of Object.entries(request.multipart.fields)) form.append(name, value)
+      const { field, filename, mimeType, bytes } = request.multipart.file
+      form.append(field, new Blob([bytes as BlobPart], { type: mimeType }), filename)
+      body = form
     }
     return {
       ok: true,
@@ -325,16 +377,25 @@ async function discard(response: Response): Promise<void> {
   }
 }
 
+type Parse<T> = (
+  status: number,
+  response: Response,
+  bytes: Uint8Array,
+  responded: ServerErrorDetail
+) => ServerResult<T>
+
+const decodeText = (bytes: Uint8Array): string => new TextDecoder().decode(bytes)
+
 async function readBody(
   response: Response,
   maxBytes: number
-): Promise<{ ok: true; text: string } | { ok: false; reason: 'too_large' | 'failed' }> {
+): Promise<{ ok: true; bytes: Uint8Array } | { ok: false; reason: 'too_large' | 'failed' }> {
   const declared = Number(response.headers.get('content-length'))
   if (Number.isFinite(declared) && declared > maxBytes) {
     await discard(response)
     return { ok: false, reason: 'too_large' }
   }
-  if (!response.body) return { ok: true, text: '' }
+  if (!response.body) return { ok: true, bytes: new Uint8Array() }
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
   let total = 0
@@ -352,5 +413,5 @@ async function readBody(
   } catch {
     return { ok: false, reason: 'failed' }
   }
-  return { ok: true, text: new TextDecoder().decode(Buffer.concat(chunks)) }
+  return { ok: true, bytes: new Uint8Array(Buffer.concat(chunks)) }
 }
