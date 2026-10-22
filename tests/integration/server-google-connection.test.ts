@@ -13,6 +13,11 @@ import { waitUntil } from '../helpers/wait'
 
 const FRESH = { pollMs: 15, syncWaitMs: 400 }
 const NOW = () => Date.now()
+/**
+ * What the calendar takes for "now". Fixed, because the stand-in's Google events are on the 22nd and
+ * the calendar opens on today; the connection itself runs on the real clock.
+ */
+const CALENDAR_NOW = Date.parse('2026-10-22T03:00:00Z')
 
 const created: { stop(): void }[] = []
 afterEach(async () => {
@@ -29,7 +34,10 @@ async function googleApp(options: { naiveTimes?: boolean } = {}) {
   const google = new FakeGoogleConnections(store)
   app.fake.google = google
   created.push(google)
-  const calendar = new CalendarService({ api: new CalendarApi(app.api), now: NOW })
+  const calendar = new CalendarService({
+    api: new CalendarApi(app.api),
+    now: () => CALENDAR_NOW
+  })
   const opened: string[] = []
   const service = new GoogleConnectionService({
     api: new GoogleConnectionApi(app.api),
