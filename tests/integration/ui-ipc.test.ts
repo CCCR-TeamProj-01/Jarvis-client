@@ -90,6 +90,7 @@ describe('implemented UI IPC boundary', () => {
       'calendar',
       'dispatch',
       'getSnapshot',
+      'google',
       'platform',
       'subscribe'
     ])

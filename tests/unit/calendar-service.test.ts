@@ -246,6 +246,37 @@ describe('reading the calendar', () => {
   })
 })
 
+describe('reading again for a change from elsewhere', () => {
+  it('reads the view being shown again', async () => {
+    const t = setup()
+    t.service.start('u1')
+    await t.service.navigate('tomorrow')
+    t.asked.length = 0
+    t.reads.push(async () => answer([meeting]))
+    await t.service.refreshIfShown()
+    expect(t.asked).toHaveLength(1)
+    expect(t.service.getSnapshot()).toMatchObject({
+      status: 'ready',
+      view: { startDate: '2026-10-23' }
+    })
+  })
+
+  it('does nothing before the calendar has been opened, so it does not pick a view for the user', async () => {
+    const t = setup()
+    t.service.start('u1')
+    await t.service.refreshIfShown()
+    expect(t.asked).toHaveLength(0)
+    expect(t.zoneCalls()).toBe(0)
+    expect(t.service.getSnapshot()).toMatchObject({ status: 'idle', view: null })
+  })
+
+  it('does nothing when nobody is signed in', async () => {
+    const t = setup()
+    await t.service.refreshIfShown()
+    expect(t.asked).toHaveLength(0)
+  })
+})
+
 describe('when reading fails', () => {
   it('says so, and does not show an empty calendar', async () => {
     const t = setup()

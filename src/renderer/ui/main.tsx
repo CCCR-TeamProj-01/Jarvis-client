@@ -6,6 +6,8 @@ import { CheckingPanel, SignInForm, SignUpForm } from './features/auth/auth-pane
 import { useAuth } from './features/auth/use-auth'
 import { CalendarView } from './features/calendar/calendar-view'
 import { useCalendar } from './features/calendar/use-calendar'
+import { GooglePanel } from './features/google/google-panel'
+import { useGoogleConnection } from './features/google/use-google-connection'
 import { ConversationView } from './features/conversation/conversation-view'
 import { StatusPanel } from './features/conversation/status-panel'
 import { GestureView } from './features/gesture/gesture-view'
@@ -29,6 +31,11 @@ function App(): React.JSX.Element {
     window.jarvis?.calendar,
     snapshot !== null && activeTab(snapshot) === 'calendar' && auth.snapshot?.phase === 'signed_in'
   )
+  const googleActive =
+    snapshot !== null &&
+    (activeTab(snapshot) === 'calendar' || activeTab(snapshot) === 'settings') &&
+    auth.snapshot?.phase === 'signed_in'
+  const google = useGoogleConnection(window.jarvis?.google, googleActive)
   const [prefillLoginId, setPrefillLoginId] = useState('')
   const [signedUpNotice, setSignedUpNotice] = useState(false)
   const windowMaterial = snapshot?.application.windowMaterial ?? 'opaque'
@@ -107,6 +114,8 @@ function App(): React.JSX.Element {
             onCreate={calendar.createEvent}
             onUpdate={calendar.updateEvent}
             onDelete={calendar.deleteEvent}
+            google={google.snapshot}
+            onOpenSettings={() => void dispatch({ type: 'screen.open', screen: 'settings' })}
           />
         )}
         {tab === 'gesture' && (
@@ -128,6 +137,14 @@ function App(): React.JSX.Element {
             toggleKeys={toggleKeys}
             onWakeWordChange={(enabled) =>
               void dispatch({ type: 'wake_word.set_enabled', enabled })
+            }
+            google={
+              <GooglePanel
+                snapshot={google.snapshot}
+                connectionError={google.error}
+                timeZone={calendar.snapshot?.timeZone ?? null}
+                onCommand={(action) => void google.command(action)}
+              />
             }
           />
         )}

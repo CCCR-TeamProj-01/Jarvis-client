@@ -1502,3 +1502,22 @@ kbd {
     animation: none;
   }
 }
+
+/* Google Calendar connection. */
+.google-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.google-actions .google-primary {
+  width: auto;
+  margin-top: 0;
+}
+.hint-block-info {
+  background: var(--color-info-surface);
+  color: var(--color-text-secondary);
+}
+.notice span {
+  flex: 1;
+}

@@ -13,6 +13,10 @@ import {
   CalendarUpdateEventRequestSchema
 } from '../shared/contracts/calendar'
 import type { Result } from '../shared/contracts/common'
+import {
+  GoogleCommandRequestSchema,
+  GoogleConnectionEventSchema
+} from '../shared/contracts/google-connection'
 import { UiCommandSchema, UiEventSchema } from '../shared/contracts/interaction'
 import {
   AuthSnapshotResponseSchema,
@@ -27,7 +31,14 @@ import {
   CalendarSnapshotResponseSchema
 } from '../shared/ipc/calendar-api'
 import type { CalendarApi } from '../shared/ipc/calendar-api'
-import { AUTH_CHANNELS, CALENDAR_CHANNELS, UI_CHANNELS } from '../shared/ipc/channels'
+import {
+  AUTH_CHANNELS,
+  CALENDAR_CHANNELS,
+  GOOGLE_CHANNELS,
+  UI_CHANNELS
+} from '../shared/ipc/channels'
+import { GoogleSnapshotResponseSchema } from '../shared/ipc/google-api'
+import type { GoogleConnectionApi } from '../shared/ipc/google-api'
 import { UiCommandResponseSchema, UiSnapshotResponseSchema } from '../shared/ipc/ui-api'
 import type { UiApi } from '../shared/ipc/ui-api'
 
@@ -168,10 +179,36 @@ export function createUiBridge(ipc: UiTransport, platform: string): UiApi {
       }
     }
   }
+  const google: GoogleConnectionApi = {
+    command: (request) =>
+      authCall(
+        GOOGLE_CHANNELS.command,
+        GoogleCommandRequestSchema,
+        (value) => GoogleSnapshotResponseSchema.parse(value),
+        request
+      ),
+    getSnapshot: () =>
+      invoke(GOOGLE_CHANNELS.snapshot, (value) => GoogleSnapshotResponseSchema.parse(value)),
+    subscribe(listener) {
+      let active = true
+      const receive: EventListener = (_event, value) => {
+        if (!active) return
+        const parsed = GoogleConnectionEventSchema.safeParse(value)
+        if (parsed.success) listener(parsed.data)
+      }
+      ipc.on(GOOGLE_CHANNELS.event, receive)
+      return () => {
+        if (!active) return
+        active = false
+        ipc.removeListener(GOOGLE_CHANNELS.event, receive)
+      }
+    }
+  }
   return {
     platform,
     auth,
     calendar,
+    google,
     dispatch(command) {
       const parsed = UiCommandSchema.safeParse(command)
       if (!parsed.success)

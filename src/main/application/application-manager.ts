@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, session } from 'electron'
+import { app, dialog, ipcMain, session, shell } from 'electron'
 import type { Tray } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
@@ -8,6 +8,7 @@ import { createDefaultAuth } from '../auth/create-auth'
 import { runWhileSignedIn } from '../auth/run-while-signed-in'
 import { createCalendar } from '../calendar/create-calendar'
 import { createCommandService } from '../commands/create-command-service'
+import { createGoogleConnection } from '../google-connection/create-google-connection'
 import { ConversationManager } from '../conversation/conversation-manager'
 import { createGestureController } from '../gesture/create-gesture'
 import type { GestureController } from '../gesture/gesture-controller'
@@ -17,6 +18,7 @@ import { InteractionManager } from '../interaction/interaction-manager'
 import type { ActivationSource } from '../interaction/ports'
 import { registerAuthIpc } from '../ipc/auth-ipc'
 import { registerCalendarIpc } from '../ipc/calendar-ipc'
+import { registerGoogleIpc } from '../ipc/google-ipc'
 import { registerMediaIpc } from '../ipc/media-ipc'
 import { registerUiIpc } from '../ipc/ui-ipc'
 import { createOverlay } from '../overlay/create-overlay'
@@ -71,6 +73,8 @@ export class ApplicationManager {
   private disposeAuthIpc: (() => void) | null = null
   private disposeCalendarIpc: (() => void) | null = null
   private disposeCalendar: (() => void) | null = null
+  private disposeGoogleIpc: (() => void) | null = null
+  private disposeGoogle: (() => void) | null = null
   private disposeMediaIpc: (() => void) | null = null
   private disposeState: (() => void) | null = null
   private disposeOverlay: (() => void) | null = null
@@ -166,6 +170,21 @@ export class ApplicationManager {
       getContents: () => this.window.getContents(),
       entryUrl,
       calendar
+    })
+    // The Google Calendar connection: its own state, and the calendar is read again when it changes what is shown.
+    const { service: googleService, connection: google } = createGoogleConnection({
+      isPackaged: app.isPackaged,
+      env: process.env,
+      api: login.api,
+      openExternal: (url) => shell.openExternal(url),
+      onCalendarChanged: () => void calendarService?.refreshIfShown()
+    })
+    if (googleService) this.disposeGoogle = runWhileSignedIn(this.auth, googleService)
+    this.disposeGoogleIpc = registerGoogleIpc({
+      ipc: ipcMain,
+      getContents: () => this.window.getContents(),
+      entryUrl,
+      google
     })
     this.tools = createToolStack(this.auth)
     // Commands the server sends to this device are received while someone is signed in.
@@ -353,6 +372,8 @@ export class ApplicationManager {
         | 'disposeAuthIpc'
         | 'disposeCalendarIpc'
         | 'disposeCalendar'
+        | 'disposeGoogleIpc'
+        | 'disposeGoogle'
         | 'disposeMediaIpc'
         | 'disposeState'
         | 'disposeOverlay'
@@ -375,6 +396,8 @@ export class ApplicationManager {
       take('disposeAuthIpc'),
       take('disposeCalendarIpc'),
       take('disposeCalendar'),
+      take('disposeGoogleIpc'),
+      take('disposeGoogle'),
       take('disposeState'),
       take('disposeSelfTests'),
       take('disposeCommands'),

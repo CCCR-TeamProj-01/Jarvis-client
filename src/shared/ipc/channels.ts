@@ -29,6 +29,12 @@ export const CALENDAR_CHANNELS = {
   event: 'jarvis:calendar:event'
 } as const
 
+export const GOOGLE_CHANNELS = {
+  command: 'jarvis:google:command',
+  snapshot: 'jarvis:google:snapshot',
+  event: 'jarvis:google:event'
+} as const
+
 export const POPUP_CHANNELS = {
   state: 'jarvis:popup:state',
   snapshot: 'jarvis:popup:snapshot',

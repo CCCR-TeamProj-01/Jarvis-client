@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { ClientSnapshot } from '../../../../shared/contracts/interaction'
 import { Info } from 'lucide-react'
 import type { PermissionLine } from '../../view-model'
@@ -10,6 +11,8 @@ interface SettingsViewProps {
   callKeys: string[]
   toggleKeys: string[]
   onWakeWordChange?(enabled: boolean): void
+  /** The Google Calendar connection, drawn as one more panel. */
+  google?: ReactNode
 }
 
 /** The current settings, for reading. Changing and saving them comes later; this is where it will go. */
@@ -19,7 +22,8 @@ export function SettingsView({
   permissions,
   callKeys,
   toggleKeys,
-  onWakeWordChange
+  onWakeWordChange,
+  google
 }: SettingsViewProps) {
   const shortcut = snapshot.application.shortcut
   const tray = snapshot.application.tray
@@ -75,6 +79,7 @@ export function SettingsView({
             </p>
           )}
         </section>
+        {google}
         <section className="panel" aria-labelledby="settings-shortcuts">
           <h2 id="settings-shortcuts">단축키</h2>
           <ul className="rows">
