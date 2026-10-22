@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url'
 import type { AuthManager } from '../auth/auth-manager'
 import { createDefaultAuth } from '../auth/create-auth'
 import { runWhileSignedIn } from '../auth/run-while-signed-in'
+import { createCalendar } from '../calendar/create-calendar'
 import { createCommandService } from '../commands/create-command-service'
 import { ConversationManager } from '../conversation/conversation-manager'
 import { createGestureController } from '../gesture/create-gesture'
@@ -15,6 +16,7 @@ import { HandTrackingService } from '../gesture/hand-tracking'
 import { InteractionManager } from '../interaction/interaction-manager'
 import type { ActivationSource } from '../interaction/ports'
 import { registerAuthIpc } from '../ipc/auth-ipc'
+import { registerCalendarIpc } from '../ipc/calendar-ipc'
 import { registerMediaIpc } from '../ipc/media-ipc'
 import { registerUiIpc } from '../ipc/ui-ipc'
 import { createOverlay } from '../overlay/create-overlay'
@@ -67,6 +69,8 @@ export class ApplicationManager {
   private tray: Tray | null = null
   private disposeIpc: (() => void) | null = null
   private disposeAuthIpc: (() => void) | null = null
+  private disposeCalendarIpc: (() => void) | null = null
+  private disposeCalendar: (() => void) | null = null
   private disposeMediaIpc: (() => void) | null = null
   private disposeState: (() => void) | null = null
   private disposeOverlay: (() => void) | null = null
@@ -149,6 +153,19 @@ export class ApplicationManager {
       getContents: () => this.window.getContents(),
       entryUrl,
       auth: this.auth
+    })
+    // The calendar tab reads the server while someone is signed in; without a server it says so.
+    const { service: calendarService, calendar } = createCalendar({
+      isPackaged: app.isPackaged,
+      env: process.env,
+      api: login.api
+    })
+    if (calendarService) this.disposeCalendar = runWhileSignedIn(this.auth, calendarService)
+    this.disposeCalendarIpc = registerCalendarIpc({
+      ipc: ipcMain,
+      getContents: () => this.window.getContents(),
+      entryUrl,
+      calendar
     })
     this.tools = createToolStack(this.auth)
     // Commands the server sends to this device are received while someone is signed in.
@@ -334,6 +351,8 @@ export class ApplicationManager {
       name:
         | 'disposeIpc'
         | 'disposeAuthIpc'
+        | 'disposeCalendarIpc'
+        | 'disposeCalendar'
         | 'disposeMediaIpc'
         | 'disposeState'
         | 'disposeOverlay'
@@ -354,6 +373,8 @@ export class ApplicationManager {
       take('disposeShortcuts'),
       take('disposeIpc'),
       take('disposeAuthIpc'),
+      take('disposeCalendarIpc'),
+      take('disposeCalendar'),
       take('disposeState'),
       take('disposeSelfTests'),
       take('disposeCommands'),

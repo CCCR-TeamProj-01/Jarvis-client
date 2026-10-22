@@ -27,7 +27,9 @@ export function appendMessage(
 
 /** The tab the signed-in window shows; anything that is not one of the tabs means the conversation. */
 export function activeTab(snapshot: Pick<ClientSnapshot, 'screen'>): Tab {
-  return snapshot.screen === 'gesture' || snapshot.screen === 'settings'
+  return snapshot.screen === 'calendar' ||
+    snapshot.screen === 'gesture' ||
+    snapshot.screen === 'settings'
     ? snapshot.screen
     : 'conversation'
 }

@@ -4,6 +4,8 @@ import { CircleAlert, CircleCheck, Info, LogOut, TriangleAlert } from 'lucide-re
 import { DEFAULT_CALL_SHORTCUT, GESTURE_TOGGLE_SHORTCUT } from '../../shared/contracts/application'
 import { CheckingPanel, SignInForm, SignUpForm } from './features/auth/auth-panels'
 import { useAuth } from './features/auth/use-auth'
+import { CalendarView } from './features/calendar/calendar-view'
+import { useCalendar } from './features/calendar/use-calendar'
 import { ConversationView } from './features/conversation/conversation-view'
 import { StatusPanel } from './features/conversation/status-panel'
 import { GestureView } from './features/gesture/gesture-view'
@@ -23,6 +25,10 @@ import './styles.css'
 function App(): React.JSX.Element {
   const { snapshot, error, messages, refresh, dispatch } = useClientSnapshot(window.jarvis)
   const auth = useAuth(window.jarvis?.auth)
+  const calendar = useCalendar(
+    window.jarvis?.calendar,
+    snapshot !== null && activeTab(snapshot) === 'calendar' && auth.snapshot?.phase === 'signed_in'
+  )
   const [prefillLoginId, setPrefillLoginId] = useState('')
   const [signedUpNotice, setSignedUpNotice] = useState(false)
   const windowMaterial = snapshot?.application.windowMaterial ?? 'opaque'
@@ -91,6 +97,13 @@ function App(): React.JSX.Element {
             onSubmitText={(text) => void dispatch({ type: 'conversation.submit_text', text })}
             onStartVoice={() => void dispatch({ type: 'conversation.start' })}
             onStop={() => void dispatch({ type: 'conversation.stop' })}
+          />
+        )}
+        {tab === 'calendar' && (
+          <CalendarView
+            snapshot={calendar.snapshot}
+            connectionError={calendar.error}
+            onNavigate={(navigation) => void calendar.navigate(navigation)}
           />
         )}
         {tab === 'gesture' && (

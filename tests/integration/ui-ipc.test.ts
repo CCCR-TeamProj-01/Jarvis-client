@@ -87,6 +87,7 @@ describe('implemented UI IPC boundary', () => {
     expect(listener.mock.calls[0]).toHaveLength(1)
     expect(Object.keys(api).sort()).toEqual([
       'auth',
+      'calendar',
       'dispatch',
       'getSnapshot',
       'platform',
