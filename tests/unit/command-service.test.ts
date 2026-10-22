@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { CommandApiPort, PendingItem, SendOutcome } from '../../src/main/commands/command-api'
 import { CommandJournal } from '../../src/main/commands/command-journal'
 import type { CommandResult } from '../../src/main/commands/command-result'
@@ -360,6 +360,33 @@ describe('commands that arrive too late', () => {
     nowRef.ms = T0
     await service.cycle('u1', signal())
     expect(executed).toHaveLength(1)
+  })
+})
+
+describe('a time the server sends without a zone', () => {
+  const original = process.env.TZ
+  beforeAll(() => {
+    process.env.TZ = 'Asia/Seoul'
+  })
+  afterAll(() => {
+    if (original === undefined) delete process.env.TZ
+    else process.env.TZ = original
+  })
+  const naive = (ms: number) => new Date(ms).toISOString().replace('Z', '')
+
+  it('is judged as UTC, so a fresh command runs and a stale one expires whatever this zone is', async () => {
+    const fresh = setup()
+    fresh.api.items = [command({ requested_at: naive(T0) })]
+    fresh.nowRef.ms = T0 + 10_000
+    await fresh.service.cycle('u1', signal())
+    expect(fresh.executed).toHaveLength(1)
+
+    const stale = setup()
+    stale.api.items = [command({ requested_at: naive(T0) })]
+    stale.nowRef.ms = T0 + 90_000
+    await stale.service.cycle('u1', signal())
+    expect(stale.executed).toHaveLength(0)
+    expect(stale.api.sent[0]?.result.error_code).toBe('expired')
   })
 })
 

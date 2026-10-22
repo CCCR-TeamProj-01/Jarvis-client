@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   APP_CODES,
   appCodeFor,
@@ -49,7 +49,8 @@ describe('ServerCommandSchema', () => {
     ['an empty command type', { command_type: '' }],
     ['array arguments', { arguments: [] }],
     ['null arguments', { arguments: null }],
-    ['a time without a zone', { requested_at: '2026-10-22T03:00:00' }],
+    ['a date with no time', { requested_at: '2026-10-22' }],
+    ['a time with a broken zone', { requested_at: '2026-10-22T03:00:00+9' }],
     ['a non-time', { requested_at: 'yesterday' }]
   ])('rejects %s', (_name, overrides) => {
     const raw = {
@@ -302,5 +303,53 @@ describe('app display names', () => {
       expect(appDisplayNameFor(code, 'darwin')?.length).toBeGreaterThan(0)
       expect(appDisplayNameFor(code, 'win32')).toBeUndefined()
     }
+  })
+})
+
+describe('the time the server sends', () => {
+  const original = process.env.TZ
+  // This machine's own zone must not matter: server times are UTC.
+  beforeAll(() => {
+    process.env.TZ = 'Asia/Seoul'
+  })
+  afterAll(() => {
+    if (original === undefined) delete process.env.TZ
+    else process.env.TZ = original
+  })
+
+  const parse = (requested_at: string) =>
+    ServerCommandSchema.safeParse({
+      command_id: 1,
+      attempt_no: 1,
+      command_type: 'system.mute',
+      requested_app_code: null,
+      arguments: { muted: true },
+      requested_at
+    })
+  const epoch = Date.UTC(2026, 9, 22, 3, 22, 14, 282)
+
+  it('reads a time without a zone, as the real server sends it, as UTC', () => {
+    const parsed = parse('2026-10-22T03:22:14.282428')
+    expect(parsed.success).toBe(true)
+    expect(Date.parse(parsed.data!.requested_at)).toBe(epoch)
+  })
+
+  it('reads whole seconds and a lowercase separator-free form the same way', () => {
+    expect(Date.parse(parse('2026-10-22T03:22:14.282').data!.requested_at)).toBe(epoch)
+    expect(Date.parse(parse('2026-10-22T03:22:14').data!.requested_at)).toBe(epoch - 282)
+  })
+
+  it('takes a time that names its zone as it is', () => {
+    expect(Date.parse(parse('2026-10-22T03:22:14.282Z').data!.requested_at)).toBe(epoch)
+    expect(Date.parse(parse('2026-10-22T12:22:14.282+09:00').data!.requested_at)).toBe(epoch)
+    expect(Date.parse(parse('2026-10-21T22:22:14.282-05:00').data!.requested_at)).toBe(epoch)
+  })
+
+  it('still refuses what is not a time', () => {
+    for (const value of ['yesterday', '', '2026-10-22T25:99:00', 'T03:22:14', '1729567334']) {
+      expect(parse(value).success).toBe(false)
+    }
+    expect(parse(undefined as unknown as string).success).toBe(false)
+    expect(parse(1729567334 as unknown as string).success).toBe(false)
   })
 })
