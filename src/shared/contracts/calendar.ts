@@ -7,7 +7,7 @@ import { ClientErrorSchema, IdentifierSchema, SequenceSchema, TimestampSchema } 
  * snapshot is a token or a server wording, and event titles are plain text.
  */
 
-export const CALENDAR_SPANS = ['day', 'week'] as const
+export const CALENDAR_SPANS = ['day', 'week', 'month'] as const
 export const CalendarSpanSchema = z.enum(CALENDAR_SPANS)
 export type CalendarSpan = z.infer<typeof CalendarSpanSchema>
 
@@ -16,6 +16,7 @@ export const CALENDAR_NAVIGATIONS = [
   'today',
   'tomorrow',
   'this_week',
+  'this_month',
   'previous',
   'next',
   'refresh'

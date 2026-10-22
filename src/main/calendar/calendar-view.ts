@@ -12,28 +12,37 @@ import {
   daysBetween,
   localDateKey,
   localTime,
+  monthStart,
   startOfLocalDay,
   startOfWeek,
   weekdayOf
 } from './zoned-time'
 
-const SPAN_DAYS: Record<CalendarSpan, number> = { day: 1, week: 7 }
 const MAX_TITLE_CHARS = 200
 
-/** The view of `span` that contains `anchor`: a day is that day, a week runs Monday to Sunday. */
+/** The day, Monday-to-Sunday week, or calendar month containing `anchor`. */
 export function viewOf(span: CalendarSpan, anchor: string): CalendarView {
-  const startDate = span === 'week' ? startOfWeek(anchor) : anchor
+  const startDate =
+    span === 'month' ? monthStart(anchor) : span === 'week' ? startOfWeek(anchor) : anchor
   return {
     span,
     startDate,
     startWeekday: weekdayOf(startDate),
-    endDate: addDays(startDate, SPAN_DAYS[span] - 1)
+    endDate:
+      span === 'month'
+        ? addDays(monthStart(anchor, 1), -1)
+        : addDays(startDate, span === 'week' ? 6 : 0)
   }
 }
 
-/** The view one step on (`1`) or back (`-1`): a day or a week at a time. */
+/** Move by a day, week, or month according to the current view. */
 export function shiftView(view: CalendarView, direction: 1 | -1): CalendarView {
-  return viewOf(view.span, addDays(view.startDate, direction * SPAN_DAYS[view.span]))
+  return viewOf(
+    view.span,
+    view.span === 'month'
+      ? monthStart(view.startDate, direction)
+      : addDays(view.startDate, direction * (view.span === 'week' ? 7 : 1))
+  )
 }
 
 /**

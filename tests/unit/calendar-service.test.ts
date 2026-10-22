@@ -79,6 +79,28 @@ describe('before anyone is signed in', () => {
 })
 
 describe('reading the calendar', () => {
+  it('reads a month and moves by whole months without losing the current view on refresh', async () => {
+    const t = setup()
+    t.service.start('u1')
+    await t.service.navigate('this_month')
+    expect(t.service.getSnapshot()).toMatchObject({
+      status: 'ready',
+      view: { span: 'month', startDate: '2026-10-01', endDate: '2026-10-31' }
+    })
+    expect(t.service.getSnapshot().days).toHaveLength(31)
+    await t.service.navigate('previous')
+    expect(t.service.getSnapshot().view).toMatchObject({
+      startDate: '2026-09-01',
+      endDate: '2026-09-30'
+    })
+    await t.service.navigate('refresh')
+    expect(t.service.getSnapshot().days).toHaveLength(30)
+    expect(t.service.getSnapshot().view?.startDate).toBe('2026-09-01')
+    await t.service.navigate('next')
+    expect(t.service.getSnapshot().view?.startDate).toBe('2026-10-01')
+    expect(CalendarSnapshotSchema.safeParse(t.service.getSnapshot()).success).toBe(true)
+  })
+
   it('opens on today, in the user time zone, and shows what the server answered', async () => {
     const t = setup()
     t.reads.push(async () => answer([meeting]))

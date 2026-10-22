@@ -47,6 +47,8 @@ function viewFor(
       return viewOf('day', addDays(today, 1))
     case 'this_week':
       return viewOf('week', today)
+    case 'this_month':
+      return viewOf('month', today)
     case 'previous':
       return current ? shiftView(current, -1) : viewOf('day', today)
     case 'next':

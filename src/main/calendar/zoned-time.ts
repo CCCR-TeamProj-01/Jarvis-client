@@ -33,6 +33,14 @@ export function addDays(key: string, days: number): string {
   return toKey(new Date(utcMidnight(key) + days * MS_PER_DAY))
 }
 
+/** First day of the month `months` away, including year boundaries. */
+export function monthStart(key: string, months = 0): string {
+  const date = new Date(utcMidnight(key))
+  date.setUTCDate(1)
+  date.setUTCMonth(date.getUTCMonth() + months)
+  return toKey(date)
+}
+
 /** Whole days from `from` to `to` (negative when `to` is earlier). */
 export function daysBetween(from: string, to: string): number {
   return Math.round((utcMidnight(to) - utcMidnight(from)) / MS_PER_DAY)

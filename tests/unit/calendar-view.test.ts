@@ -54,6 +54,39 @@ function days(
 const dayOf = (list: ReturnType<typeof days>, date: string) => list.find((d) => d.date === date)!
 
 describe('views', () => {
+  it('covers each calendar month, including leap February and year changes', () => {
+    expect(viewOf('month', '2026-10-22')).toEqual({
+      span: 'month',
+      startDate: '2026-10-01',
+      endDate: '2026-10-31',
+      startWeekday: 4
+    })
+    expect(viewOf('month', '2024-02-29').endDate).toBe('2024-02-29')
+    expect(viewOf('month', '2026-02-22').endDate).toBe('2026-02-28')
+    const december = viewOf('month', '2026-12-31')
+    expect(shiftView(december, 1)).toMatchObject({ startDate: '2027-01-01', endDate: '2027-01-31' })
+    expect(shiftView(viewOf('month', '2027-01-31'), -1)).toEqual(december)
+  })
+
+  it('requests a whole month and keeps exactly its dates when building the display', () => {
+    const view = viewOf('month', '2026-10-22')
+    expect(serverWindow(view, SEOUL)).toEqual({
+      fromMs: at('2026-09-30T15:00:00Z'),
+      toMs: at('2026-11-01T00:00:00Z')
+    })
+    const monthDays = buildDays({
+      view,
+      timeZone: SEOUL,
+      today: '2026-10-22',
+      events: [],
+      todos: []
+    })
+    expect(monthDays).toHaveLength(31)
+    expect(monthDays[0]!.date).toBe('2026-10-01')
+    expect(monthDays.at(-1)!.date).toBe('2026-10-31')
+    expect(monthDays.filter((day) => day.isToday).map((day) => day.date)).toEqual(['2026-10-22'])
+  })
+
   it('is one day, or a week from Monday to Sunday', () => {
     expect(viewOf('day', '2026-10-22')).toEqual({
       span: 'day',

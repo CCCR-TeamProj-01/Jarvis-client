@@ -37,6 +37,27 @@ async function calendarApp() {
 }
 
 describe('calendar reads over HTTP while signed in', () => {
+  it('queries a month with all-day boundaries and moves to the following month over HTTP', async () => {
+    const t = await calendarApp()
+    try {
+      await t.service.navigate('this_month')
+      let queries = t.fake.calls.filter((entry) => entry.path.startsWith('/calendar/events?'))
+      const query = new URL(`http://localhost${queries.at(-1)!.path}`).searchParams
+      expect(query.get('from')).toBe('2026-09-30T15:00:00.000Z')
+      expect(query.get('to')).toBe('2026-11-01T00:00:00.000Z')
+      expect(t.service.getSnapshot().days).toHaveLength(31)
+      await t.service.navigate('next')
+      queries = t.fake.calls.filter((entry) => entry.path.startsWith('/calendar/events?'))
+      expect(queries).toHaveLength(2)
+      expect(t.service.getSnapshot()).toMatchObject({
+        status: 'ready',
+        view: { span: 'month', startDate: '2026-11-01', endDate: '2026-11-30' }
+      })
+    } finally {
+      t.dispose()
+    }
+  })
+
   it('asks with the account token and covers both local instants and UTC date boundaries', async () => {
     const t = await calendarApp()
     try {
