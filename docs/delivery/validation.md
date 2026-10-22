@@ -109,8 +109,8 @@
 | # | 확정한 결정 | 반영 위치 |
 | --- | --- | --- |
 | 1 | 서버의 정수 PK는 JSON 숫자로 받는다. 경계에서 안전한 정수인지 검증하고 내부에서는 문자열로 변환한다 | [REST 전송 계약](../architecture/server-integration.md#rest-전송-계약) |
-| 2 | 아이디 중복 확인은 서버에 엔드포인트 추가를 요청한다 | [계정 인증 계약](../architecture/server-integration.md#계정-인증-계약), [입력 규칙](../features/auth.md#입력-규칙) |
-| 3 | 갱신 토큰 응답 유실은 서버에 유예를 요청하고, 그때까지 응답을 받지 못한 갱신은 재로그인으로 복구한다 | [계정 인증 계약](../architecture/server-integration.md#계정-인증-계약) |
+| 2 | 아이디 중복 확인은 서버 엔드포인트(`POST /auth/username-checks`)로 호출한다. 확인 실패는 사용 가능으로 처리하지 않고 최종 판정은 가입 응답이다 | [계정 인증 계약](../architecture/server-integration.md#계정-인증-계약), [입력 규칙](../features/auth.md#입력-규칙) |
+| 3 | 갱신 토큰 응답 유실은 서버의 30초 유예(1회)에 맞춰 첫 시도 후 20초 안에 같은 토큰으로 한 번만 반복하고, 그래도 안 되면 재로그인으로 복구한다 | [계정 인증 계약](../architecture/server-integration.md#계정-인증-계약) |
 | 5 | 접근·갱신 토큰 한 쌍을 한 값으로 묶어 기존 보호 저장소에 저장한다 | [계정 인증 계약](../architecture/server-integration.md#계정-인증-계약) |
 | 6 | 도구별 `arguments`는 서버가 먼저 정하고 클라이언트가 어댑터로 맞춘다 | [명령 계획과 실행 결과](../architecture/server-integration.md#명령-계획과-실행-결과) |
 | 7 | 서버 앱 코드 → OS 앱 매핑표는 클라이언트가 내장하고 결과 보고의 `app`으로 서버에 알린다 | [명령 계획과 실행 결과](../architecture/server-integration.md#명령-계획과-실행-결과) |
@@ -118,28 +118,27 @@
 | 9 | 결과 상태는 정상 관측 `success`, 실행 실패 `failed`, 거절 `rejected`, 취소·만료 `failed`+`error_code`, 불명 `unknown`으로 매핑한다 | [명령 계획과 실행 결과](../architecture/server-integration.md#명령-계획과-실행-결과) |
 | 11 | 실행 전 문장만 음성으로 재생하고 실행 결과는 화면에만 표시한다 | [음성 데이터 계약](../architecture/server-integration.md#음성-데이터-계약) |
 
-서버에 확인할 질문과, 답이 오기 전의 클라이언트 기준이다.
+서버 답변(2026-10-22)과 그에 따른 클라이언트 반영이다. 정수 ID 범위 질문은 확인하지 않기로 했고 클라이언트가 안전 정수 검증으로 방어한다.
 
-| # | 서버에 확인할 질문 | 답이 오기 전 클라이언트 기준 |
-| --- | --- | --- |
-| 1 | `device_id`·`command_id` 등 정수 PK가 JavaScript 안전 정수(2^53-1) 이내임이 보장되는가 | 경계에서 안전 정수를 검증하고 아니면 응답을 거부 |
-| 2 | 가입 전 아이디 사용 가능 여부만 돌려주는 엔드포인트를 추가할 수 있는가(계정 존재 여부 악용을 막는 호출 제한 포함) | 실제 어댑터는 확인 불가로 처리한다. AUTH-03이 가입 전 사용 가능 확인을 요구하므로 엔드포인트가 추가되기 전에는 실제 서버로 가입을 완료할 수 없다 |
-| 3 | 갱신 응답 유실에 대비해 같은 요청의 짧은 재전송(예: 30초)에 같은 새 토큰 쌍을 돌려줄 수 있는가 | 응답을 받지 못한 갱신은 재시도하지 않고 재로그인을 안내 |
-| 4 | 비밀번호 최소·최대 길이와 허용 문자, 아이디의 대소문자 정규화와 앞뒤 공백 처리 | 기존 클라이언트 검증(아이디 규칙)을 유지하고 비밀번호는 서버 값 확정 전 최소 검증만 수행 |
-| 5 | 도구별 `arguments` 스키마(`apps.launch`·`apps.activate`·`apps.list`·`apps.restore`·`browser.open`·`browser.search`·`folder.open`·`system.volume`·`system.mute`)와 허용 앱 코드 목록 | 어댑터를 작성하지 않는다. 도구 인자의 현재 형식은 잠정이다([앱 제어](../features/app-control.md)) |
-| 6 | 결과 보고의 `error_code`·`failure_stage` 값 목록(미지원·만료·권한 없음·취소 등) | 클라이언트 오류 코드(`unsupported`·`permission_denied`·`invalid_input`·`unavailable`)와 `expired`·`cancelled`를 잠정 사용 |
-| 7 | 요청의 `processing_status=success`가 AI 분석 완료인지 명령 실행 완료까지인지. 명령별 최종 결과를 `commands[].latest_result`로 보면 되는가 | 명령별 최종 결과를 따로 확인하고 `success`만으로 실행 완료로 표시하지 않음 |
-| 8 | 음성 업로드의 최대 크기·길이, WAV 요건, TTS 응답 형식과 텍스트 길이 제한 | 음성 연동 구현 전에 확정 |
+| # | 질문 | 서버 답변 | 클라이언트 반영과 남은 일 |
+| --- | --- | --- | --- |
+| 1 | 아이디 중복 확인 엔드포인트와 호출 제한 | `POST /auth/username-checks`(요청 `{username}`, 응답 `200 {username(소문자), available}`, 형식 오류 `422`, 한도 초과 `429`). 호출 제한 초기값(서버 메모리, 재시작·다중 서버 시 초기화/분리): username-checks IP 분당 20회, register IP 10분 5회, login 아이디+IP 5분 10회. 초과 시 `429 {"detail": {"code": "RATE_LIMITED"}}`와 `Retry-After`(초) | 임시 구현을 실제 호출로 교체했다(F-028). 응답 형식이 명세의 `error`와 다른 `detail`이어서 두 형식을 읽는다. 오류 응답 형식 통일은 서버에 요청할 수 있다 |
+| 2 | 갱신 토큰 유예 | 지원. 직전 갱신 토큰이 회전 후 30초 안에 한 번 더 오면 세션을 폐기하지 않고 새 토큰 쌍을 다시 발급하고(직전 쌍은 무효), 30초가 지났거나 같은 토큰이 두 번째로 오면 `REFRESH_TOKEN_REUSED`로 폐기. `AUTH_SESSIONS.rotated_at` 마이그레이션과 ERD 수정 필요. 보안 비용은 유예 30초 동안 탈취된 토큰도 한 번 쓸 수 있다는 점이며, 부담스러우면 지원하지 않고 재로그인으로 복구할 수도 있음 | 응답 유실·읽기 실패 시 첫 시도 후 20초 안에 한 번만 반복한다(서버 배포 전에는 재사용으로 끝나 재로그인). 보안 비용 수용 여부는 확정이 필요하다 |
+| 3 | 입력 규칙(비밀번호 길이·허용 문자, 아이디 정규화·공백) | 답변 없음 | 기존 클라이언트 검증을 유지하고 비밀번호는 최소 검증만 한다. 서버에 다시 확인한다 |
+| 4 | 도구별 `arguments` 스키마와 허용 앱 코드 | 키는 snake_case. 인자 형식은 [서버 도구 인자](../architecture/server-integration.md#명령-계획과-실행-결과) 표와 같다(`apps.launch`·`apps.activate`·`apps.close`는 `{}`+`requested_app_code`, `folder.open`·`system.volume`·`system.mute`·`browser.search`는 클라이언트 계약과 같은 이름). 허용 앱 코드 14개 고정. 서버 `modules/agent/tools.py` 수정 필요. 저장 방식은 서버가 명령 API를 다시 시작할 때 정함 | 어댑터가 `requested_app_code`를 로컬 앱 ID로 변환한다(앱 코드 → OS 앱 ID 매핑표 필요). 클라이언트에 없는 `apps.close`·`browser.search`는 `rejected`로 보고한다. 명령 폴러 연동은 서버 명령 API 재시작 뒤 |
+| 5 | `error_code`·`failure_stage` 값 | `failure_stage` 9개(`validation`·`capability`·`precondition`·`dispatch`·`execution`·`observation`·`timeout`·`cancellation`·`internal`). 클라이언트 `error_code`는 소문자 snake_case 9개, 서버 코드는 대문자 snake_case. 확인 불가는 `status=unknown`(ERD 7-2절의 `failed`+`unknown` 행은 서버가 수정) | 결과 보고 구현 때 로컬 결과를 단계·코드로 매핑한다 |
+| 6 | 요청의 `processing_status` 의미 | `failed`는 서버 처리 오류(STT·AI·내부), `rejected`는 정책상 거부(차단된 앱·허용되지 않은 요청). `success`가 명령 실행 완료까지인지는 답변 없음 | 명령별 최종 결과를 따로 확인하고 `success`만으로 실행 완료로 표시하지 않는다. 서버에 다시 확인한다 |
+| 7 | 음성 업로드·TTS 한도 | WAV(PCM 16-bit little-endian·16kHz·모노)만, 헤더 검증(`422 UNSUPPORTED_AUDIO_FORMAT`). 길이 0.1~20초, 파일 최대 700,000바이트(헤더 포함). 서버의 현재 한도 10초·320,000바이트는 올려야 함. TTS 응답은 `audio/mpeg`, 텍스트 최대 300자(초과 `422`) | 클라이언트 VAD(150ms~15초, 약 480KB)는 범위 안이다. 300자를 넘는 응답 문장의 처리 정책은 음성 단계에서 정한다. 서버 한도 상향 확인이 필요하다 |
 
 #### API·제품 정책 합의
 
 | 항목 | 결정할 내용 | 영향 원본 |
 | --- | --- | --- |
 | 인증·기기 등록 | 로그인 응답의 현재 사용자·기기 연결 정보, 기기 등록/세션 발급의 부분 실패·응답 유실 처리, 복구 시 설치 키와 세션의 일치 확인. 설치 키 로컬 실패 처리는 F-023 원본 유지 | [AUTH](../features/auth.md#설치-식별과-기기-등록) |
-| 입력·토큰 정책 | 아이디 양끝 공백 처리·비밀번호 길이·오류 형식과 갱신 토큰 유예(서버 요청 중, [REST 대조 결정](#rest-api-명세-대조-결정2026-10-22)). 확정된 수명·정규화 정책을 다시 선택하지 않음 | [AUTH](../features/auth.md#저장서버-연동과-합의-항목) |
+| 입력·토큰 정책 | 아이디 양끝 공백 처리·비밀번호 길이·오류 형식(서버 답변 없음)과 서버의 갱신 유예 배포·보안 비용 수용 여부([REST 대조 결정](#rest-api-명세-대조-결정2026-10-22)). 확정된 수명·정규화 정책을 다시 선택하지 않음 | [AUTH](../features/auth.md#저장서버-연동과-합의-항목) |
 | 대화 생성·종료 | 서버 생성의 멱등 키·기한·재시도, 앱 재시작 후 복원 여부, 종료 통지. [서버 문맥 복구 기준](../architecture/server-integration.md#대화메시지와-요청-식별)과 로컬 유휴 종료/음성 세션의 경계 조율. 과거 대화 UI의 제품 범위는 별도 | [AI-04](../features/speech.md#대화-생성과-요청-완료) |
 | 명령·응답 수명 | 여러 명령의 의존성·중간 실패 처리, 요청 `success`의 의미와 로컬 실행 종료·보고 대기·전체 요청 완료의 관계, 서버 종료 지시 시점. 재전송 대기열의 영속성/삭제·세션 종료 시 처리. 결과 안내 음성은 결정 11로 확정 | [실행 계약](../architecture/server-integration.md#명령-계획과-실행-결과) |
-| Wire 계약 | 도구별 인자 스키마·허용 앱 코드, 오류/실패 단계 코드, 음성·TTS 한도. 전송 방식(REST 폴링)·경로·`attempt_no` 서버 발급·로컬 `executionId` 대응·명령 기한(잠정 60초)은 확정 | [서버 연동](../architecture/server-integration.md) |
+| Wire 계약 | 서버 명령 API의 저장 방식 재시작 결과, 요청 `success`의 의미. 전송 방식(REST 폴링)·경로·`attempt_no` 서버 발급·로컬 `executionId` 대응·명령 기한(잠정 60초)·도구 인자·앱 코드·오류 코드·음성 한도는 확정(2026-10-22 서버 답변) | [서버 연동](../architecture/server-integration.md) |
 | 대화 본문 저장 | 본문 저장 동의의 필드·기본값·변경 적용, 보관 설정의 사용자 안내·삭제/문맥 반영·백업 정책. 아래 ERD 내부 암호화·삭제 불일치도 해소 | [데이터](../architecture/data-security.md#대화와-일정-저장) |
 | 활동 수집 설정 | 아래 토글·관측 필드 불일치를 해소하고 unknown 출처 분류, 타 기기 설정 변경 동기화·오프라인 정책·collection_revision 검증·대기열 폐기 기준 합의 | [HIST](../features/activity-recommendation.md#수집-설정과-삭제) |
 | 외부 활동 수집 | 현재 확장 REC-05의 MVP 포함 여부. OS별 실행/활성화/종료 관측 범위, 백그라운드의 의미, 명령 결과와 OS 관측의 중복/출처 연결 방식, 신규 외부 앱 등록 | [REC-05](../features/activity-recommendation.md#명령-결과와-앱-활동) |

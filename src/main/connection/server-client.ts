@@ -81,11 +81,16 @@ const NOT_SENT_CODES: ReadonlySet<string> = new Set([
 const NOT_SENT_MESSAGE =
   /net::ERR_(CONNECTION_REFUSED|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|ADDRESS_UNREACHABLE|NETWORK_UNREACHABLE|CONNECTION_TIMED_OUT|PROXY_CONNECTION_FAILED|TUNNEL_CONNECTION_FAILED|CERT_|SSL_)/
 
-const ErrorEnvelopeSchema = z.looseObject({
-  error: z.looseObject({
-    code: z.string().optional(),
-    request_id: z.string().optional()
-  })
+/**
+ * The REST spec's `{"error": {...}}`, and the `{"detail": {"code": ...}}` that the server's
+ * framework produces for some failures (the rate limit, for one). A `detail` that is a list or a
+ * string, as in a framework validation error, carries no code and is classified by status.
+ */
+const SpecEnvelopeSchema = z.looseObject({
+  error: z.looseObject({ code: z.string().optional(), request_id: z.string().optional() })
+})
+const DetailEnvelopeSchema = z.looseObject({
+  detail: z.looseObject({ code: z.string().optional() })
 })
 
 const failure = (
@@ -257,12 +262,17 @@ export class ServerClient {
     let serverCode: string | undefined
     let requestId: string | undefined
     try {
-      const envelope = ErrorEnvelopeSchema.safeParse(JSON.parse(text))
-      if (envelope.success) {
-        const { code, request_id: id } = envelope.data.error
-        if (code !== undefined && SERVER_CODE.test(code)) serverCode = code
-        if (id !== undefined && id.length <= 128) requestId = id
-      }
+      const body: unknown = JSON.parse(text)
+      const spec = SpecEnvelopeSchema.safeParse(body)
+      const detail = DetailEnvelopeSchema.safeParse(body)
+      const code = spec.success
+        ? spec.data.error.code
+        : detail.success
+          ? detail.data.detail.code
+          : undefined
+      const id = spec.success ? spec.data.error.request_id : undefined
+      if (code !== undefined && SERVER_CODE.test(code)) serverCode = code
+      if (id !== undefined && id.length <= 128) requestId = id
     } catch {
       /* A body that is not an error envelope is classified by its status alone. */
     }
