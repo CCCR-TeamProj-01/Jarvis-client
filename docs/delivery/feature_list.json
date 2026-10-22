@@ -165,6 +165,13 @@
       "description": "범위를 검증한 볼륨 설정·상대 조절과 음소거를 macOS 어댑터로 실행하고 변경 뒤 OS 상태를 다시 읽어 보고한다. 계약·SystemAudioPort·가용성·보고 문장·개발용 대역과 테스트를 추가한다. Windows 어댑터는 제외한다.",
       "status": "done",
       "issue": 53
+    },
+    {
+      "id": "F-027",
+      "title": "서버 REST API 공통 클라이언트(주소 검증·오류 변환·전송 결과 구분)",
+      "description": "개발 환경 서버 주소 검증, 경로·헤더 검증, Bearer 토큰 첨부, 서버 오류 → ClientError 변환, 요청 도달 여부(delivery) 구분, 시간 초과·취소·응답 크기 제한, 정수 ID 검증, 서버 시계 차이 추적과 테스트를 추가한다. 엔드포인트 호출과 앱 연결은 제외한다.",
+      "status": "done",
+      "issue": 58
     }
   ]
 }
