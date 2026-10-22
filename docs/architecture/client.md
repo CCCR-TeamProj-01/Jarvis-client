@@ -94,7 +94,7 @@ flowchart TB
 | InteractionManager | UI에 보이는 상태(스냅샷)·명령 진입점·호출 통합 |
 | ConversationManager | 서버 대화 생성과 식별(`conversationId`), 요청·실행 전 안내·명령 처리·완료·취소·유휴 종료. 입력이 음성이든 글이든 같음. 음성 세션과의 관계는 [음성 명세](../features/speech.md#대화와-음성-세션의-관계) |
 | GestureController | 좌표 변환·필터·Pinch 상태·전환·추적 손실·로컬 중지 |
-| ConnectionManager | AuthManager의 현재 인증에 연결한 WSS·HTTPS 전송, 음성 데이터 전송, 상태 보고·재연결·메시지 유효성. 인증 비밀은 Main 내부에서만 사용 |
+| ConnectionManager | AuthManager의 현재 인증에 연결한 HTTPS REST 요청·폴링(대기 명령·요청 상태), 음성 데이터 전송, 결과 보고·재시도·응답 유효성. 인증 비밀은 Main 내부에서만 사용 |
 | CapabilityRegistry | 지원 도구, 스키마, 권한·일시 가용 상태 |
 | ToolExecutor | 도구 검증·중복 방지·실행 직전 재검증·결과 수집 |
 | PlatformAdapter | 앱·창·입력·권한의 Windows·macOS 차이 |
@@ -125,14 +125,14 @@ F-023의 `ApplicationManager.start()`는 로컬 저장 초기화를 기다리는
 | VAD | Silero VAD | 호출 후 발화 시작·끝·무음 타임아웃 기본 후보. PCM 형식·실행 위치·지연·종료 무음 길이 검증 |
 | STT | 서버 Speech 서비스 | 로컬 VAD가 확정한 발화만 전송. 한국어 정확도·지연·동시 처리량·장애·비용과 서버 데이터 처리 정책 검증 |
 | TTS | 서버 Speech 서비스와 클라이언트 오디오 재생 | 서버 음성 품질·응답 지연·오디오 형식과 Media Renderer의 재생·중단 검증 |
-| 통신·검증 | Main의 WebSocket 클라이언트·HTTPS·Zod | 인증된 음성 업로드·오디오 수신과 도구 제어 계약 분리 |
+| 통신·검증 | Main의 HTTPS 클라이언트(REST 폴링, WebSocket 없음)·Zod | 인증된 음성 업로드·오디오 수신과 명령 폴링 계약 분리 |
 | 로컬 저장 | Main의 원자적 JSON 파일, 필요 시 SQLite | F-023의 설치 키·기기 설정은 Node 파일 포트 뒤에서 관리. 대기열·삭제 일관성 요구에 따라 SQLite 등 별도 저장소 채택 |
 | 민감정보 | Electron safeStorage | 지원·가용 상태 확인 후 인증 자격 증명 암호화 |
 | 린트·포맷 | Oxlint·Oxfmt | TypeScript 7이 typescript-eslint 지원 범위 밖이어서 TS 컴파일러 API에 의존하지 않는 도구를 사용. 타입 검사는 tsc가 담당. Renderer·Worker·공유 계약의 `electron`·Node·Main 직접 import는 린트로 금지해 실행 경계를 강제 |
 | 테스트 | Vitest | 단위·통합 테스트(`tests/unit`, `tests/integration`). 시계·OS 입력·인식 엔진·서버 연결은 인터페이스 뒤에 두고 가짜 객체나 로컬 테스트 서버로 대체. Electron 앱 E2E는 필요 시점에 별도 결정 |
 | OS 제어 | Electron API·Node.js·플랫폼별 네이티브 어댑터 | 입력·외부 창 제어 구현체는 기술 검증 후 확정 |
 
-TypeScript는 앱 제어 로직과 연결 계층의 주 언어다. MediaPipe·Silero VAD·Vosk·OS 입력은 기존 엔진을 활용한다. KWS 엔진과 모델은 교체 가능한 경계로 유지한다. 클라이언트의 Vosk ASR 모델은 호출어 판별에만 사용하며 일반 명령 STT·응답 TTS 모델은 서버가 담당한다. 오디오와 로컬 인식 본문은 추론 과정 뒤 폐기한다. 클라이언트의 MCP 서버는 MVP 필수가 아니며 기능 레지스트리·WSS·도구 실행기로 연동한다.
+TypeScript는 앱 제어 로직과 연결 계층의 주 언어다. MediaPipe·Silero VAD·Vosk·OS 입력은 기존 엔진을 활용한다. KWS 엔진과 모델은 교체 가능한 경계로 유지한다. 클라이언트의 Vosk ASR 모델은 호출어 판별에만 사용하며 일반 명령 STT·응답 TTS 모델은 서버가 담당한다. 오디오와 로컬 인식 본문은 추론 과정 뒤 폐기한다. 클라이언트의 MCP 서버는 MVP 필수가 아니며 기능 레지스트리·명령 폴러·도구 실행기로 연동한다.
 
 ### 독립 상태
 
