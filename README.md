@@ -13,7 +13,7 @@ pnpm dev
 
 ## 환경변수
 
-개발용 설정(서버 주소, 개발용 대역, 가짜 마이크·카메라, 자체 시험)은 환경변수로 지정하며 전체 목록과 설명은 [.env.example](.env.example)에 있습니다. `cp .env.example .env`로 복사해 쓰면 개발 실행(`pnpm dev`)이 `.env`를 읽습니다. 패키징된 앱은 이 파일도, 이 환경변수도 쓰지 않습니다(서버 주소 변수도 패키징된 앱에서는 무시합니다). 셸에서 지정한 값(`JARVIS_SERVER_URL=… pnpm dev`)이 `.env`보다 우선합니다. VS Code 터미널에서 앱이 일반 Node로 실행되는 경우에는 `env -u ELECTRON_RUN_AS_NODE pnpm dev`로 실행합니다.
+개발용 설정(서버 주소, 개발용 대역, 가짜 마이크·카메라, 자체 시험)은 환경변수로 지정하며 전체 목록과 설명은 [.env.example](.env.example)에 있습니다. `cp .env.example .env`로 복사해 쓰면 개발 실행(`pnpm dev`)이 `.env`를 읽습니다. 패키징된 앱은 이 파일도, 이 환경변수도 쓰지 않습니다(서버 주소 변수도 무시합니다). 설치본의 서버 주소는 패키징할 때 `MAIN_VITE_JARVIS_SERVER_URL=https://… pnpm package`로 앱 코드에 넣으며, 주소가 없거나 `https`가 아니거나 이 PC를 가리키면 패키징이 시작 전에 중단되고, 빌드 뒤에도 주소가 실제로 들어갔는지 확인합니다. 셸에서 지정한 값(`JARVIS_SERVER_URL=… pnpm dev`)이 `.env`보다 우선합니다. VS Code 터미널에서 앱이 일반 Node로 실행되는 경우에는 `env -u ELECTRON_RUN_AS_NODE pnpm dev`로 실행합니다.
 
 앱은 로그인 화면으로 시작합니다. 창을 닫으면 트레이로 숨기고, 트레이 또는 기본 단축키 `CommandOrControl+Shift+Space`로 다시 엽니다. 앱 종료는 트레이나 화면의 종료 버튼을 사용합니다. 서버 연동 전에는 모든 인증 요청이 연결 불가로 실패합니다. 개발용 인증 대역으로 로그인·회원가입을 확인하려면 다음처럼 실행합니다(패키징된 앱에서는 동작하지 않습니다).
 

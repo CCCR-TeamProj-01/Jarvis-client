@@ -10,6 +10,8 @@ export type ServerClientResolution =
 interface CreateServerClientOptions {
   isPackaged: boolean
   env: Readonly<Record<string, string | undefined>>
+  /** The address built into the app; only an installed app uses it. */
+  bundledUrl?: string | undefined
   fetch: FetchLike
   accessToken(): string | null | Promise<string | null>
   renewAccessToken?(): Promise<boolean>
