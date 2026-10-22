@@ -105,7 +105,7 @@ UI 공개 API 계약은 `UiApi.auth` 아래 `checkLoginId`, `signUp`, `signIn`, 
 
 F-028([#60](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/60))에서 서버 REST 인증 어댑터를 구현했다. 호출 계약은 [계정 인증 계약](../architecture/server-integration.md#계정-인증-계약)이 원본이고 아래는 어댑터가 지키는 동작이다. 실제 서버가 없어 가짜 인증 서버(토큰 회전·재사용 탐지 포함)와 AuthManager로 검증했으며 실제 서버와의 통합은 아직 확인하지 못했다.
 
-- 선택: 개발용 대역(`JARVIS_DEV_AUTH=1`)이 가장 우선이고, 그 밖에 서버 주소(`JARVIS_SERVER_URL`)가 유효하면 서버 어댑터, 둘 다 없으면 항상 연결 불가다. 패키징된 빌드는 서버 주소가 없어 연결 불가를 유지한다.
+- 선택: 개발용 대역(`JARVIS_DEV_AUTH=1`)이 가장 우선이고, 그 밖에 서버 주소(`JARVIS_SERVER_URL`)가 유효하면 서버 어댑터, 둘 다 없으면 항상 연결 불가다. 패키징된 빌드는 `JARVIS_SERVER_URL`을 읽지 않고 빌드할 때 앱에 넣은 `https` 서버 주소만 쓰며(없으면 연결 불가를 유지한다), 개발용 대역은 패키징된 빌드에서 동작하지 않는다. 자세한 규칙은 [서버 연동](../architecture/server-integration.md)을 따른다.
 - 가입: 아이디·비밀번호만 보내고 서버가 정규화한 아이디를 결과로 쓴다. 가입만으로 로그인하지 않는다.
 - 로그인: 자격 증명과 기기 정보(설치 키 `device_key`·컴퓨터 이름·`platform`(`windows`/`macos`)·앱 버전)를 함께 보내 기기를 등록한다. 설치 키가 아직 없으면 `device_unavailable`, 지원하지 않는 OS면 `unsupported`로 요청 없이 실패한다.
 - 자격 증명: 접근·갱신 토큰, 각 만료 시각(받은 시점의 로컬 시각 + 서버의 상대 수명), 세션 ID, 설치 키, 사용자를 한 값으로 묶어 기존 보호 저장소에 저장한다. 앱이 보는 세션 만료는 갱신 토큰의 만료이며, 접근 토큰(1시간)이 끝날 때마다 로그인을 다시 확인하지 않는다.

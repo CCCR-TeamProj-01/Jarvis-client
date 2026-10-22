@@ -235,6 +235,20 @@
       "description": "로그인한 동안 GET /recommendations/pending을 폴링해 추천 1건을 별도 팝업 창(포커스를 빼앗지 않음)에 카드로 보여 주고(서버 만료 시각 적용, 대화·음성 중과 이미 실행 중인 앱은 제외) 실행·나중에·거절·닫기를 POST /recommendations/{id}/responses로 보낸다. 승인으로 생긴 명령은 기존 명령 폴러가 실행한다. 서버 구현 전이라 명세와 가짜 서버로 검증했고, 거절 기간·오늘 추천받지 않기는 제외한다.",
       "status": "done",
       "issue": 79
+    },
+    {
+      "id": "F-037",
+      "title": "개발 실행의 .env 로딩과 .env.example",
+      "description": "패키징되지 않은 앱에서만 시작 직전에 프로젝트 루트의 .env를 읽어 환경변수를 지정할 수 있게 한다(셸에서 지정한 값이 우선, 파일이 없으면 조용히 넘어가고 읽기 실패는 고정 문장으로만 알림). 클라이언트가 읽는 모든 JARVIS_ 변수를 설명한 .env.example을 두고, 코드가 읽는 변수와 어긋나지 않는지 테스트로 확인한다.",
+      "status": "done",
+      "issue": 81
+    },
+    {
+      "id": "F-038",
+      "title": "패키징된 앱의 빌드 시점 서버 주소 주입",
+      "description": "패키징된 앱이 환경변수 대신 빌드할 때 MAIN_VITE_JARVIS_SERVER_URL로 넣은 https 주소만 쓰도록 한다(없으면 연결 불가, 개발 앱은 기존대로 환경변수만 사용). pnpm package·package:dir는 주소가 없거나 https가 아니거나 이 PC를 가리키면 빌드 전에 중단하고, 빌드 뒤에 결과물에 주소가 들어갔는지 확인한다.",
+      "status": "done",
+      "issue": 82
     }
   ]
 }

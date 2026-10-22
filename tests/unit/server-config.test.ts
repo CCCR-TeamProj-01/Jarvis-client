@@ -80,3 +80,101 @@ describe('server address', () => {
     )
   })
 })
+
+describe('the address of an installed (packaged) app', () => {
+  const bundled = 'https://api.example.com/api/v1/'
+
+  it('uses only the address built into it, normalised', () => {
+    expect(resolveServerConfig({ isPackaged: true, env: {}, bundledUrl: bundled })).toEqual({
+      status: 'ready',
+      baseUrl: 'https://api.example.com/api/v1'
+    })
+  })
+
+  it('ignores the environment variable, whatever it says, even when it names a valid server', () => {
+    expect(
+      resolveServerConfig({
+        isPackaged: true,
+        env: { JARVIS_SERVER_URL: 'https://evil.example.com/api/v1' },
+        bundledUrl: bundled
+      })
+    ).toEqual({ status: 'ready', baseUrl: 'https://api.example.com/api/v1' })
+    expect(
+      resolveServerConfig({
+        isPackaged: true,
+        env: { JARVIS_SERVER_URL: 'https://evil.example.com/api/v1' }
+      })
+    ).toEqual({ status: 'unconfigured' })
+  })
+
+  it.each([undefined, '', '   '])(
+    'stays unconfigured when no address was built in (%j)',
+    (value) => {
+      expect(resolveServerConfig({ isPackaged: true, env: {}, bundledUrl: value })).toEqual({
+        status: 'unconfigured'
+      })
+    }
+  )
+
+  it.each([
+    ['plain http', 'http://api.example.com/api/v1'],
+    ['plain http on this machine', 'http://127.0.0.1:8001/api/v1'],
+    ['localhost over http', 'http://localhost:8000'],
+    ['a made-up scheme', 'ftp://api.example.com'],
+    ['an address with a password', 'https://user:pass@api.example.com'],
+    ['a query', 'https://api.example.com/api/v1?x=1'],
+    ['not an address', 'api.example.com'],
+    ['surrounding space', ' https://api.example.com']
+  ])('refuses %s, so a bad build shows up as unreachable', (_name, value) => {
+    expect(resolveServerConfig({ isPackaged: true, env: {}, bundledUrl: value })).toMatchObject({
+      status: 'invalid'
+    })
+  })
+
+  it('leaves a development app to the environment variable, and ignores the built-in address', () => {
+    expect(
+      resolveServerConfig({
+        isPackaged: false,
+        env: { JARVIS_SERVER_URL: 'http://127.0.0.1:8001/api/v1' },
+        bundledUrl: bundled
+      })
+    ).toEqual({ status: 'ready', baseUrl: 'http://127.0.0.1:8001/api/v1' })
+    expect(resolveServerConfig({ isPackaged: false, env: {}, bundledUrl: bundled })).toEqual({
+      status: 'unconfigured'
+    })
+  })
+
+  it('still lets a development address use plain http on this machine only', () => {
+    expect(parseServerBaseUrl('http://127.0.0.1:8001/api/v1').status).toBe('ready')
+    expect(parseServerBaseUrl('http://127.0.0.1:8001/api/v1', { httpsOnly: true })).toMatchObject({
+      status: 'invalid'
+    })
+    expect(parseServerBaseUrl('https://127.0.0.1:8001/api/v1', { httpsOnly: true }).status).toBe(
+      'ready'
+    )
+  })
+})
+
+describe('a client made for an installed app', () => {
+  it('talks to the address built into it', () => {
+    const resolution = createServerClient({
+      isPackaged: true,
+      env: {},
+      bundledUrl: 'https://api.example.com/api/v1',
+      fetch: async () => new Response(null),
+      accessToken: () => null
+    })
+    expect(resolution.status).toBe('ready')
+  })
+
+  it('is unconfigured without one, whatever the environment says', () => {
+    expect(
+      createServerClient({
+        isPackaged: true,
+        env: { JARVIS_SERVER_URL: 'https://api.example.com/api/v1' },
+        fetch: async () => new Response(null),
+        accessToken: () => null
+      })
+    ).toEqual({ status: 'unconfigured' })
+  })
+})

@@ -52,7 +52,7 @@ F-027([#58](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/58))에서 
 
 | 위치 | 책임 |
 | --- | --- |
-| `src/main/connection/server-config.ts` | 서버 기준 주소. 패키징되지 않은 앱의 `JARVIS_SERVER_URL`만 읽는다. 없으면 `unconfigured`, 잘못되면 `invalid`로 연결 불가처럼 동작한다. `https`만 허용하고 `http`는 `127.0.0.1`·`localhost`·`::1`에만 허용한다. 인증 정보·쿼리·해시·앞뒤 공백은 거부한다. 패키징된 빌드는 환경변수로 주소를 바꿀 수 없고 운영 주소 주입 방식은 서버 주소가 정해질 때 정한다 |
+| `src/main/connection/server-config.ts` | 서버 기준 주소. 패키징되지 않은 앱의 `JARVIS_SERVER_URL`만 읽는다. 없으면 `unconfigured`, 잘못되면 `invalid`로 연결 불가처럼 동작한다. `https`만 허용하고 `http`는 `127.0.0.1`·`localhost`·`::1`에만 허용한다. 인증 정보·쿼리·해시·앞뒤 공백은 거부한다. 패키징된 빌드는 환경변수·파일·설정으로 주소를 바꿀 수 없고, 빌드할 때 넣은 `MAIN_VITE_JARVIS_SERVER_URL`(`bundled-server-url.ts`)만 쓰며 `https`만 허용한다(같은 PC의 `http`도 거부). 값이 없으면 `unconfigured`다. 설치본이 서버 없이 만들어지지 않도록 `pnpm package`·`pnpm package:dir`는 `scripts/check-server-url.mjs`로 빌드 전에 주소(https, 이 PC를 가리키지 않음)를 확인하고 빌드 뒤에 결과물에 실제로 들어갔는지 확인한다. 이 검사와 앱의 검증이 어긋나지 않는지는 테스트로 확인한다. 사용자가 설치 뒤에 서버를 바꾸는 방법은 피싱 서버로 돌릴 위험 때문에 의도적으로 없다 |
 | `src/main/connection/server-client.ts` | `ServerClient.request`. 고정 형식의 경로·`Idempotency-Key`만 허용하고 기준 주소의 출처·경로를 벗어나는 요청(인코딩된 `..` 포함)을 보내기 전에 거절한다. 접근 토큰은 `Authorization: Bearer`로만 보내고 토큰이 없거나 형식이 맞지 않으면 보내지 않는다. 시간 초과(기본 10초)·취소·응답 크기 제한(기본 1MB)·리다이렉트 거부를 적용하고, 성공 본문은 JSON 형식과 호출자의 스키마로 검증한다. 자동 재시도는 하지 않는다 |
 | `src/main/connection/server-errors.ts` | 서버 오류 코드(없으면 HTTP 상태) → `ClientError` 변환과 코드별 고정 문구. 서버의 `message`는 쓰지 않는다 |
 | `src/main/connection/server-ids.ts`, `server-clock.ts` | 정수 ID의 안전 정수 검증과 문자열 변환. 응답 `Date` 헤더로 서버와 로컬의 시계 차이 추적 |
