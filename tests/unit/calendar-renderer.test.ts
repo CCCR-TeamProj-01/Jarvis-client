@@ -43,7 +43,9 @@ const render = (state: CalendarSnapshot | null) =>
       onNavigate: () => undefined,
       onCreate: refuse,
       onUpdate: refuse,
-      onDelete: refuse
+      onDelete: refuse,
+      google: null,
+      onOpenSettings: () => undefined
     })
   )
 

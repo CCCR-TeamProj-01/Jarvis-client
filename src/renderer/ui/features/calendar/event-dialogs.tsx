@@ -1,26 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { CircleAlert, LoaderCircle } from 'lucide-react'
+import { useModal } from '../../use-modal'
 import type { CalendarEventDraft } from '../../../../shared/contracts/calendar'
 import { canSubmit, resendBlocked, toDraft, withStartDate } from './event-form'
 import type { DialogPhase as Phase, EditReport, EventForm } from './event-form'
-
-/** A modal dialog the browser keeps focus inside; Escape closes it unless something is being sent. */
-function useModal(onClose: () => void, locked: boolean) {
-  const ref = useRef<HTMLDialogElement>(null)
-  useEffect(() => {
-    const dialog = ref.current
-    if (dialog && !dialog.open && typeof dialog.showModal === 'function') dialog.showModal()
-  }, [])
-  const props = {
-    ref,
-    onCancel: (event: { preventDefault(): void }) => {
-      event.preventDefault()
-      if (!locked) onClose()
-    }
-  }
-  return props
-}
 
 interface EventDialogProps {
   mode: 'create' | 'edit'

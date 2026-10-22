@@ -21,6 +21,8 @@ import type {
   CalendarSnapshot
 } from '../../../../shared/contracts/calendar'
 import type { Result } from '../../../../shared/contracts/common'
+import type { GoogleConnectionSnapshot } from '../../../../shared/contracts/google-connection'
+import { googleLine } from '../google/view-model'
 import { DeleteDialog, EventDialog } from './event-dialogs'
 import { editReport, formFromEvent, newEventForm } from './event-form'
 import {
@@ -46,6 +48,10 @@ interface CalendarViewProps {
   onCreate(draft: CalendarEventDraft): Promise<Result<CalendarEditOutcome>>
   onUpdate(eventId: string, draft: CalendarEventDraft): Promise<Result<CalendarEditOutcome>>
   onDelete(eventId: string): Promise<Result<CalendarEditOutcome>>
+  /** The Google connection, for how current the Google events are; null before it is known. */
+  google: GoogleConnectionSnapshot | null
+  /** Where the connection is managed. */
+  onOpenSettings(): void
 }
 
 /** What is open over the calendar, if anything. */
@@ -68,7 +74,9 @@ export function CalendarView({
   onNavigate,
   onCreate,
   onUpdate,
-  onDelete
+  onDelete,
+  google,
+  onOpenSettings
 }: CalendarViewProps) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [dialog, setDialog] = useState<Dialog | null>(null)
@@ -77,6 +85,7 @@ export function CalendarView({
   const body = snapshot ? calendarBody(snapshot) : 'loading'
   const notice = snapshot ? calendarNotice(snapshot) : null
   const title = snapshot?.view ? viewTitle(snapshot.view) : '일정'
+  const line = googleLine(google, snapshot?.timeZone ?? null)
   return (
     <section className="view" aria-labelledby="calendar-title">
       <header className="view-head">
@@ -84,11 +93,23 @@ export function CalendarView({
         {snapshot?.timeZone && <span className="hint">{snapshot.timeZone} 기준</span>}
       </header>
 
-      {snapshot?.days.some((day) => day.events.some((event) => event.source === 'google')) && (
-        <p className="notice" role="note">
+      {line ? (
+        <p className={`notice${line.tone === 'warn' ? ' notice-warning' : ''}`} role="status">
           <Info aria-hidden="true" />
-          Google 일정은 서버에 저장된 읽기 전용 사본이에요. 동기화 상태는 확인할 수 없어요.
+          <span>{line.text}</span>
+          {line.openSettings && (
+            <button className="button button-ghost" type="button" onClick={onOpenSettings}>
+              설정에서 보기
+            </button>
+          )}
         </p>
+      ) : (
+        snapshot?.days.some((day) => day.events.some((event) => event.source === 'google')) && (
+          <p className="notice" role="note">
+            <Info aria-hidden="true" />
+            Google 일정은 서버에 저장된 읽기 전용 사본이에요. 동기화 상태는 확인할 수 없어요.
+          </p>
+        )
       )}
 
       <div className="calendar-bar">

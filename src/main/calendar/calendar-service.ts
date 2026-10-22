@@ -132,6 +132,16 @@ export class CalendarService implements CalendarPort {
     }
   }
 
+  /**
+   * Reads the view being shown again, when there is one. For changes that come from elsewhere (the
+   * Google import finished): before the calendar was ever opened there is nothing to refresh, and
+   * reading it with no view would pick the default one and leave the tab opening on that.
+   */
+  async refreshIfShown(): Promise<void> {
+    if (this.userId === null || this.view === null) return
+    await this.navigate('refresh')
+  }
+
   /** Goes to the view and reads it. Resolves when this request is settled or a newer one replaced it. */
   async navigate(navigation: CalendarNavigation): Promise<Result<CalendarSnapshot>> {
     const user = this.userId

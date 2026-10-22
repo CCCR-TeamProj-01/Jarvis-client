@@ -2,6 +2,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { FakeCalendarStore } from './fake-calendar-store'
+import type { FakeGoogleConnections } from './fake-google-connections'
 
 export const ACCESS_LIFETIME_S = 3600
 export const REFRESH_LIFETIME_S = 2_592_000
@@ -37,6 +38,8 @@ export class FakeJarvisServer {
   calendarAnswer: unknown = { items: [], todos: [] }
   /** When set, the calendar is kept here and follows the real server's rules, and `calendarAnswer` is not used. */
   calendarStore: FakeCalendarStore | null = null
+  /** When set, the Google Calendar connection is kept here and follows the real server's behavior. */
+  google: FakeGoogleConnections | null = null
   calendarFaults: number[] = []
   /** Hold an event response to test sign-out or a newer read overtaking it. */
   calendarGate: Promise<void> | null = null
@@ -228,6 +231,29 @@ export class FakeJarvisServer {
     if (path === '/me/settings' && request.method === 'GET') {
       if (!valid) return error(401, 'INVALID_SESSION')
       return send(200, this.calendarSettings)
+    }
+    const google = this.google
+    const connectionRoute =
+      /^\/calendar\/connections(?:\/(google)\/authorizations|\/(\d+)\/syncs|\/(\d+))?$/.exec(path)
+    if (google && connectionRoute) {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      const method = request.method
+      if (!connectionRoute[1] && !connectionRoute[2] && !connectionRoute[3] && method === 'GET') {
+        const fault = google.readFaults.shift() ?? 'ok'
+        if (typeof fault === 'number') return error(fault, 'SERVICE_UNAVAILABLE')
+        return send(200, google.list(this.naiveTimes))
+      }
+      if (connectionRoute[1] && method === 'POST')
+        return send(201, google.authorize(this.naiveTimes))
+      if (connectionRoute[2] && method === 'POST') {
+        const answered = google.sync(Number(connectionRoute[2]))
+        return send(answered.status, answered.payload)
+      }
+      if (connectionRoute[3] && method === 'DELETE') {
+        const answered = google.disconnect(Number(connectionRoute[3]))
+        return send(answered.status, answered.payload)
+      }
+      return error(405, 'METHOD_NOT_ALLOWED')
     }
     const store = this.calendarStore
     const eventRoute = /^\/calendar\/events(?:\/(\d+))?(?:\?.*)?$/.exec(path)
