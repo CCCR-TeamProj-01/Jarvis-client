@@ -22,7 +22,8 @@ export interface PendingPage {
 
 /** What happened to a result that was sent. */
 export type SendOutcome =
-  | { kind: 'stored' }
+  /** `activityRecorded`: whether the server also recorded the activity; absent when it did not say. */
+  | { kind: 'stored'; activityRecorded?: boolean }
   /** The server will never take this result (not ours, already different, or malformed). */
   | { kind: 'refused' }
   /** It may be tried again later. */
@@ -44,7 +45,7 @@ const ItemIdsSchema = z.looseObject({
   command_id: z.number().refine((value) => Number.isSafeInteger(value) && value >= 0),
   attempt_no: z.number().int().positive().default(1)
 })
-const ReceiptSchema = z.looseObject({})
+const ReceiptSchema = z.looseObject({ activity_recorded: z.boolean().optional() })
 
 /** Answers the server gives when a result can never be accepted: do not send it again. */
 const REFUSED_STATUSES: ReadonlySet<number> = new Set([403, 404, 409, 422])
@@ -87,14 +88,17 @@ export class CommandApi implements CommandApiPort {
   async send(commandId: string, result: CommandResult, signal?: AbortSignal): Promise<SendOutcome> {
     // The ID comes from the journal, which only holds numbers the server sent; check anyway.
     if (!/^\d{1,16}$/.test(commandId)) return { kind: 'refused' }
-    const response: ServerResult<unknown> = await this.client.request({
+    const response: ServerResult<z.infer<typeof ReceiptSchema>> = await this.client.request({
       method: 'POST',
       path: `/commands/${commandId}/results`,
       body: result,
       response: ReceiptSchema,
       signal
     })
-    if (response.ok) return { kind: 'stored' }
+    if (response.ok)
+      return response.value.activity_recorded === undefined
+        ? { kind: 'stored' }
+        : { kind: 'stored', activityRecorded: response.value.activity_recorded }
     if (
       response.detail.delivery === 'responded' &&
       REFUSED_STATUSES.has(response.detail.status ?? 0)

@@ -1,8 +1,19 @@
+import type { Result } from '../../shared/contracts/common'
 import type { ToolExecutionReport, ToolInvocation } from '../../shared/contracts/tools'
 import type { LocalExecutionOptions } from '../ports'
 import type { ServerClock } from '../connection/server-clock'
+import {
+  activityEventType,
+  activityFor,
+  resultForSending,
+  runningAppCodes,
+  usesApp
+} from './activity'
+import type { CollectionConsent } from './activity'
+import type { CollectionConsentPort } from './collection-consent'
 import type { CommandApiPort, PendingItem } from './command-api'
 import type { CommandJournal, JournalEntry } from './command-journal'
+import { CommandResultSchema } from './command-result'
 import type { CommandResult } from './command-result'
 import { invocationFor, translateCommand } from './command-translator'
 import { expiredResult, interruptedResult, rejectedResult, resultFromReport } from './result-mapper'
@@ -25,6 +36,17 @@ export interface CommandServiceOptions {
   /** Resolves after `ms`, or early when the signal aborts. */
   sleep(ms: number, signal: AbortSignal): Promise<void>
   displayName?(osAppId: string): string | undefined
+  /**
+   * What is told the server about the apps used, for the history and recommendations. Left out:
+   * no activity is ever reported.
+   */
+  activity?: {
+    consent: CollectionConsentPort
+    /** The OS app IDs of the apps running now. */
+    runningApps(signal?: AbortSignal): Promise<Result<readonly string[]>>
+    /** A new ID that has not been used before. */
+    createId(): string
+  }
   /** Fixed wording only: never a command's contents. */
   log?(message: string): void
   /** A command older than this when it arrives is not started. */
@@ -37,6 +59,8 @@ const DEFAULT_POLL_MS = 2_000
 const MIN_POLL_MS = 1_000
 const MAX_POLL_MS = 30_000
 const MAX_RETRY_AFTER_MS = 60_000
+/** A consent just read is trusted this long when a result is sent; before running, it is always read afresh. */
+const CONSENT_REUSE_MS = 30_000
 
 /**
  * Receives the device's commands, runs each once and reports the result. One command is handled
@@ -46,12 +70,14 @@ const MAX_RETRY_AFTER_MS = 60_000
  */
 export class CommandService {
   private run: { userId: string; abort: AbortController; done: Promise<void> } | null = null
+  private consent: { userId: string; value: CollectionConsent; atMs: number } | null = null
 
   constructor(private readonly options: CommandServiceOptions) {}
 
   /** Starts receiving for a signed-in user. Calling it again for the same user does nothing. */
   start(userId: string): void {
     if (this.run?.userId === userId) return
+    // Stopping also forgets the consent held for the earlier user.
     void this.stop()
     const abort = new AbortController()
     const done = this.loop(userId, abort.signal).catch(() =>
@@ -67,6 +93,7 @@ export class CommandService {
   stop(): Promise<void> {
     const run = this.run
     this.run = null
+    this.consent = null
     run?.abort.abort()
     return run?.done ?? Promise.resolve()
   }
@@ -124,8 +151,11 @@ export class CommandService {
     signal: AbortSignal
   ): Promise<boolean> {
     if (!entry.result) return true
-    const outcome = await this.options.api.send(entry.commandId, entry.result, signal)
+    const body = await this.bodyToSend(userId, entry.result, signal)
+    const outcome = await this.options.api.send(entry.commandId, body, signal)
     if (outcome.kind === 'retry') return false
+    if (outcome.kind === 'stored' && body.activity && outcome.activityRecorded === false)
+      this.log('서버가 앱 사용 기록을 저장하지 않았어요. 명령 결과는 저장됐어요.')
     if (outcome.kind === 'refused') this.log('서버가 명령 결과를 받지 않아 더 보내지 않아요.')
     await this.options.journal
       .forUser(userId)
@@ -156,7 +186,7 @@ export class CommandService {
       return 'skipped'
     }
 
-    const result = await this.resultFor(item, startedAtMs, signal)
+    const result = await this.resultFor(userId, item, startedAtMs, signal)
     const finished = await journal.finish(key, result)
     if (!finished.ok) this.log('명령 결과를 기록하지 못했어요.')
     if (signal.aborted) return 'done'
@@ -167,6 +197,7 @@ export class CommandService {
   }
 
   private async resultFor(
+    userId: string,
     item: PendingItem,
     startedAtMs: number,
     signal: AbortSignal
@@ -188,6 +219,13 @@ export class CommandService {
     const translated = translateCommand(command, this.options.platform)
     if (!translated.ok) return rejectedResult(command, translated.rejection, timingNow())
 
+    // What the user allowed is read before anything runs, and nothing is looked at without it.
+    const tool = translated.value.command.tool
+    const watching = this.options.activity !== undefined && usesApp(tool)
+    const consent = watching ? await this.consentFor(userId, signal, 0) : null
+    const runningBefore =
+      consent?.activityEnabled && tool === 'apps.launch' ? await this.runningApps(signal) : null
+
     let report: ToolExecutionReport
     try {
       report = await this.options.executor.execute(
@@ -198,12 +236,93 @@ export class CommandService {
       // The executor reports rather than throws. If it did, the command may have acted.
       return interruptedResult(command, timingNow())
     }
-    return resultFromReport(command, report, {
+    // The times are fixed here: what is read afterwards must not move them.
+    const result = resultFromReport(command, report, {
       platform: this.options.platform,
       timing: timingNow(),
       app: translated.value.app,
       displayName: this.options.displayName
     })
+    return consent
+      ? await this.withActivity(report, result, consent, runningBefore, signal)
+      : result
+  }
+
+  /** The result with the activity it called for, if any. Failing to take the list never changes the result. */
+  private async withActivity(
+    report: ToolExecutionReport,
+    result: CommandResult,
+    consent: CollectionConsent,
+    runningBefore: string[] | null,
+    signal: AbortSignal
+  ): Promise<CommandResult> {
+    const activity = this.options.activity
+    if (!activity) return result
+    const before = runningBefore === null ? null : new Set(runningBefore)
+    // Whether this calls for an activity is settled first, so no list is taken for nothing.
+    if (activityEventType({ tool: report.tool, result, consent, runningBefore: before }) === null)
+      return result
+    let runningNow: ReturnType<typeof runningAppCodes> | null = null
+    if (consent.externalEnabled) {
+      const apps = await this.runningApps(signal)
+      if (apps !== null) runningNow = runningAppCodes(apps, this.options.platform)
+    }
+    const made = activityFor({
+      tool: report.tool,
+      result,
+      consent,
+      runningBefore: before,
+      runningNow,
+      eventKey: activity.createId()
+    })
+    const parsed = made ? CommandResultSchema.safeParse({ ...result, activity: made }) : null
+    return parsed?.success ? parsed.data : result
+  }
+
+  /** The OS IDs of the apps running now, or null when they cannot be read. */
+  private async runningApps(signal: AbortSignal): Promise<string[] | null> {
+    try {
+      const apps = await this.options.activity?.runningApps(signal)
+      return apps?.ok ? [...apps.value] : null
+    } catch {
+      return null
+    }
+  }
+
+  /** The user's consent: freshly read unless one read within `maxAgeMs` is held; null when it cannot be told. */
+  private async consentFor(
+    userId: string,
+    signal: AbortSignal,
+    maxAgeMs: number
+  ): Promise<CollectionConsent | null> {
+    const source = this.options.activity?.consent
+    if (!source) return null
+    const held = this.consent
+    if (held && held.userId === userId && this.options.now() - held.atMs < maxAgeMs)
+      return held.value
+    try {
+      const read = await source.read(signal)
+      if (!read.ok) {
+        this.consent = null
+        return null
+      }
+      this.consent = { userId, value: read.value, atMs: this.options.now() }
+      return read.value
+    } catch {
+      this.consent = null
+      return null
+    }
+  }
+
+  /** The stored result as it goes out now: the activity is dropped or trimmed to what is still allowed. */
+  private async bodyToSend(
+    userId: string,
+    result: CommandResult,
+    signal: AbortSignal
+  ): Promise<CommandResult> {
+    if (!result.activity) return result
+    const consent = await this.consentFor(userId, signal, CONSENT_REUSE_MS)
+    return resultForSending(result, consent)
   }
 
   /** Judged on the server's clock: `requested_at` is a server time. */

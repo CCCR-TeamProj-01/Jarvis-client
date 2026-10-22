@@ -179,7 +179,8 @@ F-034([#72](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/72))에서 
 - 거절: `requested_at`(서버 시각, 응답의 `Date`로 시계 차이를 보정)이 60초를 넘은 명령은 시작하지 않고 `failed`(`timeout`, `expired`)로 보고한다. 번역할 수 없는 명령은 `rejected`로 보고한다. 형식이 맞지 않아도 `command_id`가 있으면 `rejected`(`validation`)로 답하고, 그것도 없으면 건너뛴다. 한 항목의 문제가 나머지를 막지 않는다.
 - 보고: `POST /commands/{command_id}/results`로 보낸다(최초 201, 같은 결과 200). 보내지 못하면 `finished`로 남겨 다음 라운드(재시작 후 포함)에 같은 본문을 다시 보낸다. 서버가 받을 수 없다고 확정한 응답(403·404·409·422)이면 더 보내지 않고 닫는다. 로그에는 고정 문장만 남기며 명령의 내용을 쓰지 않는다.
 - 수명: 로그인하면 시작하고 로그아웃·세션 종료 시 멈추며 실행 중인 명령은 취소한다. 같은 사용자에게 다시 시작을 요청해도 실행 중인 명령을 건드리지 않는다. 다른 계정이 로그인하면 이전 사용자의 저널 기록을 지운다. 멈춘 동안 만든 결과는 저널에 남아 같은 사용자가 다시 로그인하면 보낸다.
-- 실행 결과를 화면에 보여 주는 것과 `apps.list`·`system.status` 값 보고, `activity` 보고는 아직 없다.
+- 활동: 앱을 실행하거나 앞으로 가져온 명령이 `confirmed`로 성공하면 결과에 `activity`(`event_key`·`event_type`·`occurred_at`·`collection_revision`·`running_apps`)를 함께 보낸다. 서버는 `activity`를 최초 보고에서만 기록하므로(같은 결과를 다시 보낼 때는 상태·시각·메시지만 비교하고 `activity`는 무시한다) 결과를 만들 때 한 번 정해 저널에 고정한다. 규칙은 [명령 결과의 활동 보고](../features/activity-recommendation.md#명령-결과의-활동-보고)를 따른다. 응답의 `activity_recorded`가 `false`여도 결과는 저장된 것이며 실패로 다루지 않고 고정 문장만 로그에 남긴다.
+- 실행 결과를 화면에 보여 주는 것과 `apps.list`·`system.status` 값 보고는 아직 없다.
 
 ### 구현 현황: 음성 연동
 

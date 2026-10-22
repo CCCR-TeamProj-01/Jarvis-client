@@ -34,7 +34,26 @@ export class FakeJarvisServer {
   /** How long after a renewal the previous refresh token is still accepted once more. */
   graceMs = 30_000
   rateLimitChecks = false
-  calendarSettings: unknown = { timezone: 'Asia/Seoul' }
+  /**
+   * The user's settings, as `GET /me/settings` answers. The collection fields decide whether a
+   * command result's activity is recorded, as on the real server: only for a success, with the
+   * activity consent on and the same `collection_revision`.
+   */
+  calendarSettings: Record<string, unknown> = {
+    timezone: 'Asia/Seoul',
+    activity_collection_enabled: true,
+    external_activity_collection_enabled: true,
+    collection_revision: 3
+  }
+  /** Activities the server recorded from command results, in order. */
+  readonly activities: {
+    commandId: number
+    eventKey: string
+    eventType: string
+    appCode: string
+    occurredAt: string
+    runningApps: string[] | null
+  }[] = []
   calendarAnswer: unknown = { items: [], todos: [] }
   /** When set, the calendar is kept here and follows the real server's rules, and `calendarAnswer` is not used. */
   calendarStore: FakeCalendarStore | null = null
@@ -479,16 +498,73 @@ export class FakeJarvisServer {
           body?.failure_stage !== null) ||
         Date.parse(String(body?.finished_at)) < Date.parse(String(body?.started_at))
       if (malformed) return error(422, 'VALIDATION_ERROR')
+      const activity = body?.activity as Record<string, unknown> | undefined
+      if (activity !== undefined) {
+        // What the server's model refuses: an activity without its app, a stranger's key, a bad list.
+        const keys = [
+          'event_key',
+          'event_type',
+          'occurred_at',
+          'collection_revision',
+          'running_apps'
+        ]
+        const bad =
+          typeof activity !== 'object' ||
+          body?.app === undefined ||
+          Object.keys(activity).some((key) => !keys.includes(key)) ||
+          typeof activity.event_key !== 'string' ||
+          activity.event_key.length < 1 ||
+          activity.event_key.length > 160 ||
+          !['launched', 'activated', 'closed'].includes(String(activity.event_type)) ||
+          !Number.isInteger(activity.collection_revision) ||
+          (activity.running_apps !== undefined &&
+            (!Array.isArray(activity.running_apps) ||
+              activity.running_apps.length > 100 ||
+              activity.running_apps.some((code) => typeof code !== 'string')))
+        if (bad) return error(422, 'VALIDATION_ERROR')
+      }
+      // A result sent again is compared on these fields only; what it says about activity is ignored.
+      const compared = [
+        'status',
+        'observation_status',
+        'error_code',
+        'failure_stage',
+        'result_message',
+        'started_at',
+        'finished_at',
+        'reported_at'
+      ]
       const prior = this.results.get(commandId)
-      if (prior && JSON.stringify(prior) !== JSON.stringify(body))
+      if (prior && compared.some((field) => (prior[field] ?? null) !== (body?.[field] ?? null)))
         return error(409, 'COMMAND_RESULT_CONFLICT')
-      if (!prior) this.results.set(commandId, body ?? {})
+      let recorded = this.activities.some((entry) => entry.commandId === commandId)
+      if (!prior) {
+        this.results.set(commandId, body ?? {})
+        const settings = this.calendarSettings
+        if (
+          activity !== undefined &&
+          body?.status === 'success' &&
+          settings.activity_collection_enabled === true &&
+          settings.collection_revision === activity.collection_revision
+        ) {
+          const app = body.app as Record<string, unknown>
+          this.activities.push({
+            commandId,
+            eventKey: String(activity.event_key),
+            eventType: String(activity.event_type),
+            appCode: String(app.app_code ?? ''),
+            occurredAt: String(activity.occurred_at),
+            runningApps: (activity.running_apps as string[] | undefined) ?? null
+          })
+          recorded = true
+        }
+      }
       if (fault === 'drop') return void request.socket.destroy()
       return send(prior ? 200 : 201, {
         command_id: commandId,
         attempt_no: body?.attempt_no,
         status: body?.status,
-        activity_recorded: false
+        activity_recorded: recorded
       })
     }
     if (path === '/speech/syntheses' && request.method === 'POST') {
