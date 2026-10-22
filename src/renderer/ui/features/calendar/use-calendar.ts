@@ -62,9 +62,11 @@ export function useCalendar(api: CalendarApi | undefined, active: boolean) {
   useEffect(() => {
     if (!api || !active) return
     let live = true
-    void api.navigate({ navigation: 'refresh' }).then((result) => {
-      if (live) settle(result)
-    })
+    void api
+      .navigate({ navigation: latest.current?.view ? 'refresh' : 'this_month' })
+      .then((result) => {
+        if (live) settle(result)
+      })
     return () => {
       live = false
     }

@@ -20,7 +20,7 @@ const monthDay = (date: string): string => {
   return `${month}월 ${day}일`
 }
 
-/** `10월 22일 (수)`. */
+/** `10월 22일 (목)`. */
 export function dayHeading(day: Pick<CalendarDay, 'date' | 'weekday'>): string {
   return `${monthDay(day.date)} (${WEEKDAYS[day.weekday]})`
 }
@@ -28,12 +28,41 @@ export function dayHeading(day: Pick<CalendarDay, 'date' | 'weekday'>): string {
 /** The range the view covers: one day with its year, or a week, naming the year again only if it changes. */
 export function viewTitle(view: CalendarView): string {
   const start = parts(view.startDate)
+  if (view.span === 'month') return `${start.year}년 ${start.month}월`
   if (view.span === 'day')
     return `${start.year}년 ${dayHeading({ date: view.startDate, weekday: view.startWeekday })}`
   const end = parts(view.endDate)
   const last =
     start.year === end.year ? monthDay(view.endDate) : `${end.year}년 ${monthDay(view.endDate)}`
   return `${start.year}년 ${monthDay(view.startDate)} – ${last}`
+}
+
+/** Pad the displayed dates into complete weeks; no calendar or server arithmetic lives here. */
+export function calendarWeeks(days: CalendarDay[], weekStartsOn: 0 | 1): (CalendarDay | null)[][] {
+  if (days.length === 0) return []
+  const offset = (days[0]!.weekday - weekStartsOn + 7) % 7
+  const cells: (CalendarDay | null)[] = Array.from({ length: offset }, () => null)
+  cells.push(...days)
+  while (cells.length % 7 !== 0) cells.push(null)
+  return Array.from({ length: cells.length / 7 }, (_, index) =>
+    cells.slice(index * 7, index * 7 + 7)
+  )
+}
+
+export function selectedCalendarDay(days: CalendarDay[], date: string | null): CalendarDay | null {
+  return days.find((day) => day.date === date) ?? days.find((day) => day.isToday) ?? days[0] ?? null
+}
+
+export function calendarKeyTarget(key: string, index: number, count: number): number | null {
+  const offsets: Record<string, number> = {
+    ArrowLeft: -1,
+    ArrowRight: 1,
+    ArrowUp: -7,
+    ArrowDown: 7
+  }
+  if (key === 'Home') return 0
+  if (key === 'End') return count - 1
+  return key in offsets ? Math.max(0, Math.min(count - 1, index + offsets[key]!)) : null
 }
 
 /** When an event happens on a day. */
