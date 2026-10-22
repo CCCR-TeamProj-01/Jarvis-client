@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { AuthManager } from '../auth/auth-manager'
 import { createDefaultAuth } from '../auth/create-auth'
-import { createCommandService, runWhileSignedIn } from '../commands/create-command-service'
+import { runWhileSignedIn } from '../auth/run-while-signed-in'
+import { createCommandService } from '../commands/create-command-service'
 import { ConversationManager } from '../conversation/conversation-manager'
 import { createGestureController } from '../gesture/create-gesture'
 import type { GestureController } from '../gesture/gesture-controller'
@@ -29,6 +30,9 @@ import { createVoiceStack } from '../speech/create-voice'
 import { createWakeWord } from '../speech/create-wake-word'
 import type { VoiceStack } from '../speech/create-voice'
 import { createRemoteSpeech } from '../speech/remote-speech/create-remote-speech'
+import { createRecommendationService } from '../recommendation/create-recommendation-service'
+import { createRecommendationPopup } from '../recommendation/create-popup'
+import { createOpenAppsCheck } from '../recommendation/open-apps'
 import { createToolStack } from '../tools/create-tools'
 import type { ToolStack } from '../tools/create-tools'
 import { startDevSelfTests } from './dev-selftests'
@@ -69,6 +73,8 @@ export class ApplicationManager {
   private disposeShortcuts: (() => void) | null = null
   private disposeSelfTests: (() => void) | null = null
   private disposeCommands: (() => void) | null = null
+  private disposeRecommendations: (() => void) | null = null
+  private disposePopup: (() => void) | null = null
   private disposeWakeWord: (() => void) | null = null
   private quitting = false
   private startPromise: Promise<void> | null = null
@@ -106,6 +112,32 @@ export class ApplicationManager {
       showWindow: () => this.window.open(),
       quit: () => app.quit()
     })
+    // The server's recommendations are offered while someone is signed in and nothing else is going on.
+    const recommendations = createRecommendationService({
+      isPackaged: app.isPackaged,
+      env: process.env,
+      api: login.api,
+      canShow: () => {
+        const state = this.interaction.getSnapshot()
+        return state.conversation.phase === 'idle' && state.speech.phase === 'idle'
+      },
+      // Apps that are already open are not worth suggesting. `tools` is built a little later.
+      alreadyOpen: (targets) =>
+        createOpenAppsCheck(this.tools.appControl, process.platform)(targets),
+      publish: (card) => this.interaction.setRecommendationState(card)
+    })
+    if (recommendations) {
+      this.interaction.setRecommendationHandler((id, response) =>
+        recommendations.respond(id, response)
+      )
+      this.disposeRecommendations = runWhileSignedIn(this.auth, recommendations)
+      // The recommendation appears in its own small window, so it is seen even when the main window is hidden.
+      this.disposePopup = createRecommendationPopup({
+        entryUrl: entryUrl.replace(/\/ui\/index\.html$/, '/popup/index.html'),
+        preloadPath: preloadPath.replace(/ui\.js$/, 'popup.js'),
+        interaction: this.interaction
+      }).dispose
+    }
     this.disposeIpc = registerUiIpc({
       ipc: ipcMain,
       getContents: () => this.window.getContents(),
@@ -308,6 +340,8 @@ export class ApplicationManager {
         | 'disposeShortcuts'
         | 'disposeSelfTests'
         | 'disposeCommands'
+        | 'disposeRecommendations'
+        | 'disposePopup'
         | 'disposeWakeWord'
     ) => {
       const release = this[name]
@@ -323,6 +357,8 @@ export class ApplicationManager {
       take('disposeState'),
       take('disposeSelfTests'),
       take('disposeCommands'),
+      take('disposeRecommendations'),
+      take('disposePopup'),
       take('disposeOverlay'),
       take('disposeMediaIpc'),
       () => {

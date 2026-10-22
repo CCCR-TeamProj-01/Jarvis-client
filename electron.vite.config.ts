@@ -24,7 +24,8 @@ export default defineConfig({
         input: {
           ui: resolve(__dirname, 'src/preload/ui.ts'),
           media: resolve(__dirname, 'src/preload/media.ts'),
-          overlay: resolve(__dirname, 'src/preload/overlay.ts')
+          overlay: resolve(__dirname, 'src/preload/overlay.ts'),
+          popup: resolve(__dirname, 'src/preload/popup.ts')
         }
       }
     }
@@ -38,7 +39,8 @@ export default defineConfig({
         input: {
           ui: resolve(__dirname, 'src/renderer/ui/index.html'),
           media: resolve(__dirname, 'src/renderer/media/index.html'),
-          overlay: resolve(__dirname, 'src/renderer/overlay/index.html')
+          overlay: resolve(__dirname, 'src/renderer/overlay/index.html'),
+          popup: resolve(__dirname, 'src/renderer/popup/index.html')
         }
       }
     }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { InteractionManager } from '../../src/main/interaction/interaction-manager'
 import type { AuthSnapshot } from '../../src/shared/contracts/auth'
+import { UiCommandSchema } from '../../src/shared/contracts/interaction'
 import type { UiCommand, UiEvent } from '../../src/shared/contracts/interaction'
 import { newestSnapshot } from '../../src/renderer/ui/use-client-snapshot'
 import { authGeneration, authUser, clientSnapshot } from '../fixtures/contracts'
@@ -188,5 +189,103 @@ describe('Main interaction state', () => {
     const current = clientSnapshot({ revision: 4 })
     expect(newestSnapshot(current, clientSnapshot({ revision: 1 }))).toBe(current)
     expect(newestSnapshot(current, clientSnapshot({ revision: 5 })).revision).toBe(5)
+  })
+})
+
+describe('recommendations in the interaction state', () => {
+  const card = {
+    recommendationId: '701',
+    reason: 'VS Code 다음에 Chrome을 자주 실행했어요.',
+    targets: [{ position: 0, appCode: 'chrome', displayName: 'Google Chrome' }],
+    expiresAtUnixMs: 1_000_000,
+    phase: 'offered' as const
+  }
+  const signedIn = { phase: 'signed_in', generation: authGeneration, user: authUser } as const
+
+  it('shows the card in the state, and the same card again changes nothing', () => {
+    const { manager } = setup(signedIn)
+    manager.setRecommendationState(card)
+    expect(manager.getSnapshot().recommendation).toEqual(card)
+    const revision = manager.getSnapshot().revision
+    manager.setRecommendationState({ ...card })
+    expect(manager.getSnapshot().revision).toBe(revision)
+    manager.setRecommendationState(null)
+    expect(manager.getSnapshot().recommendation).toBeNull()
+  })
+
+  it('answers through the Main handler, only when signed in', async () => {
+    const { manager } = setup()
+    const handler = vi.fn<
+      (id: string, response: string) => Promise<{ ok: true; value: undefined }>
+    >(async () => ({ ok: true, value: undefined }))
+    manager.setRecommendationHandler(handler)
+    const command: UiCommand = {
+      type: 'recommendation.respond',
+      recommendationId: '701',
+      response: 'approved'
+    }
+    expect(await manager.dispatch(command)).toMatchObject({
+      ok: false,
+      error: { code: 'authentication_required' }
+    })
+    expect(handler).not.toHaveBeenCalled()
+    manager.setAuthSnapshot(signedIn)
+    expect(await manager.dispatch(command)).toMatchObject({ ok: true })
+    expect(handler).toHaveBeenCalledExactlyOnceWith('701', 'approved')
+  })
+
+  it('passes the failure of an answer on to the window', async () => {
+    const { manager } = setup(signedIn)
+    manager.setRecommendationHandler(async () => ({
+      ok: false,
+      error: { code: 'expired', message: '추천 시간이 지났어요.' }
+    }))
+    expect(
+      await manager.dispatch({
+        type: 'recommendation.respond',
+        recommendationId: '701',
+        response: 'rejected'
+      })
+    ).toMatchObject({ ok: false, error: { code: 'expired', message: '추천 시간이 지났어요.' } })
+  })
+
+  it('reports itself unsupported until a handler is connected', async () => {
+    const { manager } = setup(signedIn)
+    expect(
+      await manager.dispatch({
+        type: 'recommendation.respond',
+        recommendationId: '701',
+        response: 'approved'
+      })
+    ).toMatchObject({ ok: false, error: { code: 'unsupported' } })
+  })
+
+  it('drops the card when the user signs out', () => {
+    const { manager } = setup(signedIn)
+    manager.setRecommendationState(card)
+    manager.setAuthSnapshot({ phase: 'signed_out', generation: authGeneration, user: null })
+    expect(manager.getSnapshot().recommendation).toBeNull()
+  })
+
+  it('takes all four answers', () => {
+    for (const response of ['approved', 'snoozed', 'rejected', 'dismissed'])
+      expect(
+        UiCommandSchema.safeParse({
+          type: 'recommendation.respond',
+          recommendationId: '701',
+          response
+        }).success
+      ).toBe(true)
+  })
+
+  it.each([
+    ['an empty ID', { recommendationId: '', response: 'approved' }],
+    ['an unknown answer', { recommendationId: '701', response: 'maybe' }],
+    ['no answer', { recommendationId: '701' }],
+    ['an extra field', { recommendationId: '701', response: 'approved', apps: ['x'] }]
+  ])('refuses a recommendation command with %s', (_name, fields) => {
+    expect(UiCommandSchema.safeParse({ type: 'recommendation.respond', ...fields }).success).toBe(
+      false
+    )
   })
 })

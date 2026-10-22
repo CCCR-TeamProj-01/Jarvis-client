@@ -12,6 +12,10 @@ import type {
   UiCommand,
   UiEvent
 } from '../../shared/contracts/interaction'
+import type {
+  RecommendationCard,
+  RecommendationResponse
+} from '../../shared/contracts/recommendation'
 import type { SensorSnapshot } from '../../shared/contracts/sensors'
 import type { SpeechSnapshot } from '../../shared/contracts/speech'
 import type { WakeWordSnapshot } from '../../shared/contracts/wake-word'
@@ -31,11 +35,18 @@ interface InteractionOptions {
 }
 
 /** No conversation, request, speech, gesture or sensor is running. */
+/** Answers the recommendation on offer. */
+type RecommendationHandler = (
+  recommendationId: string,
+  response: RecommendationResponse
+) => Promise<Result<void>>
+
 function idleSubsystems(): Pick<
   ClientSnapshot,
-  'conversation' | 'request' | 'speech' | 'gesture' | 'sensors'
+  'conversation' | 'request' | 'speech' | 'gesture' | 'sensors' | 'recommendation'
 > {
   return {
+    recommendation: null,
     conversation: { phase: 'idle', generation: null },
     request: { requestId: null, phase: 'idle' },
     speech: { phase: 'idle', generation: null },
@@ -75,6 +86,7 @@ export class InteractionManager implements InteractionPort {
   private conversation: ConversationHandlers | null = null
   private gesture: GestureHandlers | null = null
   private wakeWord: ((enabled: boolean) => Result<void>) | null = null
+  private recommendation: RecommendationHandler | null = null
   private disposed = false
 
   constructor(private readonly options: InteractionOptions) {
@@ -116,6 +128,14 @@ export class InteractionManager implements InteractionPort {
         if (!this.wakeWord) return this.failure('unsupported', '호출어 감지를 사용할 수 없습니다.')
         const changed = this.wakeWord(command.enabled)
         return changed.ok ? this.accepted() : changed
+      }
+      case 'recommendation.respond': {
+        if (this.snapshot.auth.phase !== 'signed_in')
+          return this.failure('authentication_required', '로그인이 필요합니다.')
+        if (!this.recommendation)
+          return this.failure('unsupported', '아직 사용할 수 없는 기능입니다.')
+        const answered = await this.recommendation(command.recommendationId, command.response)
+        return answered.ok ? this.accepted() : answered
       }
       case 'app.quit':
         this.options.quit()
@@ -242,6 +262,19 @@ export class InteractionManager implements InteractionPort {
   /** Connect gesture control; until then the commands report themselves unsupported. */
   setGestureHandlers(handlers: GestureHandlers | null): void {
     this.gesture = handlers
+  }
+
+  /** Connect the recommendations; until then answering one reports itself unsupported. */
+  setRecommendationHandler(handler: RecommendationHandler | null): void {
+    this.recommendation = handler
+  }
+
+  /** The recommendation on offer, as the recommendation service reports it (null for none). */
+  setRecommendationState(recommendation: RecommendationCard | null): void {
+    if (this.disposed) return
+    if (JSON.stringify(this.snapshot.recommendation ?? null) === JSON.stringify(recommendation))
+      return
+    this.update({ recommendation })
   }
 
   setWakeWordHandler(handler: ((enabled: boolean) => Result<void>) | null): void {

@@ -9,6 +9,7 @@ import {
   TimestampSchema
 } from './common'
 import { GestureSnapshotSchema } from './gesture'
+import { RecommendationCardSchema, RecommendationResponseSchema } from './recommendation'
 import { SensorSnapshotSchema } from './sensors'
 import { SpeechSnapshotSchema } from './speech'
 import { WakeWordSnapshotSchema } from './wake-word'
@@ -50,6 +51,11 @@ export const UiCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('settings.open') }),
   z.strictObject({ type: z.literal('wake_word.set_enabled'), enabled: z.boolean() }),
   z.strictObject({
+    type: z.literal('recommendation.respond'),
+    recommendationId: IdentifierSchema,
+    response: RecommendationResponseSchema
+  }),
+  z.strictObject({
     type: z.literal('confirmation.respond'),
     confirmationId: IdentifierSchema,
     decision: z.enum(['approve', 'reject', 'dismiss'])
@@ -89,6 +95,8 @@ export const ClientSnapshotSchema = z
       ),
     speech: SpeechSnapshotSchema,
     wakeWord: WakeWordSnapshotSchema.optional(),
+    /** The recommendation on offer, if any. */
+    recommendation: RecommendationCardSchema.nullable().optional(),
     gesture: GestureSnapshotSchema,
     sensors: z.array(SensorSnapshotSchema).max(2),
     screen: ScreenSchema,

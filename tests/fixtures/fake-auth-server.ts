@@ -64,6 +64,23 @@ export class FakeAuthServer {
   /** Items placed in the pending list as they are, to try a malformed one. */
   rawPending: unknown[] = []
   pollAfterMs = 2000
+  /** The recommendation the server offers next (null for none), as the real server would. */
+  recommendation: {
+    recommendation_id: number
+    reason: string
+    /** ISO time; sent without its zone when `naiveTimes` is on. */
+    expires_at: string
+    targets: {
+      position: number
+      device_app_id: number
+      app_code: string | null
+      display_name: string
+    }[]
+  } | null = null
+  /** Answers recorded for recommendations, by ID. */
+  readonly recommendationAnswers = new Map<number, string>()
+  /** Statuses for the next recommendation answers (consumed in order), or 'ok'. */
+  recommendationFaults: (number | 'ok')[] = []
   /** Send `requested_at` without a zone, like the real server. */
   naiveTimes = true
   readonly processed: { requestId: string; content: string }[] = []
@@ -400,6 +417,58 @@ export class FakeAuthServer {
       return void response.end(
         Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0xff, 0xfb])
       )
+    }
+    if (path === '/recommendations/pending' && request.method === 'GET') {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      const offer = this.recommendation
+      if (
+        !offer ||
+        this.recommendationAnswers.has(offer.recommendation_id) ||
+        Date.parse(offer.expires_at) <= Date.now()
+      )
+        return send(204)
+      return send(200, {
+        recommendation_type: 'associated_app',
+        reason_code: 'assoc_10min',
+        algorithm_version: 'rule-v1',
+        ...offer,
+        expires_at: this.naiveTimes ? offer.expires_at.replace(/Z$/, '') : offer.expires_at
+      })
+    }
+    const answerRoute = /^\/recommendations\/(\d+)\/responses$/.exec(path)
+    if (answerRoute && request.method === 'POST') {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      const id = Number(answerRoute[1])
+      const fault = this.recommendationFaults.shift()
+      if (typeof fault === 'number') return error(fault, 'FAULT')
+      const offer = this.recommendation
+      if (!offer || offer.recommendation_id !== id) return error(404, 'RESOURCE_NOT_FOUND')
+      const answer = String(body?.response)
+      if (!['approved', 'snoozed', 'rejected', 'dismissed'].includes(answer))
+        return error(422, 'VALIDATION_ERROR')
+      const prior = this.recommendationAnswers.get(id)
+      if (prior !== undefined && prior !== answer)
+        return error(409, 'RECOMMENDATION_ALREADY_RESPONDED')
+      if (prior === undefined && Date.parse(offer.expires_at) <= Date.now())
+        return error(410, 'RECOMMENDATION_EXPIRED')
+      const created: { command_id: number; command_type: string }[] = []
+      if (prior === undefined) {
+        this.recommendationAnswers.set(id, answer)
+        if (answer === 'approved')
+          for (const target of offer.targets) {
+            const command_id = 9000 + this.commands.length
+            this.commands.push({
+              command_id,
+              attempt_no: 1,
+              command_type: 'apps.launch',
+              requested_app_code: target.app_code,
+              arguments: {},
+              requested_at: new Date().toISOString()
+            })
+            created.push({ command_id, command_type: 'apps.launch' })
+          }
+      }
+      return send(200, { recommendation_id: id, response_status: answer, commands: created })
     }
     if (path === '/auth/logout') {
       if (!valid) return error(401, 'INVALID_SESSION')
