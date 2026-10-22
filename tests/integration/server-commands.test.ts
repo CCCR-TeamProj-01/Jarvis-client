@@ -162,7 +162,11 @@ describe('commands from the server', () => {
     service.start('uuid-jarvis')
     await waitUntil(() => fake.results.size === 2)
     await service.stop()
-    expect(JSON.stringify([...fake.results.values()])).not.toMatch(/SECRET|example\.com|\b37\b/)
+    // The times are left out: a clock that reads 37 (minutes or seconds) is not the volume.
+    const withoutTimes = [...fake.results.values()].map(
+      ({ started_at: _started, finished_at: _finished, reported_at: _reported, ...rest }) => rest
+    )
+    expect(JSON.stringify(withoutTimes)).not.toMatch(/SECRET|example\.com|\b37\b/)
     expect(fake.results.get(id)).toMatchObject({
       status: 'success',
       observation_status: 'dispatched'
