@@ -34,7 +34,7 @@ const MARGIN_PX = 16
 const INITIAL_HEIGHT_PX = 220
 
 /**
- * A small window in the top right corner of the screen that shows the recommendation on offer. It
+ * A small window in the bottom right corner of the screen that shows the recommendation on offer. It
  * is shown without taking the keyboard from whatever the user is working in, exists only while
  * there is a card, and is told what to draw rather than deciding anything itself.
  */
@@ -86,11 +86,14 @@ export class PopupWindow {
 
   private place(window: PopupBrowserWindow): void {
     const area = this.options.workArea()
+    // On a short screen the window is no taller than the screen has room for.
+    const height = Math.max(1, Math.min(this.height, area.height - 2 * MARGIN_PX))
+    // The bottom edge stays put, so a taller card grows upward instead of off the screen.
     window.setBounds({
       x: Math.round(area.x + area.width - POPUP_WIDTH_PX - MARGIN_PX),
-      y: Math.round(area.y + MARGIN_PX),
+      y: Math.round(area.y + area.height - height - MARGIN_PX),
       width: POPUP_WIDTH_PX,
-      height: this.height
+      height
     })
   }
 

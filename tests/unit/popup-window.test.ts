@@ -95,15 +95,47 @@ describe('PopupWindow', () => {
     expect(t.windows[0]!.visible).toBe(true)
   })
 
-  it('goes in the top right corner of the usable area', async () => {
+  it('goes in the bottom right corner of the usable area', async () => {
     const t = setup({ x: 100, y: 25, width: 1000, height: 700 })
     t.popup.apply(card())
     await t.ready()
-    expect(t.windows[0]!.bounds).toMatchObject({
-      x: 100 + 1000 - POPUP_WIDTH_PX - 16,
-      y: 25 + 16,
-      width: POPUP_WIDTH_PX
-    })
+    const bounds = t.windows[0]!.bounds!
+    expect(bounds.x).toBe(100 + 1000 - POPUP_WIDTH_PX - 16)
+    expect(bounds.width).toBe(POPUP_WIDTH_PX)
+    // The corner is the usable area's, not the display's: above the Dock or taskbar.
+    expect(bounds.y + bounds.height).toBe(25 + 700 - 16)
+  })
+
+  it('keeps its bottom edge in place when the card gets taller or shorter', async () => {
+    const t = setup({ x: 0, y: 0, width: 1000, height: 800 })
+    t.popup.apply(card())
+    await t.ready()
+    for (const height of [180, 300, 450]) {
+      t.popup.setHeight(height)
+      const bounds = t.windows[0]!.bounds!
+      expect(bounds.height).toBe(height)
+      expect(bounds.y + bounds.height).toBe(800 - 16)
+    }
+  })
+
+  it('is no taller than a short screen has room for', async () => {
+    const t = setup({ x: 0, y: 25, width: 1280, height: 300 })
+    t.popup.apply(card())
+    await t.ready()
+    t.popup.setHeight(500)
+    const bounds = t.windows[0]!.bounds!
+    expect(bounds.height).toBe(300 - 32)
+    expect(bounds.y).toBe(25 + 16)
+  })
+
+  it('stays inside a small screen even at its tallest', async () => {
+    const t = setup({ x: 0, y: 25, width: 1280, height: 600 })
+    t.popup.apply(card())
+    await t.ready()
+    t.popup.setHeight(100_000)
+    const bounds = t.windows[0]!.bounds!
+    expect(bounds.y).toBeGreaterThanOrEqual(25)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(25 + 600)
   })
 
   it('does not draw the same card twice, and updates it when it changes', async () => {
