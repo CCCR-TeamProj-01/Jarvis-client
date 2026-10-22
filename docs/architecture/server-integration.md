@@ -104,7 +104,7 @@ Main은 활성 대화가 없으면 인증된 현재 기기로 서버 대화를 �
 
 F-032([#69](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/69))에서 서버 명령과 로컬 도구 사이의 변환을 `src/main/commands/`에 순수 로직으로 구현했다. 폴링·실행 저널·결과 전송은 아직 없다(후속).
 
-- `server-command.ts`: 명령 항목 스키마(`command_id`는 안전 정수, `requested_at`은 시간대가 있는 ISO 8601, 모르는 필드는 무시)와 `(command_id, attempt_no)`에서 만드는 안정적인 `executionId`.
+- `server-command.ts`: 명령 항목 스키마(`command_id`는 안전 정수, `requested_at`은 ISO 8601이며 시간대가 없으면 UTC로 읽는다, 모르는 필드는 무시)와 `(command_id, attempt_no)`에서 만드는 안정적인 `executionId`.
 - `command-translator.ts`: 위 도구 인자 표대로 `ToolCommand`로 바꾸고 기존 도구 계약으로 다시 검증한다. 모르는 키·형식 오류는 `rejected`(`validation`, `invalid_input`), 허용 목록에 없는 앱 코드와 앱 명령의 `arguments`는 같은 검증 거절이다. 클라이언트가 실행하지 않는 명령(`apps.list`·`apps.close`·`browser.search`·`system.status`)과 모르는 `command_type`은 `rejected`(`capability`, `unsupported`)다.
 - `app-codes.ts`: 앱 코드 14개를 macOS 번들 ID로 매핑한다. 이 Mac에서 설치된 앱의 번들 ID를 읽어 확인한 것은 `chrome`·`vscode`·`notion`·`slack`·`kakaotalk`·`terminal`·`explorer`(Finder)·`notepad`(TextEdit)·`calculator`이고, `edge`·`whale`·`teams`·`outlook`·`spotify`는 제조사가 공개한 ID이며 기기에서 확인하지 못했다. 잘못된 ID는 "설치되어 있지 않음"으로만 나타난다(앱 제어가 OS가 알려 주는 앱 목록에서만 대상을 찾는다). Windows는 실행 파일 매핑이 없어 `rejected`(`capability`, `unsupported`)다.
 - `result-mapper.ts`: `ToolExecutionReport`를 위 결과 매핑 표와 `failure_stage` 표대로 서버 결과 본문으로 바꾼다. `result_message`는 도구 이름과 결과 종류로 만든 고정 문구라서 URL·경로·볼륨 수치·오류 원문이 들어가지 않는다. `app`은 앱 명령과 복귀(번들 ID가 고정 앱 코드 14개 중 하나일 때)에서만 붙고 `display_name`은 OS가 알려 준 이름, 없으면 매핑표의 이름이다. 시작·종료·보고 시각(서버가 필수로 요구)은 결과를 만들 때 한 번 정하며 보고 시각은 종료 시각과 같다. `success`·`unknown` 결과에는 `failure_stage`를 넣지 않는다(서버가 거부). 서버 규칙을 그대로 검사하는 `CommandResultSchema`로 확인한 본문만 보낸다.
@@ -255,7 +255,7 @@ REST 폴링에서 명령 한 건이 담는 논리 필드는 아래와 같다. wi
 
 ## 시각 계약
 
-서버 저장 시각은 UTC `DATETIME(6)`이며 API는 UTC임이 명시된 ISO 8601 문자열 등 시간대가 모호하지 않은 형식을 사용한다. 정밀도·직렬화 형식은 wire 스키마에서 확정한다. 화면의 날짜·시각과 기간 조회 경계는 계정의 `USER_SETTINGS.timezone`을 기준으로 변환하고, 종일 일정은 [캘린더](../features/calendar.md)의 날짜 의미를 유지한다. 서버 시각(`requested_at` 등)으로 기한을 판단할 때는 응답으로 알게 된 시계 차이를 보정한다. 실행 기한·지연 측정은 로컬 단조 시계를 사용하며 DB 시각 정밀도를 로컬 타이머에 강제하지 않는다.
+서버 저장 시각은 UTC `DATETIME(6)`이며 API는 UTC임이 명시된 ISO 8601 문자열 등 시간대가 모호하지 않은 형식을 사용한다. 정밀도·직렬화 형식은 wire 스키마에서 확정한다. 화면의 날짜·시각과 기간 조회 경계는 계정의 `USER_SETTINGS.timezone`을 기준으로 변환하고, 종일 일정은 [캘린더](../features/calendar.md)의 날짜 의미를 유지한다. 서버 시각(`requested_at` 등)으로 기한을 판단할 때는 응답으로 알게 된 시계 차이를 보정한다. 실제 서버는 `requested_at`을 시간대 표시 없이(`2026-10-22T03:22:14.282428`) 보내므로(2026-10-22 실제 서버로 확인, 명세의 "UTC 명시"와 다름) 시간대가 없는 값은 UTC로 읽는다. 그대로 두면 JavaScript가 이 기기의 로컬 시간으로 읽어 시차만큼 어긋난다. 시간대가 있는 값도 그대로 받는다. 실행 기한·지연 측정은 로컬 단조 시계를 사용하며 DB 시각 정밀도를 로컬 타이머에 강제하지 않는다.
 
 ## 취소와 오류 규칙
 

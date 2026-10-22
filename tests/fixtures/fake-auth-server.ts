@@ -64,6 +64,8 @@ export class FakeAuthServer {
   /** Items placed in the pending list as they are, to try a malformed one. */
   rawPending: unknown[] = []
   pollAfterMs = 2000
+  /** Send `requested_at` without a zone, like the real server. */
+  naiveTimes = true
   readonly processed: { requestId: string; content: string }[] = []
   private conversationKeys = new Map<string, string>()
   private serverRequests = new Map<
@@ -324,7 +326,18 @@ export class FakeAuthServer {
         ...this.commands.filter((command) => !this.results.has(command.command_id)),
         ...this.rawPending
       ]
-      return send(200, { items, poll_after_ms: this.pollAfterMs })
+      // The real server sends the time without a zone, as UTC (a command may still carry one).
+      return send(200, {
+        items: items.map((item) =>
+          typeof (item as { requested_at?: unknown }).requested_at === 'string' && this.naiveTimes
+            ? {
+                ...(item as object),
+                requested_at: (item as { requested_at: string }).requested_at.replace(/Z$/, '')
+              }
+            : item
+        ),
+        poll_after_ms: this.pollAfterMs
+      })
     }
     const report = /^\/commands\/(\d+)\/results$/.exec(path)
     if (report && request.method === 'POST') {
