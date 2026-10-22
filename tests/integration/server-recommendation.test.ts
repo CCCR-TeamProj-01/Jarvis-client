@@ -8,18 +8,11 @@ import { RecommendationService } from '../../src/main/recommendation/recommendat
 import { CapabilityRegistry, platformCapabilities } from '../../src/main/tools/capability-registry'
 import { ToolExecutor } from '../../src/main/tools/tool-executor'
 import type { RecommendationCard } from '../../src/shared/contracts/recommendation'
-import { stopAllFakeServers } from '../fixtures/fake-auth-server'
+import { stopAllFakeServers } from '../fixtures/fake-jarvis-server'
 import { signedInApp } from '../fixtures/signed-in-app'
+import { waitUntil } from '../helpers/wait'
 
 afterEach(stopAllFakeServers)
-
-async function waitUntil(condition: () => boolean, timeoutMs = 4000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error('condition not met in time')
-    await new Promise((resolve) => setTimeout(resolve, 5))
-  }
-}
 
 const shortSleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {

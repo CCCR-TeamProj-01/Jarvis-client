@@ -7,22 +7,7 @@ import type { CommandKey } from '../../src/main/commands/command-journal'
 import { CommandResultSchema } from '../../src/main/commands/command-result'
 import type { CommandResult } from '../../src/main/commands/command-result'
 import { NodeLocalFiles } from '../../src/main/settings/node-local-files'
-
-class MemoryFiles {
-  contents: string | null = null
-  writes = 0
-  failWrites = false
-  failReads = false
-  async read(): Promise<string | null> {
-    if (this.failReads) throw new Error('read failed')
-    return this.contents
-  }
-  async replace(_name: string, contents: string): Promise<void> {
-    if (this.failWrites) throw new Error('write failed')
-    this.writes += 1
-    this.contents = contents
-  }
-}
+import { MemoryFiles } from '../helpers/memory-files'
 
 const HOUR = 60 * 60 * 1000
 let now = 1_000_000_000_000

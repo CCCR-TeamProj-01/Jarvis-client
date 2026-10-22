@@ -1,5 +1,5 @@
 import type { RecommendationTarget } from '../../shared/contracts/recommendation'
-import { isAppCode, osAppIdFor } from '../commands/app-codes'
+import { isAppCode, osAppIdFor } from '../platform/app-codes'
 import type { AppControlPort } from '../platform/ports'
 
 /**

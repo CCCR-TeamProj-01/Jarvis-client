@@ -1,6 +1,6 @@
 import type { ServerClient } from '../connection/server-client'
 import type { LocalFilesPort } from '../settings/ports'
-import { sleep } from '../connection/sleep'
+import { sleep } from '../sleep'
 import { CommandApi } from './command-api'
 import { CommandJournal } from './command-journal'
 import { CommandService } from './command-service'

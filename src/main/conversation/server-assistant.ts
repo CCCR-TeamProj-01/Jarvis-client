@@ -3,6 +3,7 @@ import type { ClientError, Result } from '../../shared/contracts/common'
 import { idempotencyKeyFor, newUlid } from '../connection/ids'
 import type { ServerClient, ServerResult } from '../connection/server-client'
 import { clientError } from '../connection/server-errors'
+import { sleep } from '../sleep'
 import type { Synthesizer } from '../speech/remote-speech/server-synthesis'
 import type { Transcription } from '../speech/remote-speech/ports'
 import type { AssistantPort, AssistantReply, AssistantRespondOptions, TurnContext } from './ports'
@@ -54,18 +55,6 @@ const serverFailed = (): ClientError => ({
   message: '서버가 요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.'
 })
 
-const defaultWait = (ms: number, signal?: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    if (signal?.aborted) return resolve()
-    const timer = setTimeout(done, ms)
-    function done() {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', done)
-      resolve()
-    }
-    signal?.addEventListener('abort', done, { once: true })
-  })
-
 /** What a request carries: the typed words, or one recorded utterance as a WAV file. */
 type Content = { kind: 'text'; text: string } | { kind: 'voice'; wav: Uint8Array }
 
@@ -90,7 +79,7 @@ export class ServerAssistant implements AssistantPort {
 
   constructor(private readonly options: ServerAssistantOptions) {
     this.now = options.now ?? (() => performance.now())
-    this.wait = options.wait ?? defaultWait
+    this.wait = options.wait ?? sleep
     this.random = options.random ?? ((size) => crypto.getRandomValues(new Uint8Array(size)))
   }
 

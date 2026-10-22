@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeSession } from '../../src/main/auth/server-session'
-import { stopAllFakeServers } from '../fixtures/fake-auth-server'
+import { stopAllFakeServers } from '../fixtures/fake-jarvis-server'
 import { signedInApp } from '../fixtures/signed-in-app'
 
 afterEach(stopAllFakeServers)

@@ -9,22 +9,15 @@ import type { AppControlPort, FolderOpenPort, SystemAudioPort } from '../../src/
 import { NodeLocalFiles } from '../../src/main/settings/node-local-files'
 import { CapabilityRegistry, platformCapabilities } from '../../src/main/tools/capability-registry'
 import { ToolExecutor } from '../../src/main/tools/tool-executor'
-import { stopAllFakeServers } from '../fixtures/fake-auth-server'
+import { stopAllFakeServers } from '../fixtures/fake-jarvis-server'
 import { signedInApp } from '../fixtures/signed-in-app'
+import { waitUntil } from '../helpers/wait'
 
 const directories: string[] = []
 afterEach(async () => {
   await stopAllFakeServers()
   await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true })))
 })
-
-async function waitUntil(condition: () => boolean, timeoutMs = 4000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error('condition not met in time')
-    await new Promise((resolve) => setTimeout(resolve, 5))
-  }
-}
 
 function fakePorts() {
   const audio = (muted: boolean) =>

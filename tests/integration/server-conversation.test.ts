@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { ConversationManager } from '../../src/main/conversation/conversation-manager'
 import { ServerAssistant } from '../../src/main/conversation/server-assistant'
-import { stopAllFakeServers } from '../fixtures/fake-auth-server'
+import { stopAllFakeServers } from '../fixtures/fake-jarvis-server'
 import { signedInApp } from '../fixtures/signed-in-app'
 
 afterEach(stopAllFakeServers)

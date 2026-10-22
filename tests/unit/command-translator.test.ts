@@ -4,7 +4,7 @@ import {
   appCodeFor,
   appDisplayNameFor,
   osAppIdFor
-} from '../../src/main/commands/app-codes'
+} from '../../src/main/platform/app-codes'
 import { invocationFor, translateCommand } from '../../src/main/commands/command-translator'
 import { ServerCommandSchema, executionIdFor } from '../../src/main/commands/server-command'
 import type { ServerCommand } from '../../src/main/commands/server-command'

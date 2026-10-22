@@ -15,10 +15,13 @@ export interface Call {
 }
 
 /**
- * A stand-in for the server's authentication: it rotates refresh tokens, treats a retired one as a
- * leak and revokes the session, and can lose, break or fail a refresh answer on demand.
+ * A stand-in for the Jarvis server, answering over real HTTP. It covers what the client calls:
+ * sign-up, sign-in and token renewal (it rotates refresh tokens, treats a retired one as a leak and
+ * revokes the session, and can lose, break or fail a refresh answer on demand), conversations and
+ * requests (typed and spoken), speech synthesis, device commands and their results, and
+ * recommendations. Each area has switches to make it slow, wrong or silent on demand.
  */
-export class FakeAuthServer {
+export class FakeJarvisServer {
   readonly users = new Map<string, string>()
   readonly calls: Call[] = []
   readonly retired = new Set<string>()
@@ -506,7 +509,7 @@ export class FakeAuthServer {
 const running: Server[] = []
 
 /** A real server on this machine for the fake to answer from, so requests cross the network stack. */
-export async function startFakeServer(fake = new FakeAuthServer()) {
+export async function startFakeServer(fake = new FakeJarvisServer()) {
   const server = createServer((request, response) => {
     const chunks: Buffer[] = []
     request.on('data', (chunk: Buffer) => chunks.push(chunk))

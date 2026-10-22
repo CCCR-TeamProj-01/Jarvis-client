@@ -5,6 +5,7 @@ import type { ClientSnapshot, UiCommand, UiEvent } from '../../shared/contracts/
 import type { CommandReceipt } from '../../shared/contracts/interaction'
 import { registerPopupIpc } from '../ipc/popup-ipc'
 import { PopupWindow, POPUP_WIDTH_PX } from './popup-window'
+import { lockDownContents, secureWebPreferences } from '../windows/secure-window'
 
 interface PopupWiring {
   entryUrl: string
@@ -52,19 +53,14 @@ export function createRecommendationPopup(wiring: PopupWiring): { dispose(): voi
         ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),
         // The first click on a popup that was shown without focus must press the button.
         acceptFirstMouse: true,
-        webPreferences: {
+        webPreferences: secureWebPreferences({
           preload: wiring.preloadPath,
-          contextIsolation: true,
-          nodeIntegration: false,
-          sandbox: true,
           backgroundThrottling: false
-        }
+        })
       })
       created.setAlwaysOnTop(true, 'floating')
       created.setVisibleOnAllWorkspaces(true, { skipTransformProcessType: true })
-      created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-      created.webContents.on('will-navigate', (event) => event.preventDefault())
-      created.webContents.on('will-redirect', (event) => event.preventDefault())
+      lockDownContents(created.webContents)
       const own = created.webContents
       contents = own
       created.on('closed', () => {
