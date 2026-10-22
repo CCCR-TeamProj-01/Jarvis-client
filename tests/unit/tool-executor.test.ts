@@ -620,7 +620,8 @@ describe('CapabilityRegistry', () => {
       'system.mute': 'available'
     })
     expect(byTool('win32')).toMatchObject({
-      'apps.launch': 'unsupported',
+      'apps.launch': 'available',
+      'apps.restore': 'available',
       'browser.open': 'available',
       'folder.open': 'available',
       'system.volume': 'unsupported',

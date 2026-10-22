@@ -10,7 +10,7 @@ const unsupported = async (): Promise<Result<never>> => ({
 })
 
 /**
- * For platforms without an app adapter yet (Windows is follow-up work). Everything that needs the
+ * For platforms without an app adapter (neither macOS nor Windows). Everything that needs the
  * OS reports `unsupported`; only handing a URL to the default browser works everywhere.
  */
 export function createUnsupportedAppControl(

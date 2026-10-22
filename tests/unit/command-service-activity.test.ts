@@ -370,7 +370,7 @@ describe('what is not made into an activity', () => {
   })
 
   it('is an app the server has no code for on this platform', async () => {
-    const t = setup({ platform: 'win32' })
+    const t = setup({ platform: 'linux' })
     t.api.items = [launchChrome()]
     await t.service.cycle('u1', signal())
     expect(t.api.sent[0]!.result.status).toBe('rejected')

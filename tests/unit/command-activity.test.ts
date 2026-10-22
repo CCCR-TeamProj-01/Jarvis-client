@@ -97,7 +97,7 @@ describe('the apps that are running', () => {
   })
 
   it('are none on a platform with no codes', () => {
-    expect(runningAppCodes([CHROME, 'chrome.exe'], 'win32')).toEqual([])
+    expect(runningAppCodes([CHROME, 'Chrome'], 'linux')).toEqual([])
   })
 })
 

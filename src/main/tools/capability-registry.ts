@@ -66,7 +66,7 @@ const APP_TOOLS: readonly ToolName[] = ['apps.list', 'apps.launch', 'apps.activa
 
 /** Tool availability for a platform: app tools need an OS adapter, the browser handoff does not, and the file manager exists on both supported desktops. */
 export function platformCapabilities(platform: NodeJS.Platform): Capability[] {
-  const appsSupported = platform === 'darwin'
+  const appsSupported = platform === 'darwin' || platform === 'win32'
   const folderSupported = platform === 'darwin' || platform === 'win32'
   const audioSupported = platform === 'darwin'
   return [
