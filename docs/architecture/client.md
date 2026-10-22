@@ -6,7 +6,7 @@ Electron 실행 공간과 클라이언트 모듈의 원본 문서다. 서버 내
 
 로그인·회원가입·로그인 유지와 기능 허용 정책은 [계정 인증](../features/auth.md)을 따른다. AuthManager가 세션을 확인하기 전에는 로그인·회원가입 화면만 표시하고 주요 기능을 시작하지 않는다.
 
-아래 구조는 서버 ERD 반영 후의 목표 책임도 포함한다. 실제 구현은 로컬 대화 ID·개발용 서버 대역 기반이며 서버 대화 생성·새 명령 결과 보고·활동/추천/일정 연동은 후속이다. 원격 계약은 [서버 연동](server-integration.md)에, 현재 포트와의 차이는 [공통 인터페이스](client-interfaces.md#서버-erd-연동-시-확장-경계)에 둔다.
+아래 구조는 서버 ERD 반영 후의 목표 책임도 포함한다. 현재 구현 단위와 상태는 [구현 현황](../delivery/feature_list.json), 원격 계약은 [서버 연동](server-integration.md), 포트 확장 경계는 [공통 인터페이스](client-interfaces.md#서버-erd-연동-시-확장-경계)를 따른다. 일정 탭의 Main·Preload·Renderer 책임과 제외 범위는 [캘린더](../features/calendar.md#일정-탭-구현-범위)에 둔다.
 
 ## 전체 아키텍처
 

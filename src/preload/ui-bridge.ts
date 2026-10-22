@@ -5,6 +5,7 @@ import {
   SignInRequestSchema,
   SignUpRequestSchema
 } from '../shared/contracts/auth'
+import { CalendarEventSchema, CalendarNavigateRequestSchema } from '../shared/contracts/calendar'
 import type { Result } from '../shared/contracts/common'
 import { UiCommandSchema, UiEventSchema } from '../shared/contracts/interaction'
 import {
@@ -15,7 +16,9 @@ import {
   SignUpResponseSchema
 } from '../shared/ipc/auth-api'
 import type { AuthApi } from '../shared/ipc/auth-api'
-import { AUTH_CHANNELS, UI_CHANNELS } from '../shared/ipc/channels'
+import { CalendarSnapshotResponseSchema } from '../shared/ipc/calendar-api'
+import type { CalendarApi } from '../shared/ipc/calendar-api'
+import { AUTH_CHANNELS, CALENDAR_CHANNELS, UI_CHANNELS } from '../shared/ipc/channels'
 import { UiCommandResponseSchema, UiSnapshotResponseSchema } from '../shared/ipc/ui-api'
 import type { UiApi } from '../shared/ipc/ui-api'
 
@@ -108,9 +111,37 @@ export function createUiBridge(ipc: UiTransport, platform: string): UiApi {
       }
     }
   }
+  const calendar: CalendarApi = {
+    navigate(request) {
+      const parsed = CalendarNavigateRequestSchema.safeParse(request)
+      if (!parsed.success) return Promise.resolve(invalidInput)
+      return invoke(
+        CALENDAR_CHANNELS.navigate,
+        (value) => CalendarSnapshotResponseSchema.parse(value),
+        parsed.data
+      )
+    },
+    getSnapshot: () =>
+      invoke(CALENDAR_CHANNELS.snapshot, (value) => CalendarSnapshotResponseSchema.parse(value)),
+    subscribe(listener) {
+      let active = true
+      const receive: EventListener = (_event, value) => {
+        if (!active) return
+        const parsed = CalendarEventSchema.safeParse(value)
+        if (parsed.success) listener(parsed.data)
+      }
+      ipc.on(CALENDAR_CHANNELS.event, receive)
+      return () => {
+        if (!active) return
+        active = false
+        ipc.removeListener(CALENDAR_CHANNELS.event, receive)
+      }
+    }
+  }
   return {
     platform,
     auth,
+    calendar,
     dispatch(command) {
       const parsed = UiCommandSchema.safeParse(command)
       if (!parsed.success)

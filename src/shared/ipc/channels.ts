@@ -20,6 +20,12 @@ export const AUTH_CHANNELS = {
   event: 'jarvis:auth:event'
 } as const
 
+export const CALENDAR_CHANNELS = {
+  navigate: 'jarvis:calendar:navigate',
+  snapshot: 'jarvis:calendar:snapshot',
+  event: 'jarvis:calendar:event'
+} as const
+
 export const POPUP_CHANNELS = {
   state: 'jarvis:popup:state',
   snapshot: 'jarvis:popup:snapshot',

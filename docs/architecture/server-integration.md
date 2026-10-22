@@ -30,11 +30,12 @@
 | 대화·요청 | `POST /conversations`, `POST /conversations/{id}/messages`(글 JSON·음성 multipart), `GET /requests/{request_id}` | 대화·요청 |
 | 명령 | `GET /device/commands/pending`, `POST /commands/{command_id}/results` | 명령 폴러 |
 | 음성 출력 | `POST /speech/syntheses`(답변 텍스트 → 오디오) | 음성 |
-| 설정·앱 | `GET·PATCH /me/settings`, `GET·PATCH /device/apps` | 후속(설정 화면·수집 동의) |
+| 일정 조회 | `GET /me/settings`, `GET /calendar/events?from&to&include_todos=true` | 일정 탭(F-039) |
+| 설정·앱 | `PATCH /me/settings`, `GET·PATCH /device/apps` | 후속(설정 화면·수집 동의) |
 | 활동·삭제 | `POST /activities/batches`, `POST·GET /history-deletions` | 후속 |
 | 추천 | `GET /recommendations/pending`, `POST /recommendations/{id}/responses` | 추천 클라이언트(서버 구현 전, 명세 기반) |
 
-아이디 중복 확인의 엔드포인트는 현재 서버 명세에 없다([계정 인증 계약](#계정-인증-계약)). 캘린더·할 일·알림·운영 이벤트·제스처 세션 API는 현재 클라이언트 요구사항에 없고 관리자 API는 클라이언트 범위가 아니다. 요구사항이 정해지면 같은 방식으로 추가한다. 엔드포인트의 요청·응답 본문은 서버 명세가 원본이므로 이 문서에 복제하지 않는다.
+아이디 중복 확인의 엔드포인트는 현재 서버 명세에 없다([계정 인증 계약](#계정-인증-계약)). Google 연결 관리·일정 편집·할 일 변경·알림·운영 이벤트·제스처 세션 API는 이 조회 화면 범위에 없고 관리자 API는 클라이언트 범위가 아니다. 요구사항이 정해지면 같은 방식으로 추가한다. 엔드포인트의 요청·응답 본문은 서버 명세가 원본이므로 이 문서에 복제하지 않는다.
 
 | 폴링 | 활성 | 백그라운드 | 오류 시 |
 | --- | --- | --- | --- |
@@ -63,6 +64,14 @@ F-027([#58](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/58))에서 
 - 서버 오류 응답은 `error`와 `detail` 두 형식을 모두 읽는다.
 - 접근 토큰은 요청 때마다 비동기로 받을 수 있고(만료 직전이면 갱신 후), 보호 요청이 세션 무효(401)로 거절되면 갱신을 한 번 시도한 뒤 같은 요청을 한 번만 다시 보낸다. 로그인 요청과 갱신 요청처럼 토큰을 보내지 않는 요청, 취소된 요청에는 적용하지 않는다.
 - 아직 없는 것: multipart 음성 업로드와 오디오 응답 처리(음성 단계), 토큰 갱신과 단일 비행 처리는 서버 인증 어댑터에서, 보호 API 호출 중의 자동 갱신은 F-029에서 구현했다([F-028](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/60), [서버 인증 어댑터](../features/auth.md#서버-인증-어댑터-f-028)).
+
+### 일정 조회 연동
+
+로그인한 동안 Main의 `CalendarApi`가 기존 `ServerClient`의 인증·토큰 갱신 경로로 사용자 시간대와 기간 데이터를 조회한다. 화면 범위와 상태 의미는 [캘린더](../features/calendar.md#일정-탭-구현-범위)가 원본이며 Google 연결 관리와 `/todos` 변경 API는 호출하지 않는다.
+
+시각 일정·시각 마감은 사용자 날짜의 시작과 다음 날짜 시작을 UTC 시각으로 변환한다. 실제 서버는 종일 일정·날짜 마감을 쿼리의 UTC 날짜 부분과 비교하므로, 요청 범위는 사용자 시간대 구간과 같은 날짜의 UTC 구간을 모두 덮도록 넓히고 화면 밖 결과는 Main에서 제거한다. 종일 종료일은 미포함이며 날짜 필드 자체는 변환하지 않는다. 시간대 없는 서버 시각은 [시각 계약](#시각-계약)에 따라 UTC로 읽는다.
+
+응답의 일정·할 일 형식을 검증하고 하나라도 해석할 수 없으면 전체 조회를 실패로 처리해 빠진 일정을 빈 시간으로 오인시키지 않는다. 실제 서버의 할 일 `open`은 명세의 `pending`과 같은 미완료로 처리한다. 조회 성공은 서버 저장소를 읽었다는 뜻이며 Google 동기화 성공을 뜻하지 않는다. 명세·실제 서버 차이의 후속 확인 사항은 [이슈 #85](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/85)를 따른다.
 
 ## 계정 인증 계약
 

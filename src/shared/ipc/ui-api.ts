@@ -3,6 +3,7 @@ import { resultSchema } from '../contracts/common'
 import type { ClientSnapshot, CommandReceipt, UiCommand, UiEvent } from '../contracts/interaction'
 import { ClientSnapshotSchema, CommandReceiptSchema } from '../contracts/interaction'
 import type { AuthApi } from './auth-api'
+import type { CalendarApi } from './calendar-api'
 
 /** The minimal API before IPC is connected. */
 export interface BootstrapUiApi {
@@ -21,4 +22,5 @@ export interface InteractionUiApi extends BootstrapUiApi {
 
 export interface UiApi extends InteractionUiApi {
   readonly auth: AuthApi
+  readonly calendar: CalendarApi
 }

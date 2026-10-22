@@ -1,9 +1,17 @@
 import type { ReactNode } from 'react'
-import { LogOut, MessageSquare, MousePointer2, Power, SlidersHorizontal } from 'lucide-react'
+import {
+  CalendarDays,
+  LogOut,
+  MessageSquare,
+  MousePointer2,
+  Power,
+  SlidersHorizontal
+} from 'lucide-react'
 import type { Tab } from '../../../../shared/contracts/interaction'
 
 const TABS: { tab: Tab; label: string; Icon: typeof MessageSquare }[] = [
   { tab: 'conversation', label: '대화', Icon: MessageSquare },
+  { tab: 'calendar', label: '일정', Icon: CalendarDays },
   { tab: 'gesture', label: '제스처', Icon: MousePointer2 },
   { tab: 'settings', label: '설정', Icon: SlidersHorizontal }
 ]

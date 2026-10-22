@@ -22,6 +22,7 @@ export const ScreenSchema = z.enum([
   'login',
   'signup',
   'conversation',
+  'calendar',
   'gesture',
   'settings',
   'input',
@@ -31,7 +32,7 @@ export const ScreenSchema = z.enum([
 export type Screen = z.infer<typeof ScreenSchema>
 
 /** The tabs of the signed-in window. */
-export const TabSchema = z.enum(['conversation', 'gesture', 'settings'])
+export const TabSchema = z.enum(['conversation', 'calendar', 'gesture', 'settings'])
 export type Tab = z.infer<typeof TabSchema>
 
 export const UiCommandSchema = z.discriminatedUnion('type', [
