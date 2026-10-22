@@ -1,7 +1,6 @@
-import type { Unsubscribe } from '../../shared/contracts/common'
-import type { AuthManager } from '../auth/auth-manager'
 import type { ServerClient } from '../connection/server-client'
 import type { LocalFilesPort } from '../settings/ports'
+import { sleep } from '../connection/sleep'
 import { CommandApi } from './command-api'
 import { CommandJournal } from './command-journal'
 import { CommandService } from './command-service'
@@ -15,21 +14,6 @@ interface Selection {
   executor: CommandServiceOptions['executor']
   files: Pick<LocalFilesPort, 'read' | 'replace'>
   platform: NodeJS.Platform
-}
-
-/** Waits `ms`, or less when the signal aborts. The timer never keeps the app alive. */
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) return resolve()
-    const timer = setTimeout(done, ms)
-    timer.unref()
-    signal.addEventListener('abort', done, { once: true })
-    function done() {
-      clearTimeout(timer)
-      signal.removeEventListener('abort', done)
-      resolve()
-    }
-  })
 }
 
 /**
@@ -57,26 +41,4 @@ export function createCommandService({
     // Fixed sentences only, so nothing about a command can reach the log.
     log: (message) => console.warn(`[commands] ${message}`)
   })
-}
-
-/**
- * Receives commands while a user is signed in. Signing out, or the session ending, stops it and
- * cancels what is running; another account signing in starts it for that account.
- */
-export function runWhileSignedIn(
-  auth: Pick<AuthManager, 'getSnapshot' | 'subscribe'>,
-  service: Pick<CommandService, 'start' | 'stop'>
-): Unsubscribe {
-  const apply = (snapshot: ReturnType<AuthManager['getSnapshot']>) => {
-    if (snapshot.phase === 'signed_in') service.start(snapshot.user.userId)
-    else void service.stop()
-  }
-  apply(auth.getSnapshot())
-  const unsubscribe = auth.subscribe((event) => {
-    if (event.type === 'auth.state_changed') apply(event.snapshot)
-  })
-  return () => {
-    unsubscribe()
-    void service.stop()
-  }
 }

@@ -160,3 +160,29 @@ export function acceleratorKeys(accelerator: string, platform: string): string[]
     }
   })
 }
+
+/** The recommendation card as the window shows it. */
+export interface RecommendationView {
+  recommendationId: string
+  reason: string
+  /** App names in the order the server gave. */
+  apps: string[]
+  /** An answer is on its way to the server. */
+  busy: boolean
+}
+
+/** The offer to show, or null when there is none. */
+export function recommendationView(
+  snapshot: Pick<ClientSnapshot, 'recommendation'>
+): RecommendationView | null {
+  const card = snapshot.recommendation
+  if (!card) return null
+  return {
+    recommendationId: card.recommendationId,
+    reason: card.reason,
+    apps: [...card.targets]
+      .sort((a, b) => a.position - b.position)
+      .map((target) => target.displayName),
+    busy: card.phase === 'responding'
+  }
+}

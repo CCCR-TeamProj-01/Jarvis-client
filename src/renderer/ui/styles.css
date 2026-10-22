@@ -1003,3 +1003,63 @@ kbd {
     background: var(--color-surface);
   }
 }
+
+/* A recommendation from the server: an offer, never an action in progress. */
+.recommendation {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  margin: var(--space-4) 0;
+  border: 1px solid var(--color-primary-soft);
+  border-radius: var(--radius-md);
+  background: var(--color-info-surface);
+  color: var(--color-text-primary);
+}
+.recommendation-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.recommendation-head svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
+}
+.recommendation-head h2 {
+  margin: 0;
+  font-size: var(--text-body);
+}
+.recommendation-reason {
+  margin: 0;
+  font-size: var(--text-caption);
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.recommendation-apps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.recommendation-apps li {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-primary-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-caption);
+  overflow-wrap: anywhere;
+}
+.recommendation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+/* The buttons sit side by side at their own width, not one per line. */
+.recommendation-actions .button {
+  width: auto;
+  flex: 0 0 auto;
+  margin-top: 0;
+}

@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  createCommandService,
-  runWhileSignedIn
-} from '../../src/main/commands/create-command-service'
+import { createCommandService } from '../../src/main/commands/create-command-service'
+import { runWhileSignedIn } from '../../src/main/auth/run-while-signed-in'
 import type { AuthManager } from '../../src/main/auth/auth-manager'
 import type { CommandServiceOptions } from '../../src/main/commands/command-service'
 import type { LocalFilesPort } from '../../src/main/settings/ports'
