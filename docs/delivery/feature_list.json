@@ -288,8 +288,8 @@
     {
       "id": "F-044",
       "title": "Windows 시스템 볼륨·음소거 어댑터",
-      "description": "Windows에서 system.volume·system.mute를 구현한다. 출력 볼륨과 음소거를 바꾼 뒤 OS 상태를 다시 읽어 confirmed·dispatched·unknown을 구분하고, 범위·정수 검증과 읽지 못하는 장치 처리는 macOS와 같게 한다. 구현 뒤 Windows의 볼륨 도구 가용 상태를 연다.",
-      "status": "todo",
+      "description": "Windows에서 system.volume·system.mute를 구현한다. PowerShell 고정 스크립트(EncodedCommand, 셸 없음)가 Core Audio로 기본 재생 장치의 볼륨·음소거를 바꾸고 다시 읽어 confirmed·dispatched·unknown을 구분하며, 범위·정수 검증은 macOS와 같고 공통 확인 로직은 분리한다. Windows의 볼륨 도구 가용 상태를 연다.",
+      "status": "done",
       "issue": 96
     }
   ]

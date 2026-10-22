@@ -5,6 +5,7 @@ import { nodeCommandRunner } from '../platform/command-runner'
 import { createFolderOpener } from '../platform/folder-opener'
 import { MacSystemAudio } from '../platform/macos-system-audio'
 import { MacAppControl } from '../platform/macos-app-control'
+import { WindowsSystemAudio } from '../platform/windows-system-audio'
 import { WindowsAppControl } from '../platform/windows-app-control'
 import type { AppControlPort } from '../platform/ports'
 import { createUnsupportedAppControl } from '../platform/unsupported-app-control'
@@ -49,7 +50,9 @@ export function createToolStack(auth: { requireSignedIn(): Result<unknown> }): T
   const audio =
     platform === 'darwin'
       ? new MacSystemAudio({ runner: nodeCommandRunner })
-      : unsupportedSystemAudio
+      : platform === 'win32'
+        ? new WindowsSystemAudio({ runner: nodeCommandRunner })
+        : unsupportedSystemAudio
   const registry = new CapabilityRegistry(platformCapabilities(platform))
   const restoreTracker = new RestoreTargetTracker(appControl)
   const executor = new ToolExecutor({
