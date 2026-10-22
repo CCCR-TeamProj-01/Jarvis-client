@@ -102,6 +102,19 @@ describe('stored session', () => {
     holder.clear()
     expect(holder.get()).toBeNull()
   })
+
+  it('knows when its token is about to end', () => {
+    const holder = new AccessTokenHolder()
+    expect(holder.expiringSoon(1_000, 60_000)).toBe(false)
+    holder.set('abc')
+    expect(holder.expiringSoon(10 ** 12, 60_000)).toBe(false)
+    holder.set('abc', 100_000)
+    expect(holder.expiringSoon(39_999, 60_000)).toBe(false)
+    expect(holder.expiringSoon(40_000, 60_000)).toBe(true)
+    expect(holder.expiringSoon(200_000, 60_000)).toBe(true)
+    holder.clear()
+    expect(holder.expiringSoon(200_000, 60_000)).toBe(false)
+  })
 })
 
 describe('gateway selection', () => {

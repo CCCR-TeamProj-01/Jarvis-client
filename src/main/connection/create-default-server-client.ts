@@ -7,12 +7,14 @@ import type { ServerClientResolution } from './create-server-client'
  * which a plain Node fetch would not. Tests build a client with a fake fetch instead.
  */
 export function createDefaultServerClient(
-  accessToken: () => string | null
+  accessToken: () => string | null | Promise<string | null>,
+  renewAccessToken?: () => Promise<boolean>
 ): ServerClientResolution {
   return createServerClient({
     isPackaged: app.isPackaged,
     env: process.env,
     fetch: (input, init) => net.fetch(input, init),
-    accessToken
+    accessToken,
+    ...(renewAccessToken ? { renewAccessToken } : {})
   })
 }

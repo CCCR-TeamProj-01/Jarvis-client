@@ -478,3 +478,128 @@ describe('secrets', () => {
     expect(text).not.toContain('127.0.0.1')
   })
 })
+
+describe('keeping the access token good', () => {
+  const unauthorized = () =>
+    json({ error: { code: 'INVALID_SESSION', message: 'x' } }, { status: 401 })
+
+  /** A client whose token can be swapped, as a renewal would, and that counts renewals. */
+  function renewing(
+    respond: (init: RequestInit) => Response,
+    renew: () => Promise<boolean> | boolean
+  ) {
+    let token: string | null = 'old-token'
+    let renewals = 0
+    const fetch = vi.fn<FetchLike>(async (_url, init) => respond(init))
+    const client = new ServerClient({
+      baseUrl: BASE,
+      fetch,
+      accessToken: async () => token,
+      renewAccessToken: async () => {
+        renewals += 1
+        const renewed = await renew()
+        if (renewed) token = 'new-token'
+        return renewed
+      }
+    })
+    return { client, fetch, renewals: () => renewals }
+  }
+  const bearer = (init: RequestInit) => (init.headers as Record<string, string>).Authorization
+
+  it('waits for an asynchronous token before sending', async () => {
+    const { client, fetch } = renewing(
+      () => json({ ok: true }),
+      () => true
+    )
+    await client.request({ method: 'GET', path: '/x', response: z.unknown() })
+    expect(bearer(fetch.mock.calls[0]![1])).toBe('Bearer old-token')
+  })
+
+  it('renews once when the session is refused and sends the same request again', async () => {
+    let calls = 0
+    const { client, fetch, renewals } = renewing(
+      (init) =>
+        bearer(init) === 'Bearer new-token' ? json({ ok: true }) : (calls++, unauthorized()),
+      () => true
+    )
+    const result = await client.request({
+      method: 'POST',
+      path: '/conversations',
+      body: { a: 1 },
+      idempotencyKey: 'idem-key-12345',
+      response: z.object({ ok: z.boolean() })
+    })
+    expect(result).toMatchObject({ ok: true, value: { ok: true } })
+    expect(calls).toBe(1)
+    expect(renewals()).toBe(1)
+    const [first, second] = fetch.mock.calls.map(([, init]) => init)
+    expect(bearer(first!)).toBe('Bearer old-token')
+    expect(bearer(second!)).toBe('Bearer new-token')
+    expect(second!.body).toBe(first!.body)
+    expect((second!.headers as Record<string, string>)['Idempotency-Key']).toBe('idem-key-12345')
+  })
+
+  it('gives up without a second request when the renewal fails', async () => {
+    const { client, fetch, renewals } = renewing(unauthorized, () => false)
+    expect(
+      await client.request({ method: 'GET', path: '/x', response: z.unknown() })
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'session_expired' }
+    })
+    expect(renewals()).toBe(1)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not loop when the renewed token is refused too', async () => {
+    const { client, fetch, renewals } = renewing(unauthorized, () => true)
+    expect(
+      await client.request({ method: 'GET', path: '/x', response: z.unknown() })
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'session_expired' }
+    })
+    expect(renewals()).toBe(1)
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('leaves everything else alone', async () => {
+    // A request that sends no token, a refusal that is not a 401, a cancelled request, no hook.
+    const none = renewing(unauthorized, () => true)
+    await none.client.request({
+      method: 'POST',
+      path: '/auth/login',
+      auth: 'none',
+      response: z.unknown()
+    })
+    expect(none.renewals()).toBe(0)
+
+    const conflict = renewing(
+      () => json({ error: { code: 'INVALID_SESSION' } }, { status: 403 }),
+      () => true
+    )
+    await conflict.client.request({ method: 'GET', path: '/x', response: z.unknown() })
+    expect(conflict.renewals()).toBe(0)
+
+    const controller = new AbortController()
+    const aborted = renewing(
+      () => (controller.abort(), unauthorized()),
+      () => true
+    )
+    await aborted.client.request({
+      method: 'GET',
+      path: '/x',
+      response: z.unknown(),
+      signal: controller.signal
+    })
+    expect(aborted.renewals()).toBe(0)
+
+    const { client, fetch } = setup(unauthorized)
+    expect(
+      await client.request({ method: 'GET', path: '/x', response: z.unknown() })
+    ).toMatchObject({
+      ok: false
+    })
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+})

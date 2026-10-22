@@ -34,19 +34,27 @@ export function decodeSession(credential: SessionCredential): StoredSession | nu
   }
 }
 
-/** The access token the server client attaches. Held in memory only. */
+/** The access token the server client attaches, and when it ends. Held in memory only. */
 export class AccessTokenHolder {
   private token: string | null = null
+  private expiresAt: number | null = null
 
   get(): string | null {
     return this.token
   }
 
-  set(token: string): void {
+  set(token: string, expiresAtUnixMs: number | null = null): void {
     this.token = token
+    this.expiresAt = expiresAtUnixMs
   }
 
   clear(): void {
     this.token = null
+    this.expiresAt = null
+  }
+
+  /** True when a token is held whose end is within `marginMs` (or has passed). */
+  expiringSoon(nowUnixMs: number, marginMs: number): boolean {
+    return this.token !== null && this.expiresAt !== null && this.expiresAt - marginMs <= nowUnixMs
   }
 }

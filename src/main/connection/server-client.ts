@@ -46,8 +46,17 @@ export interface ServerClientOptions {
   /** Already validated by `parseServerBaseUrl`, without a trailing slash. */
   baseUrl: string
   fetch: FetchLike
-  /** The current access token, or null when signed out. Read at the moment of each request. */
-  accessToken(): string | null
+  /**
+   * The current access token, or null when signed out. Read at the moment of each request; it may
+   * renew the token first, which is why it can be asynchronous.
+   */
+  accessToken(): string | null | Promise<string | null>
+  /**
+   * Called when a protected request is refused as an invalid session. Resolves true when the token
+   * has been renewed, and the request is then sent once more with the new token. Left out for
+   * requests that are themselves part of signing in or renewing.
+   */
+  renewAccessToken?(): Promise<boolean>
   /** Wall clock in milliseconds; injected for tests. */
   now?(): number
   clock?: ServerClock
@@ -134,7 +143,18 @@ export class ServerClient {
   }
 
   async request<T>(request: ServerRequest<T>): Promise<ServerResult<T>> {
-    const prepared = this.prepare(request)
+    const first = await this.attempt(request)
+    if (first.ok || !this.options.renewAccessToken) return first
+    if ((request.auth ?? 'bearer') !== 'bearer') return first
+    // A refused session is retried once, after renewing; never in a loop and never after a cancel.
+    if (first.detail.status !== 401 || first.error.code !== 'session_expired') return first
+    if (request.signal?.aborted) return first
+    if (!(await this.options.renewAccessToken())) return first
+    return this.attempt(request)
+  }
+
+  private async attempt<T>(request: ServerRequest<T>): Promise<ServerResult<T>> {
+    const prepared = await this.prepare(request)
     if (!prepared.ok) return prepared
     if (request.signal?.aborted) return failure(clientError('cancelled'), { delivery: 'not_sent' })
 
@@ -181,11 +201,12 @@ export class ServerClient {
 
   // --- internals -------------------------------------------------------------------------------
 
-  private prepare<T>(
+  private async prepare<T>(
     request: ServerRequest<T>
-  ):
+  ): Promise<
     | { ok: true; url: string; init: RequestInit }
-    | { ok: false; error: ClientError; detail: ServerErrorDetail } {
+    | { ok: false; error: ClientError; detail: ServerErrorDetail }
+  > {
     const refuse = (code: ClientError['code']) =>
       failure(clientError(code), { delivery: 'not_sent' })
     if (!PATH.test(request.path) || request.path.includes('..') || request.path.includes('//'))
@@ -204,7 +225,7 @@ export class ServerClient {
 
     const headers: Record<string, string> = { Accept: 'application/json' }
     if ((request.auth ?? 'bearer') === 'bearer') {
-      const token = this.options.accessToken()
+      const token = await this.options.accessToken()
       if (token === null || !TOKEN.test(token)) return refuse('authentication_required')
       headers.Authorization = `Bearer ${token}`
     }
