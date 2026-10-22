@@ -85,11 +85,19 @@ describe('authentication IPC', () => {
       ok: true,
       value: { loginId: 'alice', available: true }
     })
-    expect(await api.signUp({ ...context, input: { loginId: 'alice', password: 'pw' } })).toEqual({
+    expect(
+      await api.signUp({
+        ...context,
+        input: { loginId: 'alice', password: 'a-long-example-password' }
+      })
+    ).toEqual({
       ok: true,
       value: { loginId: 'alice' }
     })
-    const result = await api.signIn({ ...context, input: { loginId: 'alice', password: 'pw' } })
+    const result = await api.signIn({
+      ...context,
+      input: { loginId: 'alice', password: 'a-long-example-password' }
+    })
     expect(result).toMatchObject({
       ok: true,
       value: { snapshot: { phase: 'signed_in', user: { loginId: 'alice' } } }
@@ -115,14 +123,14 @@ describe('authentication IPC', () => {
     await auth.start()
     const generation = auth.getSnapshot().generation
     const bad = [
-      { requestId: '', generation, input: { loginId: 'a', password: 'b' } },
+      { requestId: '', generation, input: { loginId: 'alice', password: 'b' } },
       { requestId: 'r', generation, input: { loginId: '  ', password: 'b' } },
-      { requestId: 'r', generation, input: { loginId: 'a', password: '' } },
+      { requestId: 'r', generation, input: { loginId: 'alice', password: '' } },
       // The confirmation field must never cross the boundary.
       {
         requestId: 'r',
         generation,
-        input: { loginId: 'a', password: 'b', passwordConfirmation: 'b' }
+        input: { loginId: 'alice', password: 'b', passwordConfirmation: 'b' }
       }
     ]
     for (const request of bad)
@@ -130,6 +138,34 @@ describe('authentication IPC', () => {
         ok: false,
         error: { code: 'invalid_input' }
       })
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('refuses input that breaks the account rules before it reaches Main', async () => {
+    const { api, auth, invoke } = setup()
+    await auth.start()
+    const context = ids({ generation: auth.getSnapshot().generation })
+    const refused = { ok: false, error: { code: 'invalid_input' } }
+    // A new password below 15 characters, or over 128.
+    expect(
+      await api.signUp({ ...context, input: { loginId: 'alice', password: 'x'.repeat(14) } })
+    ).toMatchObject(refused)
+    expect(
+      await api.signUp({ ...context, input: { loginId: 'alice', password: 'x'.repeat(129) } })
+    ).toMatchObject(refused)
+    // An ID that is too short, has a space, or is outside letters, digits and underscores.
+    for (const loginId of ['al', ' alice', 'alice ', 'al ice', 'alice!', '앨리스입니다']) {
+      expect(await api.checkLoginId({ ...context, input: { loginId } })).toMatchObject(refused)
+      expect(
+        await api.signUp({ ...context, input: { loginId, password: 'a-long-example-password' } })
+      ).toMatchObject(refused)
+      expect(await api.signIn({ ...context, input: { loginId, password: 'x' } })).toMatchObject(
+        refused
+      )
+    }
+    expect(
+      await api.signIn({ ...context, input: { loginId: 'alice', password: 'x'.repeat(129) } })
+    ).toMatchObject(refused)
     expect(invoke).not.toHaveBeenCalled()
   })
 

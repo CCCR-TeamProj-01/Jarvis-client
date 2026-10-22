@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   hasErrors,
+  validateLoginId,
   validateSignIn,
   validateSignUp
 } from '../../src/renderer/ui/features/auth/auth-form'
@@ -14,6 +15,9 @@ import type {
   LoginIdCheckState
 } from '../../src/renderer/ui/features/auth/login-id-check'
 import { newestAuthSnapshot } from '../../src/renderer/ui/features/auth/use-auth'
+
+/** A new password that meets the rule. */
+const LONG = 'a-long-example-password'
 
 const run = (...actions: LoginIdCheckAction[]): LoginIdCheckState =>
   actions.reduce(loginIdCheckReducer, initialLoginIdCheck)
@@ -105,8 +109,8 @@ describe('form validation', () => {
     expect(validateSignIn({ loginId: 'alice', password: ' ' })).toEqual({})
   })
 
-  it('requires a confirmed ID, a matching confirmation and non-empty password to sign up', () => {
-    const base = { loginId: 'alice', password: 'pw', confirmation: 'pw', check: available }
+  it('requires a confirmed ID, a matching confirmation and a long enough password to sign up', () => {
+    const base = { loginId: 'alice', password: LONG, confirmation: LONG, check: available }
     expect(validateSignUp(base)).toEqual({})
     expect(validateSignUp({ ...base, check: initialLoginIdCheck }).loginId).toMatch(/중복 확인/)
     expect(validateSignUp({ ...base, confirmation: 'other' }).confirmation).toMatch(/달라요/)
@@ -121,8 +125,71 @@ describe('form validation', () => {
       { type: 'result', token: 1, loginId: 'alice', available: false }
     )
     expect(
-      validateSignUp({ loginId: 'alice', password: 'pw', confirmation: 'pw', check: taken }).loginId
+      validateSignUp({ loginId: 'alice', password: LONG, confirmation: LONG, check: taken }).loginId
     ).toMatch(/이미 사용 중/)
+  })
+})
+
+describe('account input rules in the form', () => {
+  const ok = run(
+    { type: 'edit', loginId: 'alice' },
+    { type: 'start', token: 1 },
+    { type: 'result', token: 1, loginId: 'alice', available: true }
+  )
+
+  it('explains why an ID cannot be used, and refuses spaces instead of trimming them', () => {
+    expect(validateLoginId('')).toMatch(/입력/)
+    expect(validateLoginId('   ')).toMatch(/입력/)
+    for (const bad of [
+      'ab',
+      'a'.repeat(33),
+      ' alice',
+      'alice ',
+      'al ice',
+      'alice!',
+      '앨리스입니다'
+    ])
+      expect(validateLoginId(bad)).toMatch(/공백 없이 영문, 숫자, _로 3~32자/)
+    for (const good of ['abc', 'Alice_01', 'a'.repeat(32)])
+      expect(validateLoginId(good)).toBeUndefined()
+  })
+
+  it('applies the ID rule when signing in too', () => {
+    expect(validateSignIn({ loginId: 'al ice', password: 'x' }).loginId).toMatch(/3~32자/)
+    expect(validateSignIn({ loginId: 'alice', password: 'x' })).toEqual({})
+  })
+
+  it('asks for at least 15 characters only when signing up', () => {
+    const up = (password: string) =>
+      validateSignUp({ loginId: 'alice', password, confirmation: password, check: ok })
+    expect(up('x'.repeat(14)).password).toMatch(/15자 이상/)
+    expect(up('x'.repeat(15))).toEqual({})
+    expect(up('가'.repeat(15))).toEqual({})
+    expect(up('😀'.repeat(15))).toEqual({})
+    expect(up('😀'.repeat(14)).password).toMatch(/15자 이상/)
+    expect(up(' '.repeat(15))).toEqual({})
+    expect(validateSignIn({ loginId: 'alice', password: 'demo1234' })).toEqual({})
+    expect(up('').password).toMatch(/입력/)
+  })
+
+  it('stops a password over 128 characters in both forms', () => {
+    const long = 'x'.repeat(129)
+    expect(validateSignIn({ loginId: 'alice', password: long }).password).toMatch(/128자 이하/)
+    expect(
+      validateSignUp({ loginId: 'alice', password: long, confirmation: long, check: ok }).password
+    ).toMatch(/128자 이하/)
+    expect(validateSignIn({ loginId: 'alice', password: 'x'.repeat(128) })).toEqual({})
+  })
+
+  it('does not ask for the confirmation while the password itself is not acceptable', () => {
+    const errors = validateSignUp({
+      loginId: 'alice',
+      password: 'short',
+      confirmation: '',
+      check: ok
+    })
+    expect(errors.password).toBeDefined()
+    expect(errors.confirmation).toBeUndefined()
   })
 })
 

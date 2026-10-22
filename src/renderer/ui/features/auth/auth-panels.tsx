@@ -1,9 +1,10 @@
 import { useReducer, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ArrowRight, CircleAlert, CircleCheck, Info, LoaderCircle } from 'lucide-react'
+import { LOGIN_ID_RULE, PASSWORD_RULE } from '../../../../shared/contracts/auth'
 import type { CheckLoginIdResult, SignUpResult } from '../../../../shared/contracts/auth'
 import type { Result } from '../../../../shared/contracts/common'
-import { hasErrors, validateSignIn, validateSignUp } from './auth-form'
+import { hasErrors, validateLoginId, validateSignIn, validateSignUp } from './auth-form'
 import { initialLoginIdCheck, loginIdCheckReducer } from './login-id-check'
 import type { AuthBusy } from './use-auth'
 
@@ -121,7 +122,8 @@ export function SignUpForm({ busy, error, checkLoginId, onSubmit, onSignedUp }: 
   const pending = busy === 'signUp'
 
   async function runCheck() {
-    if (loginId.trim().length === 0) {
+    // An ID that does not fit the rule is never sent to the server; the form says why instead.
+    if (validateLoginId(loginId)) {
       setShowErrors(true)
       return
     }
@@ -165,7 +167,7 @@ export function SignUpForm({ busy, error, checkLoginId, onSubmit, onSignedUp }: 
           value={loginId}
           disabled={busy !== null}
           aria-invalid={errors.loginId ? true : undefined}
-          aria-describedby="login-id-status"
+          aria-describedby="login-id-rule login-id-status"
           onChange={(event) => {
             setLoginId(event.target.value)
             dispatch({ type: 'edit', loginId: event.target.value })
@@ -180,6 +182,9 @@ export function SignUpForm({ busy, error, checkLoginId, onSubmit, onSignedUp }: 
           {check.status === 'checking' ? '확인 중…' : '중복 확인'}
         </button>
       </div>
+      <p id="login-id-rule" className="field-hint">
+        영문, 숫자, _로 {LOGIN_ID_RULE.min}~{LOGIN_ID_RULE.max}자 (대소문자는 구분하지 않아요)
+      </p>
       <div id="login-id-status" aria-live="polite">
         {check.status === 'available' && check.loginId === loginId && (
           <p className="field-hint field-hint-ok">
@@ -211,9 +216,13 @@ export function SignUpForm({ busy, error, checkLoginId, onSubmit, onSignedUp }: 
         value={password}
         disabled={busy !== null}
         aria-invalid={errors.password ? true : undefined}
-        aria-describedby={errors.password ? 'password-error' : undefined}
+        aria-describedby={errors.password ? 'password-rule password-error' : 'password-rule'}
         onChange={(event) => setPassword(event.target.value)}
       />
+      <p id="password-rule" className="field-hint">
+        {PASSWORD_RULE.signUpMin}자 이상 {PASSWORD_RULE.max}자 이하 (공백, 특수문자, 한글도 쓸 수
+        있어요)
+      </p>
       <FieldError id="password-error" message={errors.password} />
       <label htmlFor="password-confirm">비밀번호 재입력</label>
       <input
