@@ -7,7 +7,6 @@ import { useAuth } from './features/auth/use-auth'
 import { ConversationView } from './features/conversation/conversation-view'
 import { StatusPanel } from './features/conversation/status-panel'
 import { GestureView } from './features/gesture/gesture-view'
-import { RecommendationCard } from './features/recommendation/recommendation-card'
 import { SettingsView } from './features/settings/settings-view'
 import { AppShell } from './features/shell/app-shell'
 import { useClientSnapshot } from './use-client-snapshot'
@@ -16,7 +15,6 @@ import {
   activeTab,
   conversationStatus,
   permissionLines,
-  recommendationView,
   statusLines,
   voiceActive
 } from './view-model'
@@ -72,29 +70,11 @@ function App(): React.JSX.Element {
         )}
       </div>
     )
-    const offer = recommendationView(snapshot)
-    const notices = (banner || offer) && (
-      <>
-        {banner}
-        {offer && (
-          <RecommendationCard
-            view={offer}
-            onRespond={(response) =>
-              void dispatch({
-                type: 'recommendation.respond',
-                recommendationId: offer.recommendationId,
-                response
-              })
-            }
-          />
-        )}
-      </>
-    )
     return (
       <AppShell
         tab={tab}
         loginId={auth.snapshot.user.loginId}
-        banner={notices || undefined}
+        banner={banner || undefined}
         side={tab === 'conversation' ? <StatusPanel lines={statusLines(snapshot)} /> : undefined}
         signingOut={auth.busy !== null}
         onNavigate={(next) => void dispatch({ type: 'screen.open', screen: next })}

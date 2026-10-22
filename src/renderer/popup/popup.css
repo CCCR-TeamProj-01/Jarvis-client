@@ -1,0 +1,146 @@
+@import 'pretendard/dist/web/variable/pretendardvariable.css';
+@import '../ui/fonts.css';
+@import '../ui/tokens.css';
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  color: var(--color-text-primary);
+  -webkit-user-select: none;
+  user-select: none;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+button:focus-visible {
+  outline: 2px solid var(--color-action);
+  outline-offset: 2px;
+}
+
+/* Room around the card for its shadow, since the window itself is transparent. */
+.popup {
+  padding: 12px;
+}
+
+.button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+}
+.button-primary {
+  background: var(--color-action);
+  color: var(--color-surface);
+}
+.button-primary:hover:not(:disabled) {
+  background: var(--color-action-hover);
+}
+.button-primary:active:not(:disabled) {
+  background: var(--color-action-pressed);
+}
+.button-secondary {
+  border-color: var(--color-control-border);
+  background: rgb(255 255 255 / 65%);
+  color: var(--color-text-primary);
+}
+.button-ghost {
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+.button:disabled {
+  opacity: 0.55;
+}
+
+.popup-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-danger-text);
+  border-radius: var(--radius-md);
+  background: var(--color-error-surface);
+  color: var(--color-danger-text);
+  font-size: var(--text-caption);
+  line-height: 18px;
+}
+.popup-error svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+/* The recommendation card: an offer, never an action in progress. */
+.recommendation {
+  display: grid;
+  box-shadow: 0 8px 28px rgb(20 30 70 / 22%);
+  background-clip: padding-box;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  margin: var(--space-4) 0;
+  border: 1px solid var(--color-primary-soft);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+}
+.recommendation-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.recommendation-head svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
+}
+.recommendation-head h2 {
+  margin: 0;
+  font-size: var(--text-body);
+}
+.recommendation-reason {
+  margin: 0;
+  font-size: var(--text-caption);
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.recommendation-apps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.recommendation-apps li {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-primary-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-caption);
+  overflow-wrap: anywhere;
+}
+.recommendation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+/* The buttons sit side by side at their own width, not one per line. */
+.recommendation-actions .button {
+  width: auto;
+  flex: 0 0 auto;
+  margin-top: 0;
+}

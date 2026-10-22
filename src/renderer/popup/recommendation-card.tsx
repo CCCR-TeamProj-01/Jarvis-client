@@ -1,6 +1,6 @@
 import { Sparkles } from 'lucide-react'
-import type { RecommendationResponse } from '../../../../shared/contracts/recommendation'
-import type { RecommendationView } from '../../view-model'
+import type { RecommendationResponse } from '../../shared/contracts/recommendation'
+import type { RecommendationView } from './view-model'
 
 interface RecommendationCardProps {
   view: RecommendationView

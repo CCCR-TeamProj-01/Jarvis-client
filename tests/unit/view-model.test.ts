@@ -6,8 +6,7 @@ import {
   conversationStatus,
   permissionLines,
   statusLines,
-  voiceActive,
-  recommendationView
+  voiceActive
 } from '../../src/renderer/ui/view-model'
 import type { Message } from '../../src/renderer/ui/view-model'
 import type { SensorSnapshot } from '../../src/shared/contracts/sensors'
@@ -190,44 +189,5 @@ describe('acceleratorKeys', () => {
     expect(acceleratorKeys('CommandOrControl+Shift+G', 'win32')).toEqual(['Ctrl', 'Shift', 'G'])
     expect(acceleratorKeys('Alt+K', 'darwin')).toEqual(['⌥', 'K'])
     expect(acceleratorKeys('Alt+K', 'linux')).toEqual(['Alt', 'K'])
-  })
-})
-
-describe('recommendationView', () => {
-  const card = {
-    recommendationId: '701',
-    reason: '자주 함께 쓰는 앱이에요.',
-    targets: [
-      { position: 1, appCode: null, displayName: 'Slack' },
-      { position: 0, appCode: 'chrome', displayName: 'Google Chrome' }
-    ],
-    expiresAtUnixMs: 5,
-    phase: 'offered' as const
-  }
-
-  it('shows nothing without an offer', () => {
-    expect(recommendationView({})).toBeNull()
-    expect(recommendationView({ recommendation: null })).toBeNull()
-  })
-
-  it('lists the apps in the order the server gave', () => {
-    expect(recommendationView({ recommendation: card })).toEqual({
-      recommendationId: '701',
-      reason: '자주 함께 쓰는 앱이에요.',
-      apps: ['Google Chrome', 'Slack'],
-      busy: false
-    })
-  })
-
-  it('marks the card busy while an answer is on its way', () => {
-    expect(recommendationView({ recommendation: { ...card, phase: 'responding' } })?.busy).toBe(
-      true
-    )
-  })
-
-  it('does not change the card it was given', () => {
-    const copy = structuredClone(card)
-    recommendationView({ recommendation: copy })
-    expect(copy).toEqual(card)
   })
 })

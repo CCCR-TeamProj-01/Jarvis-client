@@ -31,6 +31,7 @@ import { createWakeWord } from '../speech/create-wake-word'
 import type { VoiceStack } from '../speech/create-voice'
 import { createRemoteSpeech } from '../speech/remote-speech/create-remote-speech'
 import { createRecommendationService } from '../recommendation/create-recommendation-service'
+import { createRecommendationPopup } from '../recommendation/create-popup'
 import { createOpenAppsCheck } from '../recommendation/open-apps'
 import { createToolStack } from '../tools/create-tools'
 import type { ToolStack } from '../tools/create-tools'
@@ -73,6 +74,7 @@ export class ApplicationManager {
   private disposeSelfTests: (() => void) | null = null
   private disposeCommands: (() => void) | null = null
   private disposeRecommendations: (() => void) | null = null
+  private disposePopup: (() => void) | null = null
   private disposeWakeWord: (() => void) | null = null
   private quitting = false
   private startPromise: Promise<void> | null = null
@@ -129,6 +131,12 @@ export class ApplicationManager {
         recommendations.respond(id, response)
       )
       this.disposeRecommendations = runWhileSignedIn(this.auth, recommendations)
+      // The recommendation appears in its own small window, so it is seen even when the main window is hidden.
+      this.disposePopup = createRecommendationPopup({
+        entryUrl: entryUrl.replace(/\/ui\/index\.html$/, '/popup/index.html'),
+        preloadPath: preloadPath.replace(/ui\.js$/, 'popup.js'),
+        interaction: this.interaction
+      }).dispose
     }
     this.disposeIpc = registerUiIpc({
       ipc: ipcMain,
@@ -333,6 +341,7 @@ export class ApplicationManager {
         | 'disposeSelfTests'
         | 'disposeCommands'
         | 'disposeRecommendations'
+        | 'disposePopup'
         | 'disposeWakeWord'
     ) => {
       const release = this[name]
@@ -349,6 +358,7 @@ export class ApplicationManager {
       take('disposeSelfTests'),
       take('disposeCommands'),
       take('disposeRecommendations'),
+      take('disposePopup'),
       take('disposeOverlay'),
       take('disposeMediaIpc'),
       () => {
