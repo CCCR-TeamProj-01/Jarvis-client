@@ -122,7 +122,7 @@ export class ServerAuthGateway implements AuthGatewayPort {
       { userId: result.value.user.user_id, loginId: result.value.user.username },
       result.value
     )
-    this.options.tokens.set(stored.accessToken)
+    this.options.tokens.set(stored.accessToken, stored.accessExpiresAtUnixMs)
     return this.session(stored)
   }
 
@@ -148,7 +148,7 @@ export class ServerAuthGateway implements AuthGatewayPort {
       renewed = true
     }
 
-    this.options.tokens.set(current.accessToken)
+    this.options.tokens.set(current.accessToken, current.accessExpiresAtUnixMs)
     // A renewal already proves the session to the server. Asking again would risk losing the new
     // token pair to a failed second request, since the old refresh token is gone by now.
     if (renewed) return this.session(current)
@@ -164,7 +164,7 @@ export class ServerAuthGateway implements AuthGatewayPort {
     if (me.error.code === 'session_expired') {
       const refreshed = await this.refresh(current, options)
       if (!refreshed.ok) return this.rejected(refreshed)
-      this.options.tokens.set(refreshed.value.accessToken)
+      this.options.tokens.set(refreshed.value.accessToken, refreshed.value.accessExpiresAtUnixMs)
       return this.session(refreshed.value)
     }
     this.options.tokens.clear()
@@ -193,7 +193,7 @@ export class ServerAuthGateway implements AuthGatewayPort {
       }
       current = refreshed.value
     }
-    this.options.tokens.set(current.accessToken)
+    this.options.tokens.set(current.accessToken, current.accessExpiresAtUnixMs)
     const result = await this.options.client.request({
       method: 'POST',
       path: '/auth/logout',

@@ -61,7 +61,8 @@ F-027([#58](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/58))에서 
 - 결과는 `ServerResult`다. 실패에는 `ClientError`와 별도로 전송 정보(`delivery`, HTTP 상태, 서버 오류 코드, 요청 ID, `Retry-After` 지연)를 담는다. `delivery`는 요청이 서버에 닿았는지를 나타낸다. 연결 거부·이름 해석 실패·연결 시간 초과·인증서 오류는 `not_sent`(다시 시도해도 안전), 요청을 보낸 뒤의 시간 초과·연결 끊김과 알 수 없는 오류는 `no_response`(서버가 처리했을 수 있음), 응답을 받은 경우는 `responded`다. 갱신 토큰 응답 유실 처리([계정 인증 계약](#계정-인증-계약))가 이 구분을 쓴다.
 - 비밀번호·토큰·요청 본문·서버가 보낸 문구·스키마 오류의 세부 내용은 결과와 오류 문구에 넣지 않는다.
 - 서버 오류 응답은 `error`와 `detail` 두 형식을 모두 읽는다.
-- 아직 없는 것: multipart 음성 업로드와 오디오 응답 처리(음성 단계), 보호 API 호출 시 접근 토큰 자동 갱신(첫 보호 API 연동 때). 토큰 갱신과 단일 비행 처리는 서버 인증 어댑터에서 구현했다([F-028](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/60), [서버 인증 어댑터](../features/auth.md#서버-인증-어댑터-f-028)).
+- 접근 토큰은 요청 때마다 비동기로 받을 수 있고(만료 직전이면 갱신 후), 보호 요청이 세션 무효(401)로 거절되면 갱신을 한 번 시도한 뒤 같은 요청을 한 번만 다시 보낸다. 로그인 요청과 갱신 요청처럼 토큰을 보내지 않는 요청, 취소된 요청에는 적용하지 않는다.
+- 아직 없는 것: multipart 음성 업로드와 오디오 응답 처리(음성 단계), 토큰 갱신과 단일 비행 처리는 서버 인증 어댑터에서, 보호 API 호출 중의 자동 갱신은 F-029에서 구현했다([F-028](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/60), [서버 인증 어댑터](../features/auth.md#서버-인증-어댑터-f-028)).
 
 ## 계정 인증 계약
 
@@ -98,6 +99,17 @@ F-027([#58](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/58))에서 
 Main은 활성 대화가 없으면 인증된 현재 기기로 서버 대화를 생성한 뒤 입력을 제출한다. 서버의 생성 응답은 호출 당시 인증·로컬 대화 세대가 유효할 때만 적용한다. 생성 요청의 재전송은 같은 생성 식별자로 중복을 막으며 생성 실패·취소로 명령을 실행하지 않는다. `POST /conversations`는 `Idempotency-Key`를 지원하며 생성 기한과 재시도 횟수는 구현 이슈에서 정한다. 현재 로컬 ID 생성 구현과의 차이는 [AI-04](../features/speech.md#대화-생성과-요청-완료)에 둔다.
 
 요청은 `POST /conversations/{conversation_id}/messages`로 제출한다. 글은 JSON(`request_id`·`input_method=text`·`content`), 음성은 multipart(`request_id`·`input_method=voice`·`audio`)이며 `202`로 접수된다. 한 대화에서는 한 번에 한 요청만 처리하며(처리 중이면 `CONVERSATION_BUSY`, 409) 같은 `request_id`와 같은 본문의 재전송은 기존 상태를 돌려준다(다른 본문은 `REQUEST_ID_CONFLICT`). 결과는 `GET /requests/{request_id}`를 폴링해 받는다. `processing_status`는 `queued` → `processing` → `success`·`failed`·`rejected`이고 `transcript`(음성의 인식 텍스트)·`assistant_messages`(응답 문장)·`commands[].latest_result`를 담는다. `success`가 명령 실행의 완료까지 뜻하는지는 서버 확인 항목이므로 클라이언트는 명령별 최종 결과를 따로 본다([결정 목록](../delivery/validation.md#rest-api-명세-대조-결정2026-10-22)).
+
+### 구현 현황: 대화·요청 어댑터
+
+F-030([#62](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/62))에서 글 입력 대화의 서버 어댑터(`src/main/conversation/server-assistant.ts`)를 구현했다. 서버 주소가 유효하고 `JARVIS_DEV_SPEECH=1`이 아니면 `AssistantPort`로 선택된다(개발용 대역이 우선, 서버가 없으면 연결 불가). 음성 입력은 아직 서버로 보내지 않고(음성 포트는 연결 불가 유지) 명령도 실행하지 않는다. 실제 서버와의 통합은 아직 확인하지 못했다.
+
+- 서버 대화는 로컬 대화마다 한 번만 만든다(`POST /conversations`, 로컬 대화 ID에서 만든 `Idempotency-Key`). 응답이 유실되면 같은 키로 다시 보낸다. 서버 대화 ID와 요청 ID는 어댑터 안에서만 쓴다.
+- 입력은 `POST /conversations/<built-in function id>/messages`(`request_id`는 `req_` + ULID 26자, `input_method=text`)로 제출한다. 요청 ID는 턴마다 한 번 만들고 모든 시도에 같은 값을 쓴다. 응답이 유실되면 같은 ID와 본문으로 최대 2번 다시 보내고(서버가 멱등 처리), `CONVERSATION_BUSY`는 1초씩 기다려 최대 5번 다시 보내며, 서버 대화가 없어졌으면(404) 새로 만들어 한 번만 다시 시도한다.
+- 결과는 `GET /requests/<built-in function id>`를 0.5~1초 간격으로 폴링한다. 일시 오류(5xx·호출 제한·형식 오류)는 지수 백오프(최대 10초, 429는 `Retry-After` 이상)로 다시 시도하고 연속 5번 실패하면 오류를 돌려준다. 없는 요청·세션 종료 같은 오류는 바로 돌려준다. 어댑터 자신의 최대 대기는 60초이며 대화 관리자의 응답 제한(20초)과 취소가 먼저 적용된다.
+- `success`는 어시스턴트 문장(비어 있지 않은 메시지를 줄바꿈으로 이어 붙임)을 화면 문장으로 쓴다. 명령이 포함된 응답에는 이 기기에서 명령을 아직 실행하지 않는다는 참고 문장을 덧붙인다. `rejected`는 `permission_denied`, `failed`는 `unavailable`로 바꾸며 서버의 오류 코드·문구는 쓰지 않는다. 알 수 없는 상태는 계속 기다린다. `success`는 AI 분석 완료로만 취급한다.
+- 사용자 입력·응답 문장·토큰은 오류 문구와 로그에 남기지 않는다.
+
 
 최종 ERD 6-6절의 서버 문맥 기준은 메모리 보관 30분, 문맥이 없을 때 해당 대화의 최근 메시지 20개를 `message_id` 순서로 복구하는 방식이다. 앞부분이 잘려 호출과 짝이 맞지 않는 도구 결과는 제외한다. 서버 문맥 보관은 로컬 대화·음성 세션의 수명과 별개이며 끝낸 대화 ID를 다시 사용하지 않는다. 본문 미보관·삭제 후 복구 범위는 데이터 정책과 함께 합의한다.
 

@@ -17,7 +17,7 @@ pnpm dev
 JARVIS_DEV_AUTH=1 pnpm dev   # 기본 계정: demo / demo1234
 ```
 
-서버 주소는 패키징되지 않은 앱에서 `JARVIS_SERVER_URL=http://127.0.0.1:8000/api/v1`처럼 지정합니다(`https` 또는 같은 PC의 `http`만 허용). 주소가 유효하면 로그인·가입이 서버 인증을 사용합니다(`JARVIS_DEV_AUTH=1`이 있으면 개발용 대역이 우선). 아이디 중복 확인도 서버(`POST /auth/username-checks`)에 묻고, 최종 판정은 가입 때 합니다.
+서버 주소는 패키징되지 않은 앱에서 `JARVIS_SERVER_URL=http://127.0.0.1:8000/api/v1`처럼 지정합니다(`https` 또는 같은 PC의 `http`만 허용). 주소가 유효하면 로그인·가입이 서버 인증을, 글로 입력한 대화가 서버의 대화·요청 API를 사용합니다(음성 입력과 명령 실행은 아직 서버와 연결되지 않았습니다)(`JARVIS_DEV_AUTH=1`이 있으면 개발용 대역이 우선). 아이디 중복 확인도 서버(`POST /auth/username-checks`)에 묻고, 최종 판정은 가입 때 합니다.
 
 센서(카메라·마이크)는 로그인 후에만 쓸 수 있습니다. 실제 장치 없이 확인하려면 `JARVIS_FAKE_MEDIA=1`(가짜 장치), 소비 기능 없이 사용권 흐름을 보려면 `JARVIS_SENSOR_SELFTEST=1`(로그인 후 진단 사용권을 잡고 로그에 출력)을 함께 지정합니다. 둘 다 패키징된 앱에서는 동작하지 않습니다.
 

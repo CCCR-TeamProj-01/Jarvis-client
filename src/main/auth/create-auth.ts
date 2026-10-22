@@ -4,6 +4,7 @@ import { hostname } from 'node:os'
 import { join } from 'node:path'
 import type { Result } from '../../shared/contracts/common'
 import { createDefaultServerClient } from '../connection/create-default-server-client'
+import type { ServerClient } from '../connection/server-client'
 import { AuthManager } from './auth-manager'
 import { createAuthGateway } from './create-auth-gateway'
 import type { ServerAuthConnection } from './create-auth-gateway'
@@ -46,8 +47,17 @@ interface DefaultAuthOptions {
   deviceKey(): string | null
 }
 
+/** The login state, and the client for every other server call (null without a usable server). */
+export interface DefaultAuth {
+  auth: AuthManager
+  api: ServerClient | null
+}
+
+/** An access token this close to its end is renewed before a request rather than risked on it. */
+const API_TOKEN_MARGIN_MS = 60_000
+
 /** Production wiring. Tests construct AuthManager with in-memory ports instead. */
-export function createDefaultAuth({ deviceKey }: DefaultAuthOptions): AuthManager {
+export function createDefaultAuth({ deviceKey }: DefaultAuthOptions): DefaultAuth {
   const nowUnixMs = () => Date.now()
   const tokens = new AccessTokenHolder()
   const resolution = createDefaultServerClient(() => tokens.get())
@@ -67,7 +77,7 @@ export function createDefaultAuth({ deviceKey }: DefaultAuthOptions): AuthManage
             })
         }
       : null
-  return new AuthManager({
+  const auth = new AuthManager({
     gateway: createAuthGateway({
       isPackaged: app.isPackaged,
       env: process.env,
@@ -83,4 +93,16 @@ export function createDefaultAuth({ deviceKey }: DefaultAuthOptions): AuthManage
       return () => clearTimeout(timer)
     }
   })
+  // Calls other than signing in go through a second client that keeps the access token fresh: it
+  // renews shortly before the token ends and once more if the server refuses it. The client above
+  // must not do this, because it is the one that performs the renewal.
+  const renew = async () => (await auth.renewSession()).ok
+  const api =
+    resolution.status === 'ready'
+      ? createDefaultServerClient(async () => {
+          if (tokens.expiringSoon(nowUnixMs(), API_TOKEN_MARGIN_MS)) await auth.renewSession()
+          return tokens.get()
+        }, renew)
+      : null
+  return { auth, api: api?.status === 'ready' ? api.client : null }
 }

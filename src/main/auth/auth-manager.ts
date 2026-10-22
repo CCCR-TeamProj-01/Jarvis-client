@@ -73,6 +73,7 @@ export class AuthManager implements AuthPort {
   /** Overlapping read-only duplicate checks. A generation change aborts them all. */
   private readonly lookups = new Set<AbortController>()
   private cancelExpiry: (() => void) | null = null
+  private renewal: Promise<Result<void>> | null = null
   private disposed = false
   private readonly listeners = new Set<(event: AuthEvent) => void>()
   private readonly invalidationListeners = new Set<(snapshot: AuthSnapshot) => void>()
@@ -205,6 +206,61 @@ export class AuthManager implements AuthPort {
       this.emitError(null, cleared.error)
       return cleared
     }
+    return { ok: true, value: undefined }
+  }
+
+  /**
+   * Keeps a signed-in session going: renews the access token through the gateway and keeps the
+   * rotated credential. It changes neither the phase nor the generation, so nothing the user is
+   * doing is interrupted. Callers that arrive while a renewal runs share its result.
+   */
+  renewSession(): Promise<Result<void>> {
+    if (this.renewal) return this.renewal
+    const running = this.runRenewal().finally(() => {
+      this.renewal = null
+    })
+    this.renewal = running
+    return running
+  }
+
+  private async runRenewal(): Promise<Result<void>> {
+    const credential = this.recoveryCredential
+    if (this.disposed || this.snapshot.phase !== 'signed_in' || credential === null)
+      return failure('authentication_required', '로그인이 필요합니다.')
+    const user = this.snapshot.user
+    const generation = this.snapshot.generation
+    // No cancellation is passed on: once a renewal was sent, its answer has to be received.
+    const renewed = await this.options.gateway.restore(credential)
+    if (this.disposed || !sameGeneration(generation, this.snapshot.generation)) return this.stale()
+    if (!renewed.ok) {
+      // Only a session the server has ended signs the user out; a passing failure changes nothing.
+      if (INVALID_CREDENTIAL_CODES.has(renewed.error.code))
+        await this.handleSessionRejected(renewed.error)
+      return renewed
+    }
+    if (renewed.value.user.userId !== user.userId) {
+      // A different account answering for this session is never accepted.
+      await this.handleSessionRejected({
+        code: 'session_expired',
+        message: '로그인 정보가 올바르지 않습니다. 다시 로그인해 주세요.'
+      })
+      return failure('session_expired', '로그인 정보가 올바르지 않습니다.')
+    }
+    if (renewed.value.credential.opaque !== credential.opaque) {
+      const saved = await this.options.store.save(renewed.value.credential)
+      if (this.disposed || !sameGeneration(generation, this.snapshot.generation)) {
+        // Signed out while saving: the credential must not outlive the session.
+        void this.options.store.clear()
+        return this.stale()
+      }
+      if (!saved.ok) {
+        // The old stored credential is no longer valid, so the next start has to sign in again.
+        void this.options.store.clear()
+        this.emitError(null, { code: 'credential_unavailable', message: saved.error.message })
+      }
+    }
+    this.recoveryCredential = renewed.value.credential
+    this.scheduleExpiry(renewed.value.expiresAtUnixMs)
     return { ok: true, value: undefined }
   }
 

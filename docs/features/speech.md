@@ -157,6 +157,8 @@ F-024([#49](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/49))에서 
 
 F-016([#18](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/18))과 F-017([#19](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/19))에서 개발용 서버 대역 기반 음성 세션과 텍스트 입력 경로를 구현했고 F-020에서 로컬 도구 실행을 연결했다. F-024에서 음성 호출 경로를 추가한다. 실제 서버 연동·대화 생성과 저장·새 요청 완료 계약, 응답 중 끼어들기는 후속이다. 아래는 현재 코드 동작이며 위의 서버 연동 목표와 구분한다. 음성 호출이 OFF여도 단축키·트레이·화면의 `대화 시작`(`conversation.start`)은 유지하고, 글은 화면의 입력창(`conversation.submit_text`)으로 보낸다.
 
+서버 어댑터(F-030, [#62](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/62))로 글 입력은 서버의 대화·요청 API로 처리할 수 있다. 서버 주소가 유효하고 개발용 대역(`JARVIS_DEV_SPEECH=1`)이 꺼져 있을 때 선택되며, 음성 입력의 서버 전송과 명령 실행은 아직 연결하지 않았다. 동작은 [구현 현황: 대화·요청 어댑터](../architecture/server-integration.md#구현-현황-대화요청-어댑터)에 둔다.
+
 | 위치 | 책임 |
 | --- | --- |
 | `src/main/conversation/` | 대화 식별·요청 상태·응답 처리·유휴 종료, 서버 응답 포트(`AssistantPort`) |
