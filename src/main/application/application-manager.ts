@@ -7,6 +7,7 @@ import type { AuthManager } from '../auth/auth-manager'
 import { createDefaultAuth } from '../auth/create-auth'
 import { runWhileSignedIn } from '../auth/run-while-signed-in'
 import { createCalendar } from '../calendar/create-calendar'
+import { createDeviceManagement } from '../devices/create-device-management'
 import { createCommandService } from '../commands/create-command-service'
 import { createGoogleConnection } from '../google-connection/create-google-connection'
 import { ConversationManager } from '../conversation/conversation-manager'
@@ -18,6 +19,7 @@ import { InteractionManager } from '../interaction/interaction-manager'
 import type { ActivationSource } from '../interaction/ports'
 import { registerAuthIpc } from '../ipc/auth-ipc'
 import { registerCalendarIpc } from '../ipc/calendar-ipc'
+import { registerDevicesIpc } from '../ipc/devices-ipc'
 import { registerGoogleIpc } from '../ipc/google-ipc'
 import { registerMediaIpc } from '../ipc/media-ipc'
 import { registerUiIpc } from '../ipc/ui-ipc'
@@ -78,6 +80,8 @@ export class ApplicationManager {
   private disposeCalendar: (() => void) | null = null
   private disposeGoogleIpc: (() => void) | null = null
   private disposeGoogle: (() => void) | null = null
+  private disposeDevicesIpc: (() => void) | null = null
+  private disposeDevices: (() => void) | null = null
   private disposeMediaIpc: (() => void) | null = null
   private disposeState: (() => void) | null = null
   private disposeOverlay: (() => void) | null = null
@@ -188,6 +192,20 @@ export class ApplicationManager {
       getContents: () => this.window.getContents(),
       entryUrl,
       google
+    })
+    // The devices of the account and this device's apps: signing out everywhere ends this session too.
+    const { service: devicesService, devices } = createDeviceManagement({
+      isPackaged: app.isPackaged,
+      env: process.env,
+      api: login.api,
+      endLocalSession: () => this.auth.signOut()
+    })
+    if (devicesService) this.disposeDevices = runWhileSignedIn(this.auth, devicesService)
+    this.disposeDevicesIpc = registerDevicesIpc({
+      ipc: ipcMain,
+      getContents: () => this.window.getContents(),
+      entryUrl,
+      devices
     })
     this.tools = createToolStack(this.auth)
     // Commands the server sends to this device are received while someone is signed in.
@@ -381,6 +399,8 @@ export class ApplicationManager {
         | 'disposeCalendar'
         | 'disposeGoogleIpc'
         | 'disposeGoogle'
+        | 'disposeDevicesIpc'
+        | 'disposeDevices'
         | 'disposeMediaIpc'
         | 'disposeState'
         | 'disposeOverlay'
@@ -405,6 +425,8 @@ export class ApplicationManager {
       take('disposeCalendar'),
       take('disposeGoogleIpc'),
       take('disposeGoogle'),
+      take('disposeDevicesIpc'),
+      take('disposeDevices'),
       take('disposeState'),
       take('disposeSelfTests'),
       take('disposeCommands'),

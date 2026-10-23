@@ -2,6 +2,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { FakeCalendarStore } from './fake-calendar-store'
+import type { FakeDevices } from './fake-devices'
 import type { FakeGoogleConnections } from './fake-google-connections'
 
 export const ACCESS_LIFETIME_S = 3600
@@ -59,6 +60,8 @@ export class FakeJarvisServer {
   calendarStore: FakeCalendarStore | null = null
   /** When set, the Google Calendar connection is kept here and follows the real server's behavior. */
   google: FakeGoogleConnections | null = null
+  /** When set, the account's devices and this device's apps are kept here and follow the real server's rules. */
+  devices: FakeDevices | null = null
   calendarFaults: number[] = []
   /** Hold an event response to test sign-out or a newer read overtaking it. */
   calendarGate: Promise<void> | null = null
@@ -273,6 +276,44 @@ export class FakeJarvisServer {
         return send(answered.status, answered.payload)
       }
       return error(405, 'METHOD_NOT_ALLOWED')
+    }
+    const devices = this.devices
+    const deviceRoute =
+      /^\/(?:devices(?:\/(\d+)(\/sessions)?)?|device\/apps(?:\/(\d+))?(?:\?.*)?|auth\/logout-all)$/.exec(
+        path
+      )
+    if (devices && deviceRoute) {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      const method = request.method
+      const reading = method === 'GET'
+      if (reading) {
+        const fault =
+          (path === '/devices' ? devices.readFaults : devices.appReadFaults).shift() ?? 'ok'
+        if (typeof fault === 'number') return error(fault, 'SERVICE_UNAVAILABLE')
+        if (path === '/devices') return send(200, devices.list(this.naiveTimes))
+        const answered = devices.listApps(new URL(`http://x${path}`).searchParams)
+        return send(answered.status, answered.payload)
+      }
+      const fault = devices.writeFaults.shift() ?? 'ok'
+      if (typeof fault === 'number') return error(fault, 'SERVICE_UNAVAILABLE')
+      let answered: { status: number; payload?: unknown }
+      if (path === '/auth/logout-all' && method === 'POST') {
+        devices.logoutAlls += 1
+        for (const other of this.sessions) if (other.user === session.user) other.revoked = true
+        answered = { status: 204 }
+      } else if (deviceRoute[2] && method === 'DELETE') {
+        const id = Number(deviceRoute[1])
+        answered = devices.signOutDevice(id)
+        // Ending the current device's sessions ends the caller's own.
+        if (answered.status === 204 && id === devices.currentId) session.revoked = true
+      } else if (deviceRoute[1] && !deviceRoute[2] && method === 'PATCH')
+        answered = devices.rename(Number(deviceRoute[1]), body)
+      else if (deviceRoute[3] && method === 'PATCH')
+        answered = devices.changeApp(Number(deviceRoute[3]), body)
+      else return error(405, 'METHOD_NOT_ALLOWED')
+      // Carried out, but the answer is lost on the way.
+      if (fault === 'drop') return void request.socket.destroy()
+      return send(answered.status, answered.payload)
     }
     const store = this.calendarStore
     const eventRoute = /^\/calendar\/events(?:\/(\d+))?(?:\?.*)?$/.exec(path)

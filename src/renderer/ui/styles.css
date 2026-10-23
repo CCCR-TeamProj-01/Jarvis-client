@@ -1554,3 +1554,25 @@ kbd {
 .notice span {
   flex: 1;
 }
+
+/* Devices and allowed apps. */
+.row > span:first-child {
+  min-width: 0;
+}
+.row-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+.row-actions .button {
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+.row-actions .spin {
+  width: 16px;
+  height: 16px;
+}

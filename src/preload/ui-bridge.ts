@@ -14,6 +14,10 @@ import {
 } from '../shared/contracts/calendar'
 import type { Result } from '../shared/contracts/common'
 import {
+  DeviceCommandRequestSchema,
+  DeviceManagementEventSchema
+} from '../shared/contracts/devices'
+import {
   GoogleCommandRequestSchema,
   GoogleConnectionEventSchema
 } from '../shared/contracts/google-connection'
@@ -34,9 +38,12 @@ import type { CalendarApi } from '../shared/ipc/calendar-api'
 import {
   AUTH_CHANNELS,
   CALENDAR_CHANNELS,
+  DEVICE_CHANNELS,
   GOOGLE_CHANNELS,
   UI_CHANNELS
 } from '../shared/ipc/channels'
+import { DeviceSnapshotResponseSchema } from '../shared/ipc/devices-api'
+import type { DevicesApi } from '../shared/ipc/devices-api'
 import { GoogleSnapshotResponseSchema } from '../shared/ipc/google-api'
 import type { GoogleConnectionApi } from '../shared/ipc/google-api'
 import { UiCommandResponseSchema, UiSnapshotResponseSchema } from '../shared/ipc/ui-api'
@@ -204,11 +211,37 @@ export function createUiBridge(ipc: UiTransport, platform: string): UiApi {
       }
     }
   }
+  const devices: DevicesApi = {
+    command: (request) =>
+      authCall(
+        DEVICE_CHANNELS.command,
+        DeviceCommandRequestSchema,
+        (value) => DeviceSnapshotResponseSchema.parse(value),
+        request
+      ),
+    getSnapshot: () =>
+      invoke(DEVICE_CHANNELS.snapshot, (value) => DeviceSnapshotResponseSchema.parse(value)),
+    subscribe(listener) {
+      let active = true
+      const receive: EventListener = (_event, value) => {
+        if (!active) return
+        const parsed = DeviceManagementEventSchema.safeParse(value)
+        if (parsed.success) listener(parsed.data)
+      }
+      ipc.on(DEVICE_CHANNELS.event, receive)
+      return () => {
+        if (!active) return
+        active = false
+        ipc.removeListener(DEVICE_CHANNELS.event, receive)
+      }
+    }
+  }
   return {
     platform,
     auth,
     calendar,
     google,
+    devices,
     dispatch(command) {
       const parsed = UiCommandSchema.safeParse(command)
       if (!parsed.success)

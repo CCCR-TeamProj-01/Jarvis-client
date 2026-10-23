@@ -11,11 +11,11 @@ F-024([#49](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/49))에서 
 | 문서 | 주요 내용과 요구사항 |
 | --- | --- |
 | [제품 범위](product/scope.md) | MVP·확장 범위, 처리 원칙, BASE·OPS·LIFE |
-| [계정 인증](features/auth.md) | AUTH-01~07, 로그인·회원가입·유지·접근 제한·설치 식별과 기기 등록 |
+| [계정 인증](features/auth.md) | AUTH-01~08, 로그인·회원가입·유지·접근 제한·설치 식별과 기기 등록·기기와 세션 관리 |
 | [호출과 화면](features/interaction-ui.md) | CALL·UI |
 | [디자인 시스템](design/design-system.md) | Frosted Pearl, 시각 토큰·컴포넌트·인증 화면·향후 창 레이아웃 |
 | [음성과 AI 요청](features/speech.md) | VOICE·AI, 서버 대화 생성·요청 완료와 음성·명령 실행 흐름 |
-| [앱과 OS 제어](features/app-control.md) | APP |
+| [앱과 OS 제어](features/app-control.md) | APP, 허용 앱 설정(APP-09) |
 | [제스처 제어](features/gesture.md) | GEST |
 | [실행 이력과 추천](features/activity-recommendation.md) | HIST·REC, 명령 결과와 활동 분리·수집 동의·추천 승인 |
 | [캘린더](features/calendar.md) | CAL-01~09, 자체/Google 일정 저장·조회·동기화·연결 해제, 마감 할 일 표시와 자체 일정 추가·수정·삭제, Google 캘린더 연결 화면 |
