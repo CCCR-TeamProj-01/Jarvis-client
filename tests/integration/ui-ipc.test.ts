@@ -91,6 +91,7 @@ describe('implemented UI IPC boundary', () => {
       'collection',
       'devices',
       'dispatch',
+      'gestureDiagnostics',
       'getSnapshot',
       'google',
       'platform',

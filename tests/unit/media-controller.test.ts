@@ -567,10 +567,47 @@ describe('MediaController', () => {
         cameraLost: vi.fn<HandTrackingControl['cameraLost']>(async () => {
           calls.push('lost')
         }),
-        dispose: vi.fn<HandTrackingControl['dispose']>(async () => undefined)
+        dispose: vi.fn<HandTrackingControl['dispose']>(async () => undefined),
+        setPreview: vi.fn<HandTrackingControl['setPreview']>(() => true)
       }
       return { ...setup(undefined, handTracking), handTracking, calls }
     }
+
+    it('turns the preview of a run on and off, and says when it cannot', async () => {
+      const { send, handTracking, published } = withTracking()
+      const on = send({
+        type: 'handtracking.preview',
+        generation: trackingRequest.generation,
+        enabled: true
+      })
+      await flush()
+      expect(handTracking.setPreview).toHaveBeenCalledWith(trackingRequest.generation, true)
+      expect(resultOf(published, on)).toMatchObject({ result: { ok: true } })
+      vi.mocked(handTracking.setPreview).mockReturnValueOnce(false)
+      const off = send({
+        type: 'handtracking.preview',
+        generation: trackingRequest.generation,
+        enabled: false
+      })
+      await flush()
+      expect(handTracking.setPreview).toHaveBeenLastCalledWith(trackingRequest.generation, false)
+      expect(resultOf(published, off)).toMatchObject({
+        result: { ok: false, error: { code: 'unavailable' } }
+      })
+    })
+
+    it('answers a preview command as unavailable when it has no hand tracking', async () => {
+      const { send, published } = setup()
+      const id = send({
+        type: 'handtracking.preview',
+        generation: trackingRequest.generation,
+        enabled: true
+      })
+      await flush()
+      expect(resultOf(published, id)).toMatchObject({
+        result: { ok: false, error: { code: 'unavailable' } }
+      })
+    })
 
     it('starts on the open camera stream', async () => {
       const { send, handTracking, published } = withTracking()

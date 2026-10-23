@@ -90,6 +90,161 @@ const frames = (events: MediaEvent[]) =>
 const states = (events: MediaEvent[]) =>
   events.flatMap((event) => (event.type === 'handtracking.state' ? [event.state] : []))
 
+const previews = (events: MediaEvent[]) =>
+  events.flatMap((event) => (event.type === 'hand.preview' ? [event.preview] : []))
+
+describe('HandTrackingPipeline previews', () => {
+  const picture = { width: 320, height: 240, jpeg: new Uint8Array([1, 2, 3]) }
+  function withPreview(interval = 50) {
+    const captured: { image: ImageBitmap; at: string[] }[] = []
+    const order: string[] = []
+    const encoder = {
+      capture: vi.fn<(image: ImageBitmap) => Promise<typeof picture | null>>(async (image) => {
+        order.push('capture')
+        captured.push({ image, at: [...order] })
+        return picture
+      })
+    }
+    const source = new FakeSource()
+    const tracker = new FakeTracker()
+    const original = tracker.next
+    tracker.next = async (frame) => {
+      order.push('detect')
+      return original(frame)
+    }
+    const events: MediaEvent[] = []
+    const pipeline = new HandTrackingPipeline({
+      source,
+      createTracker: () => tracker,
+      publish: (event) => events.push(event),
+      preview: encoder,
+      previewIntervalMs: interval
+    })
+    return { source, tracker, events, pipeline, encoder, order, captured }
+  }
+
+  it('makes no preview until asked, and none without an encoder', async () => {
+    const t = withPreview()
+    await t.pipeline.start({}, request)
+    t.source.push({ image: bitmap(), capturedAtMs: 0 })
+    await flush()
+    expect(t.encoder.capture).not.toHaveBeenCalled()
+    expect(previews(t.events)).toEqual([])
+    const bare = setup()
+    await bare.pipeline.start({}, request)
+    expect(bare.pipeline.setPreview(generation, true)).toBe(false)
+  })
+
+  it('makes a preview of the picture a frame came from, with that frame’s sequence, before detection takes the picture', async () => {
+    const t = withPreview()
+    await t.pipeline.start({}, request)
+    expect(t.pipeline.setPreview(generation, true)).toBe(true)
+    const image = bitmap()
+    t.source.push({ image, capturedAtMs: 100 })
+    await flush()
+    expect(t.order.slice(0, 2)).toEqual(['capture', 'detect'])
+    expect(t.captured[0]!.image).toBe(image)
+    expect(previews(t.events)).toEqual([{ generation, sequence: 1, ...picture }])
+    // The observation of the same picture carries the same sequence.
+    expect(frames(t.events).map((frame) => frame.sequence)).toEqual([1])
+  })
+
+  it('makes previews no more often than the interval', async () => {
+    const t = withPreview(50)
+    await t.pipeline.start({}, request)
+    t.pipeline.setPreview(generation, true)
+    for (const at of [0, 20, 40, 60, 80, 100, 130]) {
+      t.source.push({ image: bitmap(), capturedAtMs: at })
+      await flush()
+    }
+    expect(previews(t.events).map((preview) => preview.sequence)).toEqual([1, 4, 7])
+  })
+
+  it('stops making previews when turned off, and drops one that was still being encoded', async () => {
+    const t = withPreview(0)
+    await t.pipeline.start({}, request)
+    t.pipeline.setPreview(generation, true)
+    let finish: (value: typeof picture) => void = () => undefined
+    t.encoder.capture.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    t.source.push({ image: bitmap(), capturedAtMs: 0 })
+    await flush()
+    t.pipeline.setPreview(generation, false)
+    finish(picture)
+    await flush()
+    expect(previews(t.events)).toEqual([])
+    t.source.push({ image: bitmap(), capturedAtMs: 10 })
+    await flush()
+    expect(t.encoder.capture).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not start a second preview while one is still being encoded', async () => {
+    const t = withPreview(0)
+    await t.pipeline.start({}, request)
+    t.pipeline.setPreview(generation, true)
+    let finish: (value: typeof picture) => void = () => undefined
+    t.encoder.capture.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    for (const at of [0, 10, 20]) {
+      t.source.push({ image: bitmap(), capturedAtMs: at })
+      await flush()
+    }
+    expect(t.encoder.capture).toHaveBeenCalledTimes(1)
+    finish(picture)
+    await flush()
+    t.source.push({ image: bitmap(), capturedAtMs: 30 })
+    await flush()
+    expect(t.encoder.capture).toHaveBeenCalledTimes(2)
+    expect(previews(t.events).map((preview) => preview.sequence)).toEqual([1, 4])
+  })
+
+  it('does not let a failed or empty preview affect tracking', async () => {
+    const t = withPreview(0)
+    await t.pipeline.start({}, request)
+    t.pipeline.setPreview(generation, true)
+    t.encoder.capture.mockResolvedValueOnce(null)
+    t.encoder.capture.mockRejectedValueOnce(new Error('canvas lost'))
+    for (let at = 0; at < 3; at++) {
+      t.source.push({ image: bitmap(), capturedAtMs: at })
+      await flush()
+    }
+    expect(frames(t.events)).toHaveLength(3)
+    expect(previews(t.events).map((preview) => preview.sequence)).toEqual([3])
+  })
+
+  it('only answers for the run that is going on, and not after it ended', async () => {
+    const t = withPreview()
+    expect(t.pipeline.setPreview(generation, true)).toBe(false)
+    await t.pipeline.start({}, request)
+    expect(t.pipeline.setPreview({ sessionId: 'other', revision: 1 }, true)).toBe(false)
+    expect(t.pipeline.setPreview(generation, true)).toBe(true)
+    await t.pipeline.stop()
+    expect(t.pipeline.setPreview(generation, true)).toBe(false)
+  })
+
+  it('makes the first picture at once after being turned off and on again, without waiting out the interval', async () => {
+    const t = withPreview(50)
+    await t.pipeline.start({}, request)
+    t.pipeline.setPreview(generation, true)
+    t.source.push({ image: bitmap(), capturedAtMs: 0 })
+    await flush()
+    t.pipeline.setPreview(generation, false)
+    t.pipeline.setPreview(generation, true)
+    t.source.push({ image: bitmap(), capturedAtMs: 10 })
+    await flush()
+    expect(previews(t.events).map((preview) => preview.sequence)).toEqual([1, 2])
+  })
+
+  it('starts each run with the preview off', async () => {
+    const t = withPreview(0)
+    await t.pipeline.start({}, request)
+    t.pipeline.setPreview(generation, true)
+    await t.pipeline.stop()
+    await t.pipeline.start({}, request)
+    t.source.push({ image: bitmap(), capturedAtMs: 0 })
+    await flush()
+    expect(t.encoder.capture).not.toHaveBeenCalled()
+  })
+})
+
 describe('HandTrackingPipeline', () => {
   it('starts the tracker for the generation, then the source at the requested rate', async () => {
     const t = setup()

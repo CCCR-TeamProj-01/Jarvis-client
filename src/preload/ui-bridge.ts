@@ -18,6 +18,10 @@ import {
 } from '../shared/contracts/collection'
 import type { Result } from '../shared/contracts/common'
 import {
+  DiagnosticsCommandRequestSchema,
+  DiagnosticsEventSchema
+} from '../shared/contracts/gesture-diagnostics'
+import {
   DeviceCommandRequestSchema,
   DeviceManagementEventSchema
 } from '../shared/contracts/devices'
@@ -44,6 +48,7 @@ import {
   CALENDAR_CHANNELS,
   COLLECTION_CHANNELS,
   DEVICE_CHANNELS,
+  GESTURE_DIAGNOSTICS_CHANNELS,
   GOOGLE_CHANNELS,
   UI_CHANNELS
 } from '../shared/ipc/channels'
@@ -51,6 +56,8 @@ import { CollectionSnapshotResponseSchema } from '../shared/ipc/collection-api'
 import type { CollectionApi } from '../shared/ipc/collection-api'
 import { DeviceSnapshotResponseSchema } from '../shared/ipc/devices-api'
 import type { DevicesApi } from '../shared/ipc/devices-api'
+import { DiagnosticsSnapshotResponseSchema } from '../shared/ipc/gesture-diagnostics-api'
+import type { GestureDiagnosticsApi } from '../shared/ipc/gesture-diagnostics-api'
 import { GoogleSnapshotResponseSchema } from '../shared/ipc/google-api'
 import type { GoogleConnectionApi } from '../shared/ipc/google-api'
 import { UiCommandResponseSchema, UiSnapshotResponseSchema } from '../shared/ipc/ui-api'
@@ -270,6 +277,33 @@ export function createUiBridge(ipc: UiTransport, platform: string): UiApi {
       }
     }
   }
+  const gestureDiagnostics: GestureDiagnosticsApi = {
+    command: (request) =>
+      authCall(
+        GESTURE_DIAGNOSTICS_CHANNELS.command,
+        DiagnosticsCommandRequestSchema,
+        (value) => DiagnosticsSnapshotResponseSchema.parse(value),
+        request
+      ),
+    getSnapshot: () =>
+      invoke(GESTURE_DIAGNOSTICS_CHANNELS.snapshot, (value) =>
+        DiagnosticsSnapshotResponseSchema.parse(value)
+      ),
+    subscribe(listener) {
+      let active = true
+      const receive: EventListener = (_event, value) => {
+        if (!active) return
+        const parsed = DiagnosticsEventSchema.safeParse(value)
+        if (parsed.success) listener(parsed.data)
+      }
+      ipc.on(GESTURE_DIAGNOSTICS_CHANNELS.event, receive)
+      return () => {
+        if (!active) return
+        active = false
+        ipc.removeListener(GESTURE_DIAGNOSTICS_CHANNELS.event, receive)
+      }
+    }
+  }
   return {
     platform,
     auth,
@@ -277,6 +311,7 @@ export function createUiBridge(ipc: UiTransport, platform: string): UiApi {
     google,
     devices,
     collection,
+    gestureDiagnostics,
     dispatch(command) {
       const parsed = UiCommandSchema.safeParse(command)
       if (!parsed.success)

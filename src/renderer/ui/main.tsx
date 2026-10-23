@@ -16,6 +16,8 @@ import { useGoogleConnection } from './features/google/use-google-connection'
 import { ConversationView } from './features/conversation/conversation-view'
 import { StatusPanel } from './features/conversation/status-panel'
 import { GestureView } from './features/gesture/gesture-view'
+import { RecognitionPanel } from './features/gesture/recognition-panel'
+import { useGestureDiagnostics } from './features/gesture/use-gesture-diagnostics'
 import { SettingsView } from './features/settings/settings-view'
 import { AppShell } from './features/shell/app-shell'
 import { useClientSnapshot } from './use-client-snapshot'
@@ -44,6 +46,10 @@ function App(): React.JSX.Element {
   const collection = useCollection(
     window.jarvis?.collection,
     snapshot !== null && activeTab(snapshot) === 'settings' && auth.snapshot?.phase === 'signed_in'
+  )
+  const diagnostics = useGestureDiagnostics(
+    window.jarvis?.gestureDiagnostics,
+    snapshot !== null && activeTab(snapshot) === 'gesture' && auth.snapshot?.phase === 'signed_in'
   )
   const devices = useDevices(
     window.jarvis?.devices,
@@ -137,6 +143,15 @@ function App(): React.JSX.Element {
             paused={snapshot.recognitionPaused}
             camera={permissions.find((line) => line.kind === 'camera')}
             toggleKeys={toggleKeys}
+            recognition={
+              <RecognitionPanel
+                snapshot={diagnostics.snapshot}
+                frame={diagnostics.frame}
+                connectionError={diagnostics.error}
+                onStart={() => void diagnostics.command('start')}
+                onStop={() => void diagnostics.command('stop')}
+              />
+            }
             onStart={() => void dispatch({ type: 'gesture.start' })}
             onStop={() => void dispatch({ type: 'gesture.stop' })}
           />

@@ -133,6 +133,7 @@ export class MediaController {
       case 'camera.stop':
       case 'handtracking.start':
       case 'handtracking.stop':
+      case 'handtracking.preview':
         return 'camera'
       case 'audio.capture.start':
       case 'audio.capture.stop':
@@ -186,6 +187,13 @@ export class MediaController {
           )
         return this.reply(commandId, await this.handTracking.start(camera.stream, command.request))
       }
+      case 'handtracking.preview':
+        return this.reply(
+          commandId,
+          this.handTracking?.setPreview(command.generation, command.enabled)
+            ? { ok: true, value: null }
+            : failure('unavailable', '이 손 인식에서는 미리보기를 만들 수 없습니다.')
+        )
       case 'handtracking.stop':
         await this.handTracking?.stop(command.generation)
         return this.reply(commandId, { ok: true, value: null })

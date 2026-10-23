@@ -13,6 +13,7 @@ import { createCommandService } from '../commands/create-command-service'
 import { createGoogleConnection } from '../google-connection/create-google-connection'
 import { ConversationManager } from '../conversation/conversation-manager'
 import { createGestureController } from '../gesture/create-gesture'
+import { GestureDiagnostics } from '../gesture/gesture-diagnostics'
 import type { GestureController } from '../gesture/gesture-controller'
 import { loadHandModel } from '../gesture/hand-model'
 import { HandTrackingService } from '../gesture/hand-tracking'
@@ -22,6 +23,7 @@ import { registerAuthIpc } from '../ipc/auth-ipc'
 import { registerCalendarIpc } from '../ipc/calendar-ipc'
 import { registerCollectionIpc } from '../ipc/collection-ipc'
 import { registerDevicesIpc } from '../ipc/devices-ipc'
+import { registerGestureDiagnosticsIpc } from '../ipc/gesture-diagnostics-ipc'
 import { registerGoogleIpc } from '../ipc/google-ipc'
 import { registerMediaIpc } from '../ipc/media-ipc'
 import { registerUiIpc } from '../ipc/ui-ipc'
@@ -85,6 +87,8 @@ export class ApplicationManager {
   private disposeCollectionIpc: (() => void) | null = null
   private disposeCollection: (() => void) | null = null
   private disposeDevicesIpc: (() => void) | null = null
+  private disposeDiagnosticsIpc: (() => void) | null = null
+  private disposeDiagnostics: (() => void) | null = null
   private disposeDevices: (() => void) | null = null
   private disposeMediaIpc: (() => void) | null = null
   private disposeState: (() => void) | null = null
@@ -301,6 +305,23 @@ export class ApplicationManager {
       isPackaged: app.isPackaged,
       env: process.env
     })
+    // The recognition view: the camera picture with the hands the app sees, shown on the gesture tab.
+    const diagnostics = new GestureDiagnostics({
+      tracking: this.handTracking,
+      gate: sensorGate,
+      createId: randomUUID
+    })
+    const stopDiagnostics = runWhileSignedIn(this.auth, diagnostics)
+    this.disposeDiagnostics = () => {
+      stopDiagnostics()
+      diagnostics.dispose()
+    }
+    this.disposeDiagnosticsIpc = registerGestureDiagnosticsIpc({
+      ipc: ipcMain,
+      getContents: () => this.window.getContents(),
+      entryUrl,
+      diagnostics
+    })
     this.disposeMediaIpc = registerMediaIpc({
       ipc: ipcMain,
       getContents: () => stack.window.getContents(),
@@ -428,6 +449,8 @@ export class ApplicationManager {
         | 'disposeCollectionIpc'
         | 'disposeCollection'
         | 'disposeDevicesIpc'
+        | 'disposeDiagnosticsIpc'
+        | 'disposeDiagnostics'
         | 'disposeDevices'
         | 'disposeMediaIpc'
         | 'disposeState'
@@ -456,6 +479,8 @@ export class ApplicationManager {
       take('disposeCollectionIpc'),
       take('disposeCollection'),
       take('disposeDevicesIpc'),
+      take('disposeDiagnosticsIpc'),
+      take('disposeDiagnostics'),
       take('disposeDevices'),
       take('disposeState'),
       take('disposeSelfTests'),

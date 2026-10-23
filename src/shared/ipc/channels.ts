@@ -47,6 +47,12 @@ export const COLLECTION_CHANNELS = {
   event: 'jarvis:collection:event'
 } as const
 
+export const GESTURE_DIAGNOSTICS_CHANNELS = {
+  command: 'jarvis:gesture-diagnostics:command',
+  snapshot: 'jarvis:gesture-diagnostics:snapshot',
+  event: 'jarvis:gesture-diagnostics:event'
+} as const
+
 export const POPUP_CHANNELS = {
   state: 'jarvis:popup:state',
   snapshot: 'jarvis:popup:snapshot',

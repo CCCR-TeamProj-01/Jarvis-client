@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ActiveHandSelector } from '../../src/main/gesture/active-hand'
 import { toDesktopPoint, toRegionPosition } from '../../src/main/gesture/cursor-mapper'
-import { fingerExtensions, PointingPose } from '../../src/main/gesture/finger-pose'
+import { explainPointing, fingerExtensions, PointingPose } from '../../src/main/gesture/finger-pose'
 import { FrameClock } from '../../src/main/gesture/frame-clock'
 import { OneEuroFilter2D } from '../../src/main/gesture/one-euro-filter'
 import { PinchDetector, pinchRatio } from '../../src/main/gesture/pinch-detector'
@@ -268,5 +268,80 @@ describe('finger pose', () => {
   it('is not pointing without a measurement', () => {
     const pose = new PointingPose(thresholds)
     expect(pose.update(null, 0, false)).toBe(false)
+  })
+})
+
+describe('explaining the pointing judgement', () => {
+  const thresholds = DEFAULT_TUNING.pose
+  const at = (index: number, middle: number, ring: number, pinky: number) => ({
+    index,
+    middle,
+    ring,
+    pinky
+  })
+
+  it('says pointing, with the thresholds that applied, when the checks pass', () => {
+    expect(explainPointing(at(1.8, 0.7, 0.7, 0.7), thresholds, 'enter')).toEqual({
+      reason: 'pointing',
+      finger: null,
+      indexNeeds: 1.5,
+      othersNeed: 1.3
+    })
+    expect(explainPointing(at(1.8, 0.7, 0.7, 0.7), thresholds, 'keep')).toMatchObject({
+      indexNeeds: 1.35,
+      othersNeed: 1.45
+    })
+  })
+
+  it('names the index finger when it does not reach out far enough', () => {
+    expect(explainPointing(at(1.2, 0.7, 0.7, 0.7), thresholds, 'enter')).toMatchObject({
+      reason: 'index_short',
+      finger: null
+    })
+    // At the loose thresholds of an ongoing pose the same finger is far enough.
+    expect(explainPointing(at(1.4, 0.7, 0.7, 0.7), thresholds, 'enter').reason).toBe('index_short')
+    expect(explainPointing(at(1.4, 0.7, 0.7, 0.7), thresholds, 'keep').reason).toBe('pointing')
+  })
+
+  it('names the finger that is not folded, the one that reaches furthest', () => {
+    expect(explainPointing(at(1.8, 1.6, 0.7, 0.7), thresholds, 'enter')).toMatchObject({
+      reason: 'finger_open',
+      finger: 'middle'
+    })
+    expect(explainPointing(at(1.8, 0.7, 1.4, 1.9), thresholds, 'enter')).toMatchObject({
+      finger: 'pinky'
+    })
+    expect(explainPointing(at(1.8, 0.7, 1.5, 1.0), thresholds, 'enter')).toMatchObject({
+      finger: 'ring'
+    })
+    // The loose threshold lets a half-folded finger be.
+    expect(explainPointing(at(1.8, 1.4, 0.7, 0.7), thresholds, 'keep').reason).toBe('pointing')
+  })
+
+  it('names the index first when both are wrong, since that is the one to fix', () => {
+    expect(explainPointing(at(1.0, 1.6, 1.6, 1.6), thresholds, 'enter').reason).toBe('index_short')
+  })
+
+  it('says it could not measure for a hand that has no extensions', () => {
+    expect(explainPointing(null, thresholds, 'enter')).toMatchObject({
+      reason: 'no_measure',
+      finger: null
+    })
+  })
+
+  it('agrees with PointingPose about what is pointing', () => {
+    for (const reach of [
+      at(1.8, 0.7, 0.7, 0.7),
+      at(1.2, 0.7, 0.7, 0.7),
+      at(1.8, 1.6, 0.7, 0.7),
+      at(1.5, 1.3, 1.3, 1.3),
+      at(1.49, 0.7, 0.7, 0.7),
+      at(1.5, 1.31, 0.7, 0.7)
+    ]) {
+      const pose = new PointingPose(thresholds)
+      expect(explainPointing(reach, thresholds, 'enter').reason === 'pointing').toBe(
+        pose.update(reach, 0, false)
+      )
+    }
   })
 })
