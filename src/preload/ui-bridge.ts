@@ -12,6 +12,10 @@ import {
   CalendarNavigateRequestSchema,
   CalendarUpdateEventRequestSchema
 } from '../shared/contracts/calendar'
+import {
+  CollectionCommandRequestSchema,
+  CollectionEventSchema
+} from '../shared/contracts/collection'
 import type { Result } from '../shared/contracts/common'
 import {
   DeviceCommandRequestSchema,
@@ -38,10 +42,13 @@ import type { CalendarApi } from '../shared/ipc/calendar-api'
 import {
   AUTH_CHANNELS,
   CALENDAR_CHANNELS,
+  COLLECTION_CHANNELS,
   DEVICE_CHANNELS,
   GOOGLE_CHANNELS,
   UI_CHANNELS
 } from '../shared/ipc/channels'
+import { CollectionSnapshotResponseSchema } from '../shared/ipc/collection-api'
+import type { CollectionApi } from '../shared/ipc/collection-api'
 import { DeviceSnapshotResponseSchema } from '../shared/ipc/devices-api'
 import type { DevicesApi } from '../shared/ipc/devices-api'
 import { GoogleSnapshotResponseSchema } from '../shared/ipc/google-api'
@@ -236,12 +243,40 @@ export function createUiBridge(ipc: UiTransport, platform: string): UiApi {
       }
     }
   }
+  const collection: CollectionApi = {
+    command: (request) =>
+      authCall(
+        COLLECTION_CHANNELS.command,
+        CollectionCommandRequestSchema,
+        (value) => CollectionSnapshotResponseSchema.parse(value),
+        request
+      ),
+    getSnapshot: () =>
+      invoke(COLLECTION_CHANNELS.snapshot, (value) =>
+        CollectionSnapshotResponseSchema.parse(value)
+      ),
+    subscribe(listener) {
+      let active = true
+      const receive: EventListener = (_event, value) => {
+        if (!active) return
+        const parsed = CollectionEventSchema.safeParse(value)
+        if (parsed.success) listener(parsed.data)
+      }
+      ipc.on(COLLECTION_CHANNELS.event, receive)
+      return () => {
+        if (!active) return
+        active = false
+        ipc.removeListener(COLLECTION_CHANNELS.event, receive)
+      }
+    }
+  }
   return {
     platform,
     auth,
     calendar,
     google,
     devices,
+    collection,
     dispatch(command) {
       const parsed = UiCommandSchema.safeParse(command)
       if (!parsed.success)

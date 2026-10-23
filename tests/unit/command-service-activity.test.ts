@@ -552,6 +552,29 @@ describe('when the settings change before the result is sent', () => {
     expect(resent[1]!.result.activity).toBeDefined()
   })
 
+  it('reads the consent again once told it may have changed, even within the time it is trusted', async () => {
+    const forgotten = setup()
+    forgotten.api.items = [launchChrome(1)]
+    forgotten.api.outcomes.push({ kind: 'retry' })
+    await forgotten.service.cycle('u1', signal())
+    // The user withdraws the consent a moment later.
+    forgotten.setConsent({ ok: true, value: NEITHER })
+    forgotten.service.forgetConsent()
+    forgotten.api.items = []
+    await forgotten.service.cycle('u1', signal())
+    expect(forgotten.api.sent[1]!.result).not.toHaveProperty('activity')
+
+    // Without being told, the consent read a moment ago is the one used.
+    const held = setup()
+    held.api.items = [launchChrome(1)]
+    held.api.outcomes.push({ kind: 'retry' })
+    await held.service.cycle('u1', signal())
+    held.setConsent({ ok: true, value: NEITHER })
+    held.api.items = []
+    await held.service.cycle('u1', signal())
+    expect(held.api.sent[1]!.result.activity).toBeDefined()
+  })
+
   it('reads the consent again after the service was stopped and started', async () => {
     const t = setup()
     t.api.items = [launchChrome(1)]

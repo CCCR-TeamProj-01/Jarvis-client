@@ -7,6 +7,7 @@ import type { AuthManager } from '../auth/auth-manager'
 import { createDefaultAuth } from '../auth/create-auth'
 import { runWhileSignedIn } from '../auth/run-while-signed-in'
 import { createCalendar } from '../calendar/create-calendar'
+import { createCollectionSettings } from '../collection/create-collection-settings'
 import { createDeviceManagement } from '../devices/create-device-management'
 import { createCommandService } from '../commands/create-command-service'
 import { createGoogleConnection } from '../google-connection/create-google-connection'
@@ -19,6 +20,7 @@ import { InteractionManager } from '../interaction/interaction-manager'
 import type { ActivationSource } from '../interaction/ports'
 import { registerAuthIpc } from '../ipc/auth-ipc'
 import { registerCalendarIpc } from '../ipc/calendar-ipc'
+import { registerCollectionIpc } from '../ipc/collection-ipc'
 import { registerDevicesIpc } from '../ipc/devices-ipc'
 import { registerGoogleIpc } from '../ipc/google-ipc'
 import { registerMediaIpc } from '../ipc/media-ipc'
@@ -80,6 +82,8 @@ export class ApplicationManager {
   private disposeCalendar: (() => void) | null = null
   private disposeGoogleIpc: (() => void) | null = null
   private disposeGoogle: (() => void) | null = null
+  private disposeCollectionIpc: (() => void) | null = null
+  private disposeCollection: (() => void) | null = null
   private disposeDevicesIpc: (() => void) | null = null
   private disposeDevices: (() => void) | null = null
   private disposeMediaIpc: (() => void) | null = null
@@ -207,6 +211,26 @@ export class ApplicationManager {
       entryUrl,
       devices
     })
+    // What the user allowed about collecting app activity. The commands read their consent through
+    // it, so a withdrawal reaches them at once; a change makes them read it again.
+    let commandService: ReturnType<typeof createCommandService> = null
+    const {
+      service: collectionService,
+      collection,
+      consent
+    } = createCollectionSettings({
+      isPackaged: app.isPackaged,
+      env: process.env,
+      api: login.api,
+      onChanged: () => commandService?.forgetConsent()
+    })
+    if (collectionService) this.disposeCollection = runWhileSignedIn(this.auth, collectionService)
+    this.disposeCollectionIpc = registerCollectionIpc({
+      ipc: ipcMain,
+      getContents: () => this.window.getContents(),
+      entryUrl,
+      collection
+    })
     this.tools = createToolStack(this.auth)
     // Commands the server sends to this device are received while someone is signed in.
     const commands = login.api
@@ -217,10 +241,12 @@ export class ApplicationManager {
           executor: this.tools.executor,
           files: new NodeLocalFiles(app.getPath('userData')),
           appControl: this.tools.appControl,
+          consent,
           announce: (notice) => this.toolNotices.publish(notice),
           platform: process.platform
         })
       : null
+    commandService = commands
     if (commands) this.disposeCommands = runWhileSignedIn(this.auth, commands)
     const mediaEntryUrl =
       dependencies.media?.entryUrl ?? entryUrl.replace(/\/ui\/index\.html$/, '/media/index.html')
@@ -399,6 +425,8 @@ export class ApplicationManager {
         | 'disposeCalendar'
         | 'disposeGoogleIpc'
         | 'disposeGoogle'
+        | 'disposeCollectionIpc'
+        | 'disposeCollection'
         | 'disposeDevicesIpc'
         | 'disposeDevices'
         | 'disposeMediaIpc'
@@ -425,6 +453,8 @@ export class ApplicationManager {
       take('disposeCalendar'),
       take('disposeGoogleIpc'),
       take('disposeGoogle'),
+      take('disposeCollectionIpc'),
+      take('disposeCollection'),
       take('disposeDevicesIpc'),
       take('disposeDevices'),
       take('disposeState'),

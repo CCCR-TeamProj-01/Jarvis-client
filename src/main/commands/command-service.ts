@@ -104,6 +104,11 @@ export class CommandService {
     this.run = { userId, abort, done }
   }
 
+  /** The user's consent may have changed: the one held is dropped, so the next result reads it again. */
+  forgetConsent(): void {
+    this.consent = null
+  }
+
   /**
    * Stops receiving and cancels what is running; resolves when the loop has ended. Results not yet
    * sent stay in the journal.
