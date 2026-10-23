@@ -9,6 +9,7 @@ import { ClientSnapshotSchema } from '../../shared/contracts/interaction'
 import type {
   ClientSnapshot,
   CommandReceipt,
+  ResultOutcome,
   UiCommand,
   UiEvent
 } from '../../shared/contracts/interaction'
@@ -323,12 +324,14 @@ export class InteractionManager implements InteractionPort {
     const line = (
       role: 'user' | 'assistant' | 'tool',
       requestId: string,
-      text: string
+      text: string,
+      outcome?: ResultOutcome
     ): UiEvent => ({
       type: 'result.available',
       requestId,
       role,
-      text
+      text,
+      ...(outcome ? { outcome } : {})
     })
     const event: UiEvent =
       notice.type === 'user'
@@ -336,7 +339,7 @@ export class InteractionManager implements InteractionPort {
         : notice.type === 'assistant'
           ? line('assistant', notice.requestId, notice.text)
           : notice.type === 'tool'
-            ? line('tool', notice.requestId, notice.text)
+            ? line('tool', notice.requestId, notice.text, notice.outcome)
             : { type: 'client.error', error: notice.error }
     this.emit(event)
   }

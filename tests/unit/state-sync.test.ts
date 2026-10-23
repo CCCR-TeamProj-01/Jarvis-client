@@ -9,6 +9,7 @@ function setup() {
     interaction: null as null | ((event: UiEvent) => void),
     conversation: null as null | ((snapshot: { phase: string }) => void),
     notices: null as null | ((notice: ConversationNotice) => void),
+    tool: null as null | ((notice: unknown) => void),
     speechNotices: null as null | ((notice: unknown) => void),
     gestureProblems: null as null | ((error: unknown) => void),
     speech: null as null | ((snapshot: unknown) => void),
@@ -89,6 +90,12 @@ function setup() {
       return unsubscribe
     }
   }
+  const toolNotices = {
+    subscribe: vi.fn<(listener: (notice: unknown) => void) => () => void>((listener) => {
+      listeners.tool = listener
+      return unsubscribe
+    })
+  }
   const dispose = connectAppState({
     auth: auth as never,
     interaction: interaction as never,
@@ -96,7 +103,8 @@ function setup() {
     tools: tools as never,
     voice: voice as never,
     conversation: conversation as never,
-    gesture: gesture as never
+    gesture: gesture as never,
+    toolNotices: toolNotices as never
   })
   return {
     listeners,
@@ -160,14 +168,25 @@ describe('connectAppState', () => {
     t.listeners.notices?.({ type: 'problem', error: { code: 'internal', message: 'x' } })
     t.listeners.speechNotices?.({ type: 'problem' })
     t.listeners.gestureProblems?.({ code: 'permission_denied', message: 'y' })
+    const toolLine = {
+      type: 'tool',
+      requestId: 'cmd-9',
+      executionId: 'cmd-9:1',
+      text: '계산기를 열었어요.',
+      ok: true,
+      outcome: 'success'
+    }
+    t.listeners.tool?.(toolLine)
     expect(t.interaction.setConversationState).toHaveBeenCalledWith({ phase: 'active' })
     expect(t.interaction.setSpeechState).toHaveBeenCalledWith({ phase: 'listening' })
     expect(t.interaction.setGestureState).toHaveBeenCalledWith({ phase: 'tracking' })
-    expect(t.interaction.publishNotice).toHaveBeenCalledTimes(3)
+    expect(t.interaction.publishNotice).toHaveBeenCalledTimes(4)
     expect(t.interaction.publishNotice).toHaveBeenCalledWith({
       type: 'problem',
       error: { code: 'permission_denied', message: 'y' }
     })
+    // What the server's commands did is shown through the same state as everything else.
+    expect(t.interaction.publishNotice).toHaveBeenCalledWith(toolLine)
   })
 
   it('stops the voice session when the conversation is gone, unless a reply is still being delivered', () => {
@@ -207,7 +226,7 @@ describe('connectAppState', () => {
   it('disconnects everything and removes the command handlers', () => {
     const t = setup()
     t.dispose()
-    expect(t.unsubscribe).toHaveBeenCalledTimes(9)
+    expect(t.unsubscribe).toHaveBeenCalledTimes(10)
     expect(t.interaction.setConversationHandlers).toHaveBeenLastCalledWith(null)
     expect(t.interaction.setGestureHandlers).toHaveBeenLastCalledWith(null)
   })

@@ -123,15 +123,30 @@ export const ConfirmationRequestSchema = z.strictObject({
 })
 export type ConfirmationRequest = z.infer<typeof ConfirmationRequestSchema>
 
+/**
+ * What became of a tool or command, in the words the user is shown. `requested`: the request was
+ * handed over but it is not known to have happened (it is not a success). `unknown`: whether it
+ * happened could not be told. `failure`: it did not run, or it failed.
+ */
+export const RESULT_OUTCOMES = ['success', 'requested', 'unknown', 'failure'] as const
+export const ResultOutcomeSchema = z.enum(RESULT_OUTCOMES)
+export type ResultOutcome = z.infer<typeof ResultOutcomeSchema>
+
 export const UiEventSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('state.changed'), snapshot: ClientSnapshotSchema }),
-  z.strictObject({
-    type: z.literal('result.available'),
-    requestId: IdentifierSchema,
-    /** Who the line is from: the user's words, the assistant's answer, or a tool's result. */
-    role: z.enum(['user', 'assistant', 'tool']),
-    text: z.string()
-  }),
+  z
+    .strictObject({
+      type: z.literal('result.available'),
+      requestId: IdentifierSchema,
+      /** Who the line is from: the user's words, the assistant's answer, or a tool's result. */
+      role: z.enum(['user', 'assistant', 'tool']),
+      text: z.string(),
+      /** What became of it; present on a tool's line and only there. */
+      outcome: ResultOutcomeSchema.optional()
+    })
+    .refine((line) => (line.role === 'tool') === (line.outcome !== undefined), {
+      message: 'A tool line carries its outcome, and no other line does'
+    }),
   z.strictObject({
     type: z.literal('confirmation.requested'),
     confirmation: ConfirmationRequestSchema

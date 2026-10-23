@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain, screen } from 'electron'
 import type { WebContents } from 'electron'
 import type { ClientSnapshot, UiEvent } from '../../shared/contracts/interaction'
 import type { ConversationNotice } from '../conversation/ports'
+import type { ToolNotice } from '../tools/tool-notices'
 import type { GestureController } from '../gesture/gesture-controller'
 import { registerOverlayIpc } from '../ipc/overlay-ipc'
 import type { SpeechNotice } from '../speech/session/ports'
@@ -18,6 +19,8 @@ interface OverlayWiring {
   }
   conversation: { subscribeNotices(listener: (notice: ConversationNotice) => void): () => void }
   speech: { subscribeNotices(listener: (notice: SpeechNotice) => void): () => void }
+  /** What the server's commands did on this computer. */
+  toolNotices: { subscribe(listener: (notice: ToolNotice) => void): () => void }
   gesture: Pick<GestureController, 'subscribeProblems' | 'subscribeClicks'>
   /** The stop button on a speaking pill. */
   stopConversation(): void
@@ -105,6 +108,7 @@ export function createOverlay(wiring: OverlayWiring): {
       if (notice.type === 'tool') controller.toolResult(notice.ok, notice.text)
       else if (notice.type === 'problem') controller.problem(notice.error.message)
     }),
+    wiring.toolNotices.subscribe((notice) => controller.toolResult(notice.ok, notice.text)),
     wiring.speech.subscribeNotices((notice) => {
       if (notice.type === 'problem') controller.problem(notice.error.message)
     }),

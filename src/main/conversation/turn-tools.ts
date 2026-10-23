@@ -112,7 +112,8 @@ export class TurnTools implements AssistantTools {
       requestId: this.options.requestId,
       executionId: request.executionId,
       text: text ?? summary.text,
-      ok: summary.ok
+      ok: summary.ok,
+      outcome: summary.outcome
     })
     return returned
   }

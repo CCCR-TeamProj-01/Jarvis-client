@@ -1,4 +1,9 @@
-import type { ClientSnapshot, Tab, UiEvent } from '../../shared/contracts/interaction'
+import type {
+  ClientSnapshot,
+  Tab,
+  ResultOutcome,
+  UiEvent
+} from '../../shared/contracts/interaction'
 import type { PermissionState, SensorKind } from '../../shared/contracts/sensors'
 
 export type Tone = 'ok' | 'idle' | 'info' | 'ai' | 'warn' | 'error'
@@ -9,6 +14,8 @@ export interface Message {
   requestId: string
   role: 'user' | 'assistant' | 'tool'
   text: string
+  /** What became of it; on a tool's line only. */
+  outcome?: ResultOutcome
 }
 
 const MAX_MESSAGES = 60
@@ -21,8 +28,25 @@ export function appendMessage(
 ): Message[] {
   return [
     ...messages,
-    { id, requestId: event.requestId, role: event.role, text: event.text }
+    {
+      id,
+      requestId: event.requestId,
+      role: event.role,
+      text: event.text,
+      ...(event.outcome ? { outcome: event.outcome } : {})
+    }
   ].slice(-MAX_MESSAGES)
+}
+
+/**
+ * How a tool's result is told to the user. The word carries the meaning and the colour only backs it
+ * up. A handed-over request is not called done, and what could not be told says so.
+ */
+export const OUTCOME_VIEW: Readonly<Record<ResultOutcome, { label: string; tone: Tone }>> = {
+  success: { label: '성공', tone: 'ok' },
+  requested: { label: '요청함', tone: 'info' },
+  unknown: { label: '확인 못 함', tone: 'warn' },
+  failure: { label: '실패', tone: 'error' }
 }
 
 /** The tab the signed-in window shows; anything that is not one of the tabs means the conversation. */

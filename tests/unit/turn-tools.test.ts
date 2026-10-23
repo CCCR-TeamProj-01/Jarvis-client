@@ -164,15 +164,59 @@ describe('TurnTools', () => {
         requestId: 'req-1',
         executionId: 'l',
         text: '앱 1개를 확인했어요.',
-        ok: true
+        ok: true,
+        outcome: 'success'
       },
       {
         type: 'tool',
         requestId: 'req-1',
         executionId: 'a',
         text: 'Safari을(를) 열었어요.',
-        ok: true
+        ok: true,
+        outcome: 'success'
       }
+    ])
+  })
+
+  it('tells how each result went, not only that something happened', async () => {
+    const { tools, executor, notices } = setup()
+    const answer = (invocation: ToolInvocation, outcome: ToolExecutionReport['outcome']) => ({
+      requestId: invocation.requestId,
+      executionId: invocation.executionId,
+      tool: invocation.command.tool,
+      outcome,
+      cancelRequested: false,
+      expired: false
+    })
+    vi.mocked(executor.execute)
+      .mockImplementationOnce(async (invocation) =>
+        answer(invocation, {
+          status: 'observed',
+          observation: { kind: 'app', appId: 'com.apple.Safari', status: 'dispatched' }
+        })
+      )
+      .mockImplementationOnce(async (invocation) =>
+        answer(invocation, {
+          status: 'failed',
+          effect: 'none',
+          error: { code: 'not_found', message: '앱이 없어요.' }
+        })
+      )
+      .mockImplementationOnce(async (invocation) =>
+        answer(invocation, {
+          status: 'observed',
+          observation: { kind: 'app', appId: 'com.apple.Safari', status: 'unknown' }
+        })
+      )
+    await tools.execute(launch('a'))
+    await tools.execute(launch('b'))
+    await tools.execute(launch('c'))
+    await tools.execute(launch('d'))
+    expect(notices.map((notice) => notice.type === 'tool' && [notice.outcome, notice.ok])).toEqual([
+      ['requested', true],
+      ['failure', false],
+      ['unknown', false],
+      ['success', true]
     ])
   })
 

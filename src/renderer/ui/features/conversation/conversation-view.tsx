@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { AppWindow, Mic, SendHorizontal, Square } from 'lucide-react'
+import { CircleCheck, CircleHelp, CircleX, Mic, Send, SendHorizontal, Square } from 'lucide-react'
 import type { Message, Tone } from '../../view-model'
+import { OUTCOME_VIEW } from '../../view-model'
 import { Keys, StatusChip } from '../shell/status-chip'
 
 interface ConversationViewProps {
@@ -65,12 +66,23 @@ export function ConversationView({
               {message.text}
             </p>
           ) : message.role === 'tool' ? (
-            <p className="msg msg-tool" key={message.id}>
+            <p
+              className={`msg msg-tool msg-tool-${OUTCOME_VIEW[message.outcome ?? 'unknown'].tone}`}
+              key={message.id}
+            >
               <span className="msg-tool-icon" aria-hidden="true">
-                <AppWindow />
+                {message.outcome === 'success' ? (
+                  <CircleCheck />
+                ) : message.outcome === 'failure' ? (
+                  <CircleX />
+                ) : message.outcome === 'requested' ? (
+                  <Send />
+                ) : (
+                  <CircleHelp />
+                )}
               </span>
-              <small>실행</small>
-              {message.text}
+              <small>{OUTCOME_VIEW[message.outcome ?? 'unknown'].label}</small>
+              <span className="msg-tool-text">{message.text}</span>
             </p>
           ) : (
             <div className="msg msg-assistant" key={message.id}>

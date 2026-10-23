@@ -1,14 +1,32 @@
+import type { ResultOutcome } from '../../shared/contracts/interaction'
 import type {
   AudioObservation,
   FolderAlias,
   ToolExecutionReport
 } from '../../shared/contracts/tools'
 
-/** What a report means to the user, in words, and whether it counts as having worked. */
+/**
+ * What a report means to the user, in words. `outcome` says how far it is known to have gone:
+ * `success` (seen to happen), `requested` (handed over, not seen), `unknown` (could not be told) or
+ * `failure`. `ok` is the coarser yes/no kept for the status pill: handed over counts as yes.
+ */
 export interface ReportSummary {
   text: string
   ok: boolean
+  outcome: ResultOutcome
 }
+
+type Status = 'confirmed' | 'dispatched' | 'unknown'
+
+/** How far an observation went. */
+const outcomeOf = (status: Status): ResultOutcome =>
+  status === 'confirmed' ? 'success' : status === 'dispatched' ? 'requested' : 'unknown'
+
+const summary = (outcome: ResultOutcome, text: string): ReportSummary => ({
+  text,
+  outcome,
+  ok: outcome === 'success' || outcome === 'requested'
+})
 
 /** A short name for an app ID such as `com.apple.Safari` when no display name is known. */
 function shortName(appId: string): string {
@@ -63,74 +81,70 @@ export function describeToolReport(
     case 'observed': {
       const observation = outcome.observation
       if (observation.kind === 'app_list')
-        return { ok: true, text: `앱 ${observation.apps.length}개를 확인했어요.` }
+        return summary('success', `앱 ${observation.apps.length}개를 확인했어요.`)
       if (observation.kind === 'url')
-        return {
-          ok: true,
-          text:
-            observation.status === 'dispatched'
-              ? `${hostOf(observation.url)} 주소를 브라우저로 전달했어요.`
-              : `${hostOf(observation.url)} 주소를 열었는지 확인하지 못했어요.`
-        }
+        return summary(
+          outcomeOf(observation.status),
+          observation.status === 'dispatched'
+            ? `${hostOf(observation.url)} 주소를 브라우저로 전달했어요.`
+            : `${hostOf(observation.url)} 주소를 열었는지 확인하지 못했어요.`
+        )
       if (observation.kind === 'folder')
-        return {
-          ok: observation.status === 'dispatched',
-          text:
-            observation.status === 'dispatched'
-              ? `${FOLDER_LABEL[observation.alias]} 폴더를 열도록 요청했어요.`
-              : `${FOLDER_LABEL[observation.alias]} 폴더를 열었는지 확인하지 못했어요.`
-        }
+        return summary(
+          outcomeOf(observation.status),
+          observation.status === 'dispatched'
+            ? `${FOLDER_LABEL[observation.alias]} 폴더를 열도록 요청했어요.`
+            : `${FOLDER_LABEL[observation.alias]} 폴더를 열었는지 확인하지 못했어요.`
+        )
       if (observation.kind === 'audio') return describeAudio(report.tool, observation)
       const app = name(observation.appId)
       if (report.tool === 'apps.restore')
-        return {
-          ok: observation.status !== 'unknown',
-          text:
-            observation.status === 'confirmed'
-              ? `${app}(으)로 돌아갔어요.`
-              : observation.status === 'dispatched'
-                ? `${app}(으)로 돌아가도록 요청했어요.`
-                : `${app}(으)로 돌아갔는지 확인하지 못했어요.`
-        }
-      const launching = report.tool === 'apps.launch'
-      return {
-        ok: observation.status !== 'unknown',
-        text:
+        return summary(
+          outcomeOf(observation.status),
           observation.status === 'confirmed'
-            ? launching
-              ? `${app}을(를) 열었어요.`
-              : `${app}(으)로 전환했어요.`
+            ? `${app}(으)로 돌아갔어요.`
             : observation.status === 'dispatched'
-              ? launching
-                ? `${app} 실행을 요청했어요.`
-                : `${app} 전환을 요청했어요.`
-              : launching
-                ? `${app}을(를) 열었는지 확인하지 못했어요.`
-                : `${app}(으)로 전환했는지 확인하지 못했어요.`
-      }
+              ? `${app}(으)로 돌아가도록 요청했어요.`
+              : `${app}(으)로 돌아갔는지 확인하지 못했어요.`
+        )
+      const launching = report.tool === 'apps.launch'
+      return summary(
+        outcomeOf(observation.status),
+        observation.status === 'confirmed'
+          ? launching
+            ? `${app}을(를) 열었어요.`
+            : `${app}(으)로 전환했어요.`
+          : observation.status === 'dispatched'
+            ? launching
+              ? `${app} 실행을 요청했어요.`
+              : `${app} 전환을 요청했어요.`
+            : launching
+              ? `${app}을(를) 열었는지 확인하지 못했어요.`
+              : `${app}(으)로 전환했는지 확인하지 못했어요.`
+      )
     }
     case 'not_started':
       if (outcome.reason === 'cancelled')
-        return { ok: false, text: `${TOOL_LABEL[report.tool]}을(를) 취소해서 실행하지 않았어요.` }
+        return summary('failure', `${TOOL_LABEL[report.tool]}을(를) 취소해서 실행하지 않았어요.`)
       if (outcome.reason === 'expired')
-        return {
-          ok: false,
-          text: `${TOOL_LABEL[report.tool]} 요청이 시간이 지나 실행하지 않았어요.`
-        }
-      return {
-        ok: false,
-        text: `${TOOL_LABEL[report.tool]}을(를) 실행하지 않았어요. ${outcome.error?.message ?? ''}`.trim()
-      }
+        return summary(
+          'failure',
+          `${TOOL_LABEL[report.tool]} 요청이 시간이 지나 실행하지 않았어요.`
+        )
+      return summary(
+        'failure',
+        `${TOOL_LABEL[report.tool]}을(를) 실행하지 않았어요. ${outcome.error?.message ?? ''}`.trim()
+      )
     case 'failed':
-      return {
-        ok: false,
-        text:
-          outcome.effect === 'none'
-            ? `${TOOL_LABEL[report.tool]}에 실패했어요. ${outcome.error.message}`
-            : `${TOOL_LABEL[report.tool]} 결과를 확인하지 못했어요. ${outcome.error.message}`
-      }
+      // A failure that may have acted is not a plain failure: whether it happened is not known.
+      return outcome.effect === 'none'
+        ? summary('failure', `${TOOL_LABEL[report.tool]}에 실패했어요. ${outcome.error.message}`)
+        : summary(
+            'unknown',
+            `${TOOL_LABEL[report.tool]} 결과를 확인하지 못했어요. ${outcome.error.message}`
+          )
     case 'unknown':
-      return { ok: false, text: `${TOOL_LABEL[report.tool]} 결과를 확인하지 못했어요.` }
+      return summary('unknown', `${TOOL_LABEL[report.tool]} 결과를 확인하지 못했어요.`)
   }
 }
 
@@ -139,28 +153,26 @@ function describeAudio(
   tool: ToolExecutionReport['tool'],
   observation: AudioObservation
 ): ReportSummary {
-  const ok = observation.status !== 'unknown'
+  const outcome = outcomeOf(observation.status)
   if (tool === 'system.mute') {
     if (observation.status === 'confirmed')
-      return { ok, text: observation.muted ? '음소거했어요.' : '음소거를 해제했어요.' }
-    return {
-      ok,
-      text:
-        observation.status === 'dispatched'
-          ? '음소거 변경을 요청했어요.'
-          : '음소거 상태를 확인하지 못했어요.'
-    }
+      return summary(outcome, observation.muted ? '음소거했어요.' : '음소거를 해제했어요.')
+    return summary(
+      outcome,
+      observation.status === 'dispatched'
+        ? '음소거 변경을 요청했어요.'
+        : '음소거 상태를 확인하지 못했어요.'
+    )
   }
   if (observation.status === 'confirmed')
-    return {
-      ok,
-      text: `볼륨을 ${observation.level}%로 맞췄어요.${observation.muted ? ' 지금은 음소거 상태예요.' : ''}`
-    }
-  return {
-    ok,
-    text:
-      observation.status === 'dispatched'
-        ? '볼륨 변경을 요청했어요.'
-        : `볼륨을 바꿨는지 확인하지 못했어요.${observation.level === null ? '' : ` 지금은 ${observation.level}%예요.`}`
-  }
+    return summary(
+      outcome,
+      `볼륨을 ${observation.level}%로 맞췄어요.${observation.muted ? ' 지금은 음소거 상태예요.' : ''}`
+    )
+  return summary(
+    outcome,
+    observation.status === 'dispatched'
+      ? '볼륨 변경을 요청했어요.'
+      : `볼륨을 바꿨는지 확인하지 못했어요.${observation.level === null ? '' : ` 지금은 ${observation.level}%예요.`}`
+  )
 }

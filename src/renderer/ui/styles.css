@@ -765,7 +765,40 @@ kbd {
 .msg-tool small {
   margin-right: -6px;
   color: var(--color-text-secondary);
-  font-weight: 600;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.msg-tool-text {
+  overflow-wrap: anywhere;
+}
+/* The word says what happened; the colour only backs it up. */
+.msg-tool-ok {
+  background: #ecfdf5;
+}
+.msg-tool-ok .msg-tool-icon,
+.msg-tool-ok small {
+  color: var(--color-success-text);
+}
+.msg-tool-info {
+  background: var(--color-info-surface);
+}
+.msg-tool-info small {
+  color: var(--color-action-hover);
+}
+.msg-tool-warn {
+  background: var(--color-warning-surface);
+}
+.msg-tool-warn .msg-tool-icon,
+.msg-tool-warn small {
+  color: var(--color-warning-text);
+}
+.msg-tool-error {
+  background: var(--color-error-surface);
+}
+.msg-tool-error .msg-tool-icon,
+.msg-tool-error small {
+  color: var(--color-danger-text);
 }
 .msg-tool-icon {
   display: grid;
