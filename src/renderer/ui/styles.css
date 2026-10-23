@@ -1576,3 +1576,170 @@ kbd {
   width: 16px;
   height: 16px;
 }
+
+/* Gesture recognition view. */
+.recognition {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+.recognition-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.recognition-head .section-title {
+  margin: 0;
+}
+.recognition-head .button {
+  margin-left: auto;
+  width: auto;
+  margin-top: 0;
+}
+.recognition-body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+.hand-stage {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-lg);
+  background: #0f172a;
+}
+.hand-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  /* A mirror: the hand moves the way the user's own does. */
+  transform: scaleX(-1);
+}
+.hand-waiting,
+.hand-note {
+  position: absolute;
+  left: var(--space-3);
+  bottom: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  background: rgb(15 23 42 / 78%);
+  color: #fff;
+  font-size: var(--text-caption);
+}
+.hand-waiting {
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 0;
+  background: transparent;
+  color: #cbd5e1;
+}
+.hand-fps {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-md);
+  background: rgb(15 23 42 / 78%);
+  color: #fff;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+.hand-cards {
+  display: grid;
+  gap: var(--space-3);
+}
+.hand-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-lg);
+  background: rgb(255 255 255 / 88%);
+}
+.hand-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.hand-card-lost {
+  opacity: 0.55;
+}
+.hand-reason {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--text-caption);
+  line-height: 18px;
+}
+.hand-meta {
+  color: var(--color-text-secondary);
+}
+.meters {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.meter-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-caption);
+}
+.meter {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-divider);
+}
+.meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+}
+.meter-ok {
+  background: #34d399;
+}
+.meter-off {
+  background: #fbbf24;
+}
+.meter-neutral {
+  background: #94a3b8;
+}
+.meter-pinch {
+  background: #f472b6;
+}
+.meter-mark {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--color-text-primary);
+}
+.meter-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.meter-value small {
+  font-size: inherit;
+}
+.meter-yes {
+  color: #047857;
+}
+.meter-no {
+  color: #b45309;
+}
+.recognition-privacy {
+  margin: 0;
+}
+
+@media (max-width: 980px) {
+  .recognition-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

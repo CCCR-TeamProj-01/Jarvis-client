@@ -35,11 +35,54 @@ export function fingerExtensions(hand: HandObservation): FingerExtensions | null
   return result
 }
 
+/** Why a hand is or is not pointing, in the terms of the checks that decide it. */
+export type PointingReason =
+  | 'pointing'
+  /** The index finger does not reach out far enough. */
+  | 'index_short'
+  /** One of the other fingers is not folded far enough. */
+  | 'finger_open'
+  /** The fingers could not be measured (a hand too small or cut off in the picture). */
+  | 'no_measure'
+
+export interface PointingExplanation {
+  reason: PointingReason
+  /** For `finger_open`: which finger, the one that reaches furthest of the three. */
+  finger: 'middle' | 'ring' | 'pinky' | null
+  /** The thresholds that applied (strict to start, loose once pointing). */
+  indexNeeds: number
+  othersNeed: number
+}
+
 export interface PoseThresholds {
   indexExtended: { enter: number; keep: number }
   othersCurled: { enter: number; keep: number }
   /** A pose that stops matching only counts as gone after this long. */
   exitHoldMs: number
+}
+
+/**
+ * Says why `extensions` is or is not pointing at the thresholds for `level`, with the same checks
+ * `PointingPose` makes: the index must reach `indexExtended` and the other three stay under
+ * `othersCurled`. When both fail the index is named first, since it is the one to fix.
+ */
+export function explainPointing(
+  extensions: FingerExtensions | null,
+  thresholds: Pick<PoseThresholds, 'indexExtended' | 'othersCurled'>,
+  level: 'enter' | 'keep'
+): PointingExplanation {
+  const indexNeeds = thresholds.indexExtended[level]
+  const othersNeed = thresholds.othersCurled[level]
+  if (extensions === null) return { reason: 'no_measure', finger: null, indexNeeds, othersNeed }
+  if (extensions.index < indexNeeds)
+    return { reason: 'index_short', finger: null, indexNeeds, othersNeed }
+  const others = (['middle', 'ring', 'pinky'] as const).map(
+    (finger) => [finger, extensions[finger]] as const
+  )
+  const open = others.reduce((far, current) => (current[1] > far[1] ? current : far))
+  if (open[1] > othersNeed)
+    return { reason: 'finger_open', finger: open[0], indexNeeds, othersNeed }
+  return { reason: 'pointing', finger: null, indexNeeds, othersNeed }
 }
 
 /**

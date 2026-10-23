@@ -12,10 +12,29 @@ export interface TrackerHandle extends HandTrackerPort {
   whenReady(): Promise<Result<void>>
 }
 
+/** A small JPEG of a camera picture, for the screen. */
+export interface PreviewPicture {
+  width: number
+  height: number
+  jpeg: Uint8Array
+}
+
+export interface PreviewEncoder {
+  /**
+   * Copies the picture at once, before the bitmap is handed on and gone, and gives the small JPEG
+   * when it is ready. Null when no picture could be made; it costs only that preview.
+   */
+  capture(image: ImageBitmap): Promise<PreviewPicture | null>
+}
+
 interface PipelineOptions {
   source: FrameSource
   createTracker(model: Uint8Array): TrackerHandle
   publish(event: MediaEvent): void
+  /** Without it, previews are never made. */
+  preview?: PreviewEncoder
+  /** The least time between two previews. */
+  previewIntervalMs?: number
 }
 
 interface Run {
@@ -26,11 +45,25 @@ interface Run {
   waiting: { image: ImageBitmap; capturedAtMs: number } | null
   errors: number
   ended: boolean
+  /** Preview pictures are being made. */
+  preview: boolean
+  lastPreviewAtMs: number
+  /** A preview is still being encoded; no second one is started until it is done. */
+  encoding: boolean
 }
+
+/**
+ * Every frame gets its picture unless the encoder is still busy with the last one. Spacing them by
+ * time would skip pictures at random whenever the camera's frames came a little closer than the
+ * spacing, and a view that shows the picture only some of the time flickers.
+ */
+const DEFAULT_PREVIEW_INTERVAL_MS = 0
 
 /** What the media controller needs from hand tracking. */
 export interface HandTrackingControl {
   start(stream: unknown, request: HandTrackingStart): Promise<Result<null>>
+  /** Turns the preview pictures of the run of `generation` on or off. */
+  setPreview(generation: Generation, enabled: boolean): boolean
   stop(generation?: Generation): Promise<void>
   cameraLost(error: ClientError): Promise<void>
   dispose(): Promise<void>
@@ -60,7 +93,10 @@ export class HandTrackingPipeline implements HandTrackingControl {
       inFlight: false,
       waiting: null,
       errors: 0,
-      ended: false
+      ended: false,
+      preview: false,
+      lastPreviewAtMs: Number.NEGATIVE_INFINITY,
+      encoding: false
     }
     this.run = run
     tracker.reset(request.generation)
@@ -102,6 +138,17 @@ export class HandTrackingPipeline implements HandTrackingControl {
       generation: run.generation,
       state: 'stopped'
     })
+  }
+
+  setPreview(generation: Generation, enabled: boolean): boolean {
+    const run = this.run
+    // Only a preview for the run that is going on, and only when pictures can be made at all.
+    if (!run || run.ended || !sameGeneration(run.generation, generation)) return false
+    if (enabled && !this.options.preview) return false
+    run.preview = enabled
+    run.lastPreviewAtMs = Number.NEGATIVE_INFINITY
+    run.encoding = false
+    return true
   }
 
   /** The camera went away underneath the tracker. */
@@ -162,9 +209,12 @@ export class HandTrackingPipeline implements HandTrackingControl {
       while (!run.ended && run.waiting) {
         const { image, capturedAtMs } = run.waiting
         run.waiting = null
+        const sequence = ++run.sequence
+        // The picture is copied now, before detection takes the bitmap; the JPEG follows on its own.
+        this.preview(run, image, sequence, capturedAtMs)
         const result = await run.tracker.detect({
           generation: run.generation,
-          sequence: ++run.sequence,
+          sequence,
           capturedAtMs,
           image
         })
@@ -183,6 +233,33 @@ export class HandTrackingPipeline implements HandTrackingControl {
     } finally {
       run.inFlight = false
     }
+  }
+
+  private preview(run: Run, image: ImageBitmap, sequence: number, capturedAtMs: number): void {
+    const encoder = this.options.preview
+    // A slow encoder skips pictures; it never builds up a queue of them.
+    if (!run.preview || !encoder || run.encoding) return
+    if (
+      capturedAtMs - run.lastPreviewAtMs <
+      (this.options.previewIntervalMs ?? DEFAULT_PREVIEW_INTERVAL_MS)
+    )
+      return
+    run.lastPreviewAtMs = capturedAtMs
+    run.encoding = true
+    void encoder
+      .capture(image)
+      .finally(() => {
+        run.encoding = false
+      })
+      .then((picture) => {
+        // Turned off, or the run ended, while the picture was being encoded: nobody wants it now.
+        if (!picture || run.ended || !run.preview) return
+        this.options.publish({
+          type: 'hand.preview',
+          preview: { generation: run.generation, sequence, ...picture }
+        })
+      })
+      .catch(() => undefined)
   }
 
   private async fail(run: Run, error: ClientError): Promise<void> {

@@ -111,7 +111,7 @@ Worker는 손 관측 결과를 만들고 Main의 GestureController가 활성 손
 - 입력 영상은 반전하지 않은 원본 카메라 좌표다. 원점은 왼쪽 위이며 x는 오른쪽, y는 아래 방향으로 0~1 범위를 사용한다. 미러링은 미리보기 표시 단계에서 수행한다. 엔진 어댑터는 범위를 벗어난 손을 유효 관측으로 보내지 않는다.
 - 각 손은 세대 안에서 유효한 handId·물리적 handedness·신뢰도와 21개 관절을 가진다. 관절 순서는 wrist, thumb 4개, index 4개, middle 4개, ring 4개, pinky 4개다. z는 엔진의 손목 상대 깊이 값이며 화면 깊이나 실제 거리로 해석하지 않는다.
 - 프레임은 세대·sequence·capturedAtMs·hands를 담는다. 손이 없으면 빈 배열이다. 추적 손실 이벤트는 no_hand·stale·engine_error·permission_revoked 이유를 제공한다.
-- 손 인식은 `handtracking.start`·`handtracking.stop` 명령으로 켜고 끈다. 시작 명령에는 Main이 읽은 모델 바이트와 선택적인 `maxFps`를 담으며 이미 열린 카메라 스트림이 필요하다. Media Renderer는 `hand.tracking`(관측 프레임·손실)과 `handtracking.state`(started·stopped·failed) 이벤트로 알리고, 카메라 사용권을 반납하면 추적도 함께 멈춘다([구현 현황](../features/gesture.md#구현-현황)).
+- 손 인식은 `handtracking.start`·`handtracking.stop` 명령으로 켜고 끈다. 시작 명령에는 Main이 읽은 모델 바이트와 선택적인 `maxFps`를 담으며 이미 열린 카메라 스트림이 필요하다. Media Renderer는 `hand.tracking`(관측 프레임·손실)과 `handtracking.state`(started·stopped·failed) 이벤트로 알리고, 카메라 사용권을 반납하면 추적도 함께 멈춘다([구현 현황](../features/gesture.md#구현-현황)). 인식 확인을 위해 `handtracking.preview`(켜기·끄기)로 요청된 동안에만 `hand.preview`(해당 프레임과 같은 `sequence`의 작은 JPEG, 변 640·200,000바이트 이하)를 내보낸다. 화면과는 `gestureDiagnostics` IPC(시작·중지 명령, 상태 스냅샷, 프레임·상태 이벤트)로 이야기하며 모든 요청·이벤트를 Main이 검증한다([인식 확인](../features/gesture.md#인식-확인-gest-08-f-048)).
 - 화면 좌표는 displayId와 전역 논리 좌표 x·y다. 왼쪽 또는 위쪽 모니터의 음수 좌표를 허용한다. GestureController가 화면 영역에 맞춰 변환하고 플랫폼 어댑터가 실제 OS 좌표로 바꾼다.
 
 `PointerInputPort`는 이동·단일 클릭·자비스가 유지한 누름 해제·세대 취소를 제공한다([구현 현황](../features/gesture.md#커서-제어-f-019)). 최근 작업 전환은 `AppControlPort`가 담당한다. 입력 명령은 Main에서 부여한 세대·기한을 포함한다. 이동은 최신 대기 좌표를 우선하며 클릭·전환은 한 번의 동작마다 한 번만 실행한다. 세대 취소는 대기 입력을 버리고 자비스의 누름 상태를 해제한다. 다른 프로그램이 만든 누름 상태를 임의 해제하지 않는다.

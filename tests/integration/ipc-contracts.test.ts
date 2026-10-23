@@ -165,4 +165,41 @@ describe('structured-clone IPC contract boundaries', () => {
       }).success
     ).toBe(false)
   })
+
+  it('carries hand previews and the command that turns them on, and refuses a preview that is too big', () => {
+    const generation = { sessionId: 'hand-1', revision: 1 }
+    const preview = {
+      type: 'hand.preview',
+      preview: { generation, sequence: 4, width: 320, height: 180, jpeg: new Uint8Array([1, 2, 3]) }
+    }
+    expect(MediaEventSchema.safeParse(structuredClone(preview)).success).toBe(true)
+    const bad = (patch: Record<string, unknown>) =>
+      MediaEventSchema.safeParse({ ...preview, preview: { ...preview.preview, ...patch } }).success
+    expect(bad({ jpeg: new Uint8Array(0) })).toBe(false)
+    expect(bad({ jpeg: new Uint8Array(200_001) })).toBe(false)
+    expect(bad({ jpeg: new Uint8Array(200_000) })).toBe(true)
+    expect(bad({ jpeg: [1, 2, 3] })).toBe(false)
+    expect(bad({ width: 641 })).toBe(false)
+    expect(bad({ height: 0 })).toBe(false)
+    expect(bad({ width: 320.5 })).toBe(false)
+    expect(bad({ sequence: -1 })).toBe(false)
+    expect(bad({ extra: 1 })).toBe(false)
+    const command = {
+      commandId: 'c1',
+      command: { type: 'handtracking.preview', generation, enabled: true }
+    }
+    expect(MediaCommandEnvelopeSchema.safeParse(command).success).toBe(true)
+    expect(
+      MediaCommandEnvelopeSchema.safeParse({
+        ...command,
+        command: { ...command.command, enabled: 'yes' }
+      }).success
+    ).toBe(false)
+    expect(
+      MediaCommandEnvelopeSchema.safeParse({
+        ...command,
+        command: { type: 'handtracking.preview', generation }
+      }).success
+    ).toBe(false)
+  })
 })

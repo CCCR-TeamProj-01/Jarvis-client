@@ -4,6 +4,7 @@ import {
   ClientErrorSchema,
   GenerationSchema,
   IdentifierSchema,
+  SequenceSchema,
   resultSchema
 } from '../contracts/common'
 import type { Unsubscribe } from '../contracts/common'
@@ -35,8 +36,34 @@ export const HandTrackingStartSchema = z.strictObject({
 })
 export type HandTrackingStart = z.infer<typeof HandTrackingStartSchema>
 
+/** The largest preview picture taken and the longest side it may have; it is a small picture for the screen, not the camera's. */
+export const HAND_PREVIEW_MAX_BYTES = 200_000
+export const HAND_PREVIEW_MAX_SIDE = 640
+
+/**
+ * One small JPEG of the camera picture a hand observation came from, produced only while the
+ * recognition view is open. `sequence` is the sequence of the observation made from the same picture.
+ */
+export const HandPreviewSchema = z.strictObject({
+  generation: GenerationSchema,
+  sequence: SequenceSchema,
+  width: z.number().int().min(16).max(HAND_PREVIEW_MAX_SIDE),
+  height: z.number().int().min(16).max(HAND_PREVIEW_MAX_SIDE),
+  jpeg: AudioBytesSchema.refine(
+    (bytes) => bytes.byteLength > 0 && bytes.byteLength <= HAND_PREVIEW_MAX_BYTES,
+    'A preview must be a non-empty small picture'
+  )
+})
+export type HandPreview = z.infer<typeof HandPreviewSchema>
+
 export const MediaCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('handtracking.start'), request: HandTrackingStartSchema }),
+  /** Starts or stops the preview pictures of a running hand tracking; tracking itself is not affected. */
+  z.strictObject({
+    type: z.literal('handtracking.preview'),
+    generation: GenerationSchema,
+    enabled: z.boolean()
+  }),
   z.strictObject({ type: z.literal('handtracking.stop'), generation: GenerationSchema }),
   z.strictObject({ type: z.literal('devices.list'), kind: SensorKindSchema }),
   z.strictObject({ type: z.literal('camera.start'), request: CameraStartSchema }),
@@ -91,6 +118,7 @@ export const MediaEventSchema = z
       error: ClientErrorSchema.optional()
     }),
     z.strictObject({ type: z.literal('hand.tracking'), event: HandTrackingEventSchema }),
+    z.strictObject({ type: z.literal('hand.preview'), preview: HandPreviewSchema }),
     z.strictObject({
       type: z.literal('handtracking.state'),
       generation: GenerationSchema,

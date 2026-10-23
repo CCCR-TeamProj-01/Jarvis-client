@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Hand, MousePointer2, Square } from 'lucide-react'
 import type { GestureSnapshot } from '../../../../shared/contracts/gesture'
 import type { PermissionLine, Tone } from '../../view-model'
@@ -65,6 +66,8 @@ interface GestureViewProps {
   paused: boolean
   camera: PermissionLine | undefined
   toggleKeys: string[]
+  /** The recognition view: the camera picture with the hands the app sees. */
+  recognition?: ReactNode
   onStart(): void
   onStop(): void
 }
@@ -75,6 +78,7 @@ export function GestureView({
   paused,
   camera,
   toggleKeys,
+  recognition,
   onStart,
   onStop
 }: GestureViewProps) {
@@ -105,6 +109,8 @@ export function GestureView({
           </button>
         )}
       </div>
+
+      {recognition}
 
       <h2 className="section-title">사용 방법</h2>
       <ol className="steps">

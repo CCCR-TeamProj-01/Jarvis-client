@@ -1,6 +1,7 @@
 import { ElementAudioPlayback } from './audio-playback/element-playback'
 import { WebAudioCapture } from './audio-capture/web-audio-capture'
 import { HandTrackingPipeline } from './hand-tracking/hand-tracking-pipeline'
+import { createCanvasPreviewEncoder } from './hand-tracking/preview-encoder'
 import { WorkerHandTracker } from './hand-tracking/tracker-client'
 import { VideoFrameSource } from './hand-tracking/video-frame-source'
 import type { VideoLike } from './hand-tracking/video-frame-source'
@@ -47,7 +48,8 @@ if (window.jarvisMedia && navigator.mediaDevices) {
           }),
           model
         ),
-      publish: (event) => window.jarvisMedia.publish(event)
+      publish: (event) => window.jarvisMedia.publish(event),
+      preview: createCanvasPreviewEncoder()
     })
   )
   window.addEventListener('pagehide', () => controller.dispose())
