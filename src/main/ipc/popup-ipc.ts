@@ -1,10 +1,10 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent, WebContents } from 'electron'
 import { IdentifierSchema } from '../../shared/contracts/common'
 import type { Result } from '../../shared/contracts/common'
-import { RecommendationResponseSchema } from '../../shared/contracts/recommendation'
+import { RecommendationAnswerSchema } from '../../shared/contracts/recommendation'
 import type {
-  RecommendationCard,
-  RecommendationResponse
+  RecommendationAnswer,
+  RecommendationCard
 } from '../../shared/contracts/recommendation'
 import { POPUP_CHANNELS } from '../../shared/ipc/channels'
 import { isTrustedSender } from './trusted-sender'
@@ -14,7 +14,7 @@ interface PopupIpcOptions {
   getContents(): WebContents | null
   entryUrl: string
   getState(): RecommendationCard | null
-  respond(recommendationId: string, response: RecommendationResponse): Promise<Result<void>>
+  respond(recommendationId: string, answer: RecommendationAnswer): Promise<Result<void>>
   resize(heightPx: number): void
 }
 
@@ -38,9 +38,9 @@ export function registerPopupIpc(options: PopupIpcOptions): () => void {
     if (!trusted(event)) return refused
     if (args.length !== 2) return malformed
     const id = IdentifierSchema.safeParse(args[0])
-    const response = RecommendationResponseSchema.safeParse(args[1])
-    if (!id.success || !response.success) return malformed
-    return options.respond(id.data, response.data)
+    const answer = RecommendationAnswerSchema.safeParse(args[1])
+    if (!id.success || !answer.success) return malformed
+    return options.respond(id.data, answer.data)
   })
   const onResize = (event: IpcMainEvent, ...args: unknown[]) => {
     if (!trusted(event) || args.length !== 1) return

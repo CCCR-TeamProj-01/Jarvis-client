@@ -5,7 +5,7 @@ import {
   MAX_RECOMMENDATION_REASON_CHARS,
   MAX_RECOMMENDATION_TARGETS
 } from '../../shared/contracts/recommendation'
-import type { RecommendationResponse } from '../../shared/contracts/recommendation'
+import type { RecommendationAnswer } from '../../shared/contracts/recommendation'
 import type { ServerClient } from '../connection/server-client'
 import { EmptyResponse } from '../connection/server-client'
 import { ServerIdSchema } from '../connection/server-ids'
@@ -24,7 +24,10 @@ export interface PendingRecommendation {
 export type RespondOutcome =
   | { kind: 'recorded' }
   /** The server will not take an answer for it any more. */
-  | { kind: 'gone'; reason: 'expired' | 'already_responded' | 'not_found' }
+  | {
+      kind: 'gone'
+      reason: 'expired' | 'already_responded' | 'not_found' | 'target_unavailable'
+    }
   | { kind: 'failed'; error: ClientError }
 
 export interface RecommendationApiPort {
@@ -32,7 +35,7 @@ export interface RecommendationApiPort {
   pending(signal?: AbortSignal): Promise<Result<PendingRecommendation | null>>
   respond(
     recommendationId: string,
-    response: RecommendationResponse,
+    answer: RecommendationAnswer,
     signal?: AbortSignal
   ): Promise<RespondOutcome>
 }
@@ -85,7 +88,7 @@ export class RecommendationApi implements RecommendationApiPort {
 
   async respond(
     recommendationId: string,
-    response: RecommendationResponse,
+    answer: RecommendationAnswer,
     signal?: AbortSignal
   ): Promise<RespondOutcome> {
     // The ID comes from the server's own answer, which only holds numbers; check anyway.
@@ -95,13 +98,17 @@ export class RecommendationApi implements RecommendationApiPort {
     const result = await this.client.request({
       method: 'POST',
       path: `/recommendations/${recommendationId}/responses`,
-      body: { response },
+      body: { response: answer.response, pause_today: answer.pauseToday },
       response: ReceiptSchema,
       ...(signal ? { signal } : {})
     })
     if (result.ok) return { kind: 'recorded' }
     if (result.detail.delivery === 'responded') {
       if (result.detail.status === 410) return { kind: 'gone', reason: 'expired' }
+      // Nothing it suggested can be opened here any more (an app was turned off since). The server
+      // keeps the card pending, but answering it again would only fail the same way.
+      if (result.detail.serverCode === 'RECOMMENDATION_TARGET_UNAVAILABLE')
+        return { kind: 'gone', reason: 'target_unavailable' }
       if (result.detail.status === 409) return { kind: 'gone', reason: 'already_responded' }
       if (result.detail.status === 404) return { kind: 'gone', reason: 'not_found' }
     }

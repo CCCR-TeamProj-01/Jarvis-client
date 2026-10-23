@@ -14,8 +14,8 @@ import type {
   UiEvent
 } from '../../shared/contracts/interaction'
 import type {
-  RecommendationCard,
-  RecommendationResponse
+  RecommendationAnswer,
+  RecommendationCard
 } from '../../shared/contracts/recommendation'
 import type { SensorSnapshot } from '../../shared/contracts/sensors'
 import type { SpeechSnapshot } from '../../shared/contracts/speech'
@@ -39,7 +39,7 @@ interface InteractionOptions {
 /** Answers the recommendation on offer. */
 type RecommendationHandler = (
   recommendationId: string,
-  response: RecommendationResponse
+  answer: RecommendationAnswer
 ) => Promise<Result<void>>
 
 function idleSubsystems(): Pick<
@@ -135,7 +135,7 @@ export class InteractionManager implements InteractionPort {
           return this.failure('authentication_required', '로그인이 필요합니다.')
         if (!this.recommendation)
           return this.failure('unsupported', '아직 사용할 수 없는 기능입니다.')
-        const answered = await this.recommendation(command.recommendationId, command.response)
+        const answered = await this.recommendation(command.recommendationId, command.answer)
         return answered.ok ? this.accepted() : answered
       }
       case 'app.quit':

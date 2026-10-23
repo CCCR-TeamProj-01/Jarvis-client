@@ -150,9 +150,7 @@ export class ApplicationManager {
       publish: (card) => this.interaction.setRecommendationState(card)
     })
     if (recommendations) {
-      this.interaction.setRecommendationHandler((id, response) =>
-        recommendations.respond(id, response)
-      )
+      this.interaction.setRecommendationHandler((id, answer) => recommendations.respond(id, answer))
       this.disposeRecommendations = runWhileSignedIn(this.auth, recommendations)
       // The recommendation appears in its own small window, so it is seen even when the main window is hidden.
       this.disposePopup = createRecommendationPopup({

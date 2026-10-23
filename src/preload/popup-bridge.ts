@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import { resultSchema } from '../shared/contracts/common'
-import { RecommendationCardSchema } from '../shared/contracts/recommendation'
-import { RecommendationResponseSchema } from '../shared/contracts/recommendation'
+import {
+  RecommendationAnswerSchema,
+  RecommendationCardSchema
+} from '../shared/contracts/recommendation'
 import { POPUP_CHANNELS } from '../shared/ipc/channels'
 import type { PopupApi } from '../shared/ipc/popup-api'
 
@@ -45,16 +47,14 @@ export function createPopupBridge(ipc: PopupTransport): PopupApi {
         ipc.removeListener(POPUP_CHANNELS.state, receive)
       }
     },
-    async respond(recommendationId, response) {
+    async respond(recommendationId, answer) {
       // Checked here too, so a page that was tampered with cannot send what Main would refuse.
-      if (
-        typeof recommendationId !== 'string' ||
-        !RecommendationResponseSchema.safeParse(response).success
-      )
+      const checked = RecommendationAnswerSchema.safeParse(answer)
+      if (typeof recommendationId !== 'string' || !checked.success)
         return { ok: false, error: { code: 'invalid_input', message: '올바르지 않은 요청이에요.' } }
       try {
         const parsed = ReceiptSchema.safeParse(
-          await ipc.invoke(POPUP_CHANNELS.respond, recommendationId, response)
+          await ipc.invoke(POPUP_CHANNELS.respond, recommendationId, checked.data)
         )
         return parsed.success ? parsed.data : unavailable
       } catch {

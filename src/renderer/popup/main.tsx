@@ -1,8 +1,10 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { CircleAlert } from 'lucide-react'
-import type { RecommendationCard as Card } from '../../shared/contracts/recommendation'
-import type { RecommendationResponse } from '../../shared/contracts/recommendation'
+import type {
+  RecommendationAnswer,
+  RecommendationCard as Card
+} from '../../shared/contracts/recommendation'
 import { RecommendationCard } from './recommendation-card'
 import { recommendationView } from './view-model'
 import './popup.css'
@@ -48,16 +50,20 @@ function Popup(): React.JSX.Element | null {
   const view = recommendationView(card)
   if (!view) return null
 
-  async function respond(response: RecommendationResponse) {
+  async function respond(answer: RecommendationAnswer) {
     if (!api || !view) return
     setError(null)
-    const answered = await api.respond(view.recommendationId, response)
+    const answered = await api.respond(view.recommendationId, answer)
     if (!answered.ok) setError(answered.error.message)
   }
 
   return (
     <div className="popup" ref={frame}>
-      <RecommendationCard view={view} onRespond={(response) => void respond(response)} />
+      <RecommendationCard
+        key={view.recommendationId}
+        view={view}
+        onRespond={(answer) => void respond(answer)}
+      />
       {error && (
         <p className="popup-error" role="alert">
           <CircleAlert aria-hidden="true" />
