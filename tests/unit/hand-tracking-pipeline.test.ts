@@ -149,6 +149,28 @@ describe('HandTrackingPipeline previews', () => {
     expect(frames(t.events).map((frame) => frame.sequence)).toEqual([1])
   })
 
+  it('gives every frame its picture by default, even when the camera’s frames come a little closer than thirty a second', async () => {
+    const encoder = {
+      capture: vi.fn<(image: ImageBitmap) => Promise<typeof picture | null>>(async () => picture)
+    }
+    const source = new FakeSource()
+    const events: MediaEvent[] = []
+    const pipeline = new HandTrackingPipeline({
+      source,
+      createTracker: () => new FakeTracker(),
+      publish: (event) => events.push(event),
+      preview: encoder
+    })
+    await pipeline.start({}, request)
+    pipeline.setPreview(generation, true)
+    // Frames 30.5 ms apart: a fixed spacing of 33 ms would leave out most of their pictures.
+    for (let index = 0; index < 8; index++) {
+      source.push({ image: bitmap(), capturedAtMs: index * 30.5 })
+      await flush()
+    }
+    expect(previews(events).map((preview) => preview.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+  })
+
   it('makes previews no more often than the interval', async () => {
     const t = withPreview(50)
     await t.pipeline.start({}, request)

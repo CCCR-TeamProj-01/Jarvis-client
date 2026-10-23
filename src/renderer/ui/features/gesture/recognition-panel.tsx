@@ -6,6 +6,7 @@ import type {
 } from '../../../../shared/contracts/gesture-diagnostics'
 import { StatusChip } from '../shell/status-chip'
 import { HandCanvas } from './hand-canvas'
+import { useCalmFrame } from './use-calm-frame'
 import {
   fpsText,
   handName,
@@ -67,17 +68,23 @@ function Meter({
   )
 }
 
-function HandCard({
+export function HandCard({
   hand,
-  thresholds
+  thresholds,
+  lost
 }: {
   hand: HandAnalysis
   thresholds: DiagnosticsSnapshot['thresholds']
+  /** The tracking has just lost this hand; its last values are shown, dimmed. */
+  lost: boolean
 }) {
   const reach = reachRows(hand, thresholds)
   const pinch = pinchRow(hand, thresholds)
   return (
-    <article className="hand-card" aria-label={`${handName(hand)} 인식 결과`}>
+    <article
+      className={`hand-card${lost ? ' hand-card-lost' : ''}`}
+      aria-label={`${handName(hand)} 인식 결과`}
+    >
       <header className="hand-card-head">
         <b>
           {handName(hand)}
@@ -123,7 +130,11 @@ function HandCard({
           />
         </ul>
       )}
-      <small className="hand-meta">신뢰도 {Math.round(hand.confidence * 100)}%</small>
+      <small className="hand-meta">
+        {lost
+          ? '손을 잠깐 놓쳤어요 · 마지막 값이에요'
+          : `신뢰도 ${Math.round(hand.confidence * 100)}%`}
+      </small>
     </article>
   )
 }
@@ -142,8 +153,9 @@ export function RecognitionPanel({
 }: RecognitionPanelProps) {
   const status = snapshot ? recognitionStatus(snapshot) : null
   const on = snapshot?.state === 'on'
+  const calm = useCalmFrame(on ? frame : null)
   const starting = snapshot?.state === 'starting'
-  const note = on ? noHandText(frame) : null
+  const note = on && (calm?.lostSinceMs ?? null) === null ? noHandText(calm?.frame ?? null) : null
   return (
     <section className="recognition" aria-labelledby="recognition-title">
       <header className="recognition-head">
@@ -179,18 +191,27 @@ export function RecognitionPanel({
         <div className="recognition-body">
           <div className="hand-stage">
             {frame ? (
-              <HandCanvas frame={frame} thresholds={snapshot.thresholds} />
+              <HandCanvas
+                frame={frame}
+                thresholds={snapshot.thresholds}
+                pictures={snapshot.preview}
+              />
             ) : (
               <div className="hand-waiting">첫 화면을 기다리고 있어요.</div>
             )}
             <span className="hand-fps" aria-label="인식 속도">
-              {fpsText(frame?.fps ?? null)}
+              {fpsText(calm?.frame.fps ?? null)}
             </span>
             {note && frame && <span className="hand-note">{note}</span>}
           </div>
           <div className="hand-cards">
-            {frame?.hands.map((hand) => (
-              <HandCard key={hand.handId} hand={hand} thresholds={snapshot.thresholds} />
+            {calm?.frame.hands.map((hand) => (
+              <HandCard
+                key={hand.handId}
+                hand={hand}
+                thresholds={snapshot.thresholds}
+                lost={calm.lostSinceMs !== null}
+              />
             ))}
           </div>
         </div>

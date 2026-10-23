@@ -1,10 +1,13 @@
 import { useEffect, useRef } from 'react'
 import type { DiagnosticsFrame, Thresholds } from '../../../../shared/contracts/gesture-diagnostics'
 import { drawHands } from './hand-draw'
+import { shouldPaint } from './recognition-model'
 
 interface HandCanvasProps {
   frame: DiagnosticsFrame
   thresholds: Thresholds
+  /** Camera pictures are coming, so a frame without one is not drawn. */
+  pictures: boolean
 }
 
 /** What the canvas shows before the first picture, and when pictures cannot be made. */
@@ -15,7 +18,7 @@ const FALLBACK = { width: 640, height: 360 }
  * a whole, so the picture and the drawing stay together). A frame is drawn once its picture has
  * been decoded; one that was overtaken by a newer frame while decoding is skipped, never drawn late.
  */
-export function HandCanvas({ frame, thresholds }: HandCanvasProps) {
+export function HandCanvas({ frame, thresholds, pictures }: HandCanvasProps) {
   const ref = useRef<HTMLCanvasElement>(null)
   const drawn = useRef(-1)
   const size = useRef(FALLBACK)
@@ -45,7 +48,7 @@ export function HandCanvas({ frame, thresholds }: HandCanvasProps) {
       drawHands(context, frame.hands, canvas.width, canvas.height, thresholds)
     }
     if (!frame.picture) {
-      paint(null)
+      if (shouldPaint(frame, pictures, drawn.current >= 0)) paint(null)
       return () => {
         live = false
       }
@@ -58,7 +61,7 @@ export function HandCanvas({ frame, thresholds }: HandCanvasProps) {
     return () => {
       live = false
     }
-  }, [frame, thresholds])
+  }, [frame, thresholds, pictures])
 
   return (
     <canvas ref={ref} className="hand-canvas" width={FALLBACK.width} height={FALLBACK.height} />

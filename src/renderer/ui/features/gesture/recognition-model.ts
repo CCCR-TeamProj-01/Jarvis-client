@@ -145,3 +145,48 @@ export function noHandText(frame: DiagnosticsFrame | null): string | null {
 
 export const fpsText = (fps: number | null): string =>
   fps === null ? '속도 측정 중' : `${fps.toFixed(1)} fps`
+
+/**
+ * Whether a frame is drawn on the canvas. While pictures are coming, a frame that has none (the
+ * encoder was busy) is left out and the last picture stays: drawing it on a plain background would
+ * flash the picture away and back, many times a second. Before anything was drawn, or when there are
+ * no pictures at all, every frame is drawn.
+ */
+export function shouldPaint(
+  frame: Pick<DiagnosticsFrame, 'picture'>,
+  picturesExpected: boolean,
+  paintedBefore: boolean
+): boolean {
+  return frame.picture !== null || !picturesExpected || !paintedBefore
+}
+
+/** How often the numbers and words of the view are allowed to change; the picture itself runs at full speed. */
+export const CALM_INTERVAL_MS = 250
+/** How long a hand that just went from the view is kept in its card, dimmed, before the card goes. */
+export const HAND_HOLD_MS = 600
+
+/** What the cards show: a frame, and since when its hand has been missing (null while it is there). */
+export interface CalmFrame {
+  frame: DiagnosticsFrame
+  lostSinceMs: number | null
+}
+
+/**
+ * The next thing the cards show. A frame with hands is shown as it is. A frame without them keeps
+ * the last hands for a short while, marked as lost, so a hand that the tracking misses for a moment
+ * does not make the cards vanish and come back; the picture still shows the miss as it happens.
+ */
+export function calmNext(
+  previous: CalmFrame | null,
+  incoming: DiagnosticsFrame,
+  nowMs: number,
+  holdMs: number = HAND_HOLD_MS
+): CalmFrame {
+  if (incoming.hands.length > 0) return { frame: incoming, lostSinceMs: null }
+  if (previous && previous.frame.hands.length > 0) {
+    const since = previous.lostSinceMs ?? nowMs
+    if (nowMs - since < holdMs)
+      return { frame: { ...previous.frame, fps: incoming.fps }, lostSinceMs: since }
+  }
+  return { frame: incoming, lostSinceMs: null }
+}

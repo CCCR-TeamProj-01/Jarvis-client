@@ -52,8 +52,12 @@ interface Run {
   encoding: boolean
 }
 
-/** About thirty a second at most: the picture and the hands found on it go together, frame by frame. */
-const DEFAULT_PREVIEW_INTERVAL_MS = 33
+/**
+ * Every frame gets its picture unless the encoder is still busy with the last one. Spacing them by
+ * time would skip pictures at random whenever the camera's frames came a little closer than the
+ * spacing, and a view that shows the picture only some of the time flickers.
+ */
+const DEFAULT_PREVIEW_INTERVAL_MS = 0
 
 /** What the media controller needs from hand tracking. */
 export interface HandTrackingControl {

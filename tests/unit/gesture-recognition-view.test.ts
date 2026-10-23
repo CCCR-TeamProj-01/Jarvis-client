@@ -15,15 +15,22 @@ import {
 } from '../../src/renderer/ui/features/gesture/hand-draw'
 import type { DrawingContext } from '../../src/renderer/ui/features/gesture/hand-draw'
 import {
+  CALM_INTERVAL_MS,
+  HAND_HOLD_MS,
+  calmNext,
   fpsText,
   handName,
   noHandText,
   pinchRow,
   reachRows,
   reasonText,
-  recognitionStatus
+  recognitionStatus,
+  shouldPaint
 } from '../../src/renderer/ui/features/gesture/recognition-model'
-import { RecognitionPanel } from '../../src/renderer/ui/features/gesture/recognition-panel'
+import {
+  HandCard,
+  RecognitionPanel
+} from '../../src/renderer/ui/features/gesture/recognition-panel'
 import { newestDiagnosticsSnapshot } from '../../src/renderer/ui/features/gesture/use-gesture-diagnostics'
 import { hand } from '../fixtures/hands'
 
@@ -400,5 +407,69 @@ describe('drawing the hands', () => {
     expect(tipIsWanted(reach(1.49, 0.5), 'index', thresholds)).toBe(false)
     expect(tipIsWanted(reach(2, 1.3), 'middle', thresholds)).toBe(true)
     expect(tipIsWanted(reach(2, 1.31), 'middle', thresholds)).toBe(false)
+  })
+})
+
+describe('keeping the view from flickering', () => {
+  const picture = { width: 320, height: 180, jpeg: new Uint8Array([1]) }
+  const withPicture = (hands: HandAnalysis[]): DiagnosticsFrame => ({
+    ...frameOf(hands),
+    picture
+  })
+
+  it('leaves out a frame without a picture while pictures are coming, once one has been drawn', () => {
+    expect(shouldPaint(withPicture([]), true, true)).toBe(true)
+    expect(shouldPaint(frameOf([]), true, true)).toBe(false)
+    // Nothing is on the canvas yet: the hands are drawn on the plain background.
+    expect(shouldPaint(frameOf([]), true, false)).toBe(true)
+    // No pictures at all: every frame is drawn, there is nothing to flash away.
+    expect(shouldPaint(frameOf([]), false, true)).toBe(true)
+    expect(shouldPaint(frameOf([]), false, false)).toBe(true)
+  })
+
+  it('shows a frame with hands as it is', () => {
+    const a = analysis()
+    const incoming = frameOf([a])
+    expect(calmNext(null, incoming, 1000)).toEqual({ frame: incoming, lostSinceMs: null })
+    const earlier = { frame: frameOf([analysis({ handId: 'old' })]), lostSinceMs: 500 }
+    expect(calmNext(earlier, incoming, 1000)).toEqual({ frame: incoming, lostSinceMs: null })
+  })
+
+  it('keeps the last hands for a short while when they go, marked as lost, with the newest speed', () => {
+    const before = { frame: frameOf([analysis()], 29), lostSinceMs: null }
+    const first = calmNext(before, frameOf([], 24), 1000)
+    expect(first.lostSinceMs).toBe(1000)
+    expect(first.frame.hands).toEqual(before.frame.hands)
+    expect(first.frame.fps).toBe(24)
+    const later = calmNext(first, frameOf([], 25), 1000 + HAND_HOLD_MS - 1)
+    expect(later.lostSinceMs).toBe(1000)
+    expect(later.frame.hands).toHaveLength(1)
+  })
+
+  it('lets the hands go once they have been missing for the hold, and does not bring back old ones', () => {
+    const lost = { frame: frameOf([analysis()]), lostSinceMs: 1000 }
+    const gone = calmNext(lost, frameOf([]), 1000 + HAND_HOLD_MS)
+    expect(gone).toEqual({ frame: frameOf([]), lostSinceMs: null })
+    expect(calmNext(gone, frameOf([]), 5000).frame.hands).toEqual([])
+    expect(calmNext(null, frameOf([]), 100).frame.hands).toEqual([])
+  })
+
+  it('changes the words at a calm pace', () => {
+    expect(CALM_INTERVAL_MS).toBeGreaterThanOrEqual(200)
+    expect(HAND_HOLD_MS).toBeGreaterThan(CALM_INTERVAL_MS)
+  })
+
+  it('shows a hand that was just lost dimmed, with its last values, and says so in words', () => {
+    const page = renderToStaticMarkup(
+      createElement(HandCard, { hand: analysis(), thresholds, lost: true })
+    )
+    expect(page).toContain('hand-card hand-card-lost')
+    expect(page).toContain('손을 잠깐 놓쳤어요')
+    expect(page).not.toContain('신뢰도')
+    const present = renderToStaticMarkup(
+      createElement(HandCard, { hand: analysis(), thresholds, lost: false })
+    )
+    expect(present).not.toContain('hand-card-lost')
+    expect(present).toContain('신뢰도 93%')
   })
 })
