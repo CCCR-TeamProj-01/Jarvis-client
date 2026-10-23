@@ -13,6 +13,9 @@ interface SettingsViewProps {
   onWakeWordChange?(enabled: boolean): void
   /** The Google Calendar connection, drawn as one more panel. */
   google?: ReactNode
+  /** The account's devices, and the apps of this device. */
+  devices?: ReactNode
+  apps?: ReactNode
 }
 
 /** The current settings, for reading. Changing and saving them comes later; this is where it will go. */
@@ -23,7 +26,9 @@ export function SettingsView({
   callKeys,
   toggleKeys,
   onWakeWordChange,
-  google
+  google,
+  devices,
+  apps
 }: SettingsViewProps) {
   const shortcut = snapshot.application.shortcut
   const tray = snapshot.application.tray
@@ -80,6 +85,8 @@ export function SettingsView({
           )}
         </section>
         {google}
+        {devices}
+        {apps}
         <section className="panel" aria-labelledby="settings-shortcuts">
           <h2 id="settings-shortcuts">단축키</h2>
           <ul className="rows">

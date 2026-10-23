@@ -6,6 +6,9 @@ import { CheckingPanel, SignInForm, SignUpForm } from './features/auth/auth-pane
 import { useAuth } from './features/auth/use-auth'
 import { CalendarView } from './features/calendar/calendar-view'
 import { useCalendar } from './features/calendar/use-calendar'
+import { AppsPanel } from './features/devices/apps-panel'
+import { DevicesPanel } from './features/devices/devices-panel'
+import { useDevices } from './features/devices/use-devices'
 import { GooglePanel } from './features/google/google-panel'
 import { useGoogleConnection } from './features/google/use-google-connection'
 import { ConversationView } from './features/conversation/conversation-view'
@@ -36,6 +39,10 @@ function App(): React.JSX.Element {
     (activeTab(snapshot) === 'calendar' || activeTab(snapshot) === 'settings') &&
     auth.snapshot?.phase === 'signed_in'
   const google = useGoogleConnection(window.jarvis?.google, googleActive)
+  const devices = useDevices(
+    window.jarvis?.devices,
+    snapshot !== null && activeTab(snapshot) === 'settings' && auth.snapshot?.phase === 'signed_in'
+  )
   const [prefillLoginId, setPrefillLoginId] = useState('')
   const [signedUpNotice, setSignedUpNotice] = useState(false)
   const windowMaterial = snapshot?.application.windowMaterial ?? 'opaque'
@@ -144,6 +151,20 @@ function App(): React.JSX.Element {
                 connectionError={google.error}
                 timeZone={calendar.snapshot?.timeZone ?? null}
                 onCommand={(action) => void google.command(action)}
+              />
+            }
+            devices={
+              <DevicesPanel
+                snapshot={devices.snapshot}
+                connectionError={devices.error}
+                timeZone={calendar.snapshot?.timeZone ?? null}
+                onCommand={(request) => void devices.command(request)}
+              />
+            }
+            apps={
+              <AppsPanel
+                snapshot={devices.snapshot}
+                onCommand={(request) => void devices.command(request)}
               />
             }
           />
