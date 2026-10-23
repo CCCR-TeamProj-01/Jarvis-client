@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CollectionSettingsService } from '../../src/main/collection/collection-settings-service'
 import { CollectionConsentApi } from '../../src/main/commands/collection-consent'
 import { CommandApi } from '../../src/main/commands/command-api'
 import { CommandJournal } from '../../src/main/commands/command-journal'
@@ -17,7 +18,7 @@ const CHROME = 'com.google.Chrome'
 const VSCODE = 'com.microsoft.VSCode'
 
 /** The command path with activity, over a real connection to a stand-in that follows the real server's rules. */
-async function activityApp(options: { running?: string[] } = {}) {
+async function activityApp(options: { running?: string[]; viaSettings?: boolean } = {}) {
   const app = await signedInApp()
   let running = options.running ?? [VSCODE, 'org.example.Secret']
   const apps: AppControlPort = {
@@ -56,6 +57,15 @@ async function activityApp(options: { running?: string[] } = {}) {
   /** Time the service sees, moved on by tests that need what was read before to be old. */
   const shift = { ms: 0 }
   let ids = 0
+  // With the settings service, the consent is read through it, as the app does, and a change makes the commands read it again.
+  const settings = options.viaSettings
+    ? new CollectionSettingsService({
+        api: new CollectionConsentApi(app.api),
+        now: Date.now,
+        onChanged: () => service.forgetConsent()
+      })
+    : null
+  settings?.start('uuid-jarvis')
   const service = new CommandService({
     api: new CommandApi(app.api),
     journal: new CommandJournal({ files, now: Date.now }),
@@ -65,7 +75,7 @@ async function activityApp(options: { running?: string[] } = {}) {
     clock: app.api.clock,
     sleep: async () => undefined,
     activity: {
-      consent: new CollectionConsentApi(app.api),
+      consent: settings ?? new CollectionConsentApi(app.api),
       runningApps: async (signal) => {
         const listed = await apps.list(signal ? { signal } : undefined)
         if (!listed.ok) return { ok: false, error: listed.error }
@@ -105,6 +115,7 @@ async function activityApp(options: { running?: string[] } = {}) {
     run,
     logs,
     shift,
+    settings,
     setRunning: (value: string[]) => (running = value)
   }
 }
@@ -298,5 +309,114 @@ describe('what is not an activity', () => {
     await waitUntil(() => t.fake.results.has(id))
     expect(t.fake.count('/me/settings')).toBe(0)
     expect(t.fake.activities).toEqual([])
+  })
+})
+
+describe('withdrawing the consent while the app runs, over HTTP', () => {
+  const turn = async (
+    t: Awaited<ReturnType<typeof activityApp>>,
+    flag: 'activity' | 'external',
+    on: boolean
+  ) => {
+    const result = await t.settings!.command({ action: 'set', flag, on })
+    if (!result.ok) throw new Error(result.error.code)
+    return result.value
+  }
+
+  it('reports nothing for a command that runs after the user turned activity off', async () => {
+    const t = await activityApp({ viaSettings: true })
+    await t.settings!.command({ action: 'refresh' })
+    const first = t.add('apps.launch')
+    await t.run(first)
+    expect(t.fake.activities).toHaveLength(1)
+    const state = await turn(t, 'activity', false)
+    expect(state.outcome).toMatchObject({ kind: 'saved', on: false })
+    // The server took both flags off in one change, and the revision moved.
+    expect(t.fake.settingsChanges).toEqual([
+      { activity_collection_enabled: false, external_activity_collection_enabled: false }
+    ])
+    expect(t.fake.calendarSettings.collection_revision).toBe(4)
+    const second = t.add('apps.launch', 'slack')
+    await t.run(second)
+    expect(t.fake.results.get(second)).toMatchObject({ status: 'success' })
+    expect(t.fake.results.get(second)).not.toHaveProperty('activity')
+    expect(t.fake.activities).toHaveLength(1)
+  })
+
+  it('drops the activity of a result still waiting to be sent when the user turns it off', async () => {
+    const t = await activityApp({ viaSettings: true })
+    await t.settings!.command({ action: 'refresh' })
+    // The result is made under the consent, but cannot be sent yet.
+    t.fake.resultFaults = [503]
+    const id = t.add('apps.launch')
+    await t.service.cycle('uuid-jarvis', new AbortController().signal)
+    expect(t.fake.results.has(id)).toBe(false)
+    await turn(t, 'activity', false)
+    await t.service.cycle('uuid-jarvis', new AbortController().signal)
+    await waitUntil(() => t.fake.results.has(id))
+    expect(t.fake.results.get(id)).toMatchObject({ status: 'success' })
+    expect(t.fake.results.get(id)).not.toHaveProperty('activity')
+    expect(t.fake.activities).toEqual([])
+  })
+
+  it('stops reporting at once even when the server does not take the withdrawal', async () => {
+    const t = await activityApp({ viaSettings: true })
+    await t.settings!.command({ action: 'refresh' })
+    t.fake.settingsWriteFaults = [503]
+    const state = await turn(t, 'activity', false)
+    expect(state.outcome).toMatchObject({ kind: 'unconfirmed', on: false })
+    // The server still has it on, but nothing is reported from this computer.
+    expect(state.settings).toEqual({ activity: true, external: true })
+    expect(state.stopped).toEqual({ activity: true, external: true })
+    expect(t.fake.calendarSettings.activity_collection_enabled).toBe(true)
+    const id = t.add('apps.launch')
+    await t.run(id)
+    expect(t.fake.results.get(id)).not.toHaveProperty('activity')
+    expect(t.fake.activities).toEqual([])
+    // Sending it again works; the hold is let go of because the server now says off.
+    const again = await turn(t, 'activity', false)
+    expect(again).toMatchObject({
+      outcome: { kind: 'saved' },
+      stopped: { activity: false, external: false }
+    })
+    expect(t.fake.calendarSettings.activity_collection_enabled).toBe(false)
+  })
+
+  it('takes the running apps out of what is reported when only external is turned off', async () => {
+    const t = await activityApp({ viaSettings: true })
+    await t.settings!.command({ action: 'refresh' })
+    await turn(t, 'external', false)
+    expect(t.fake.settingsChanges).toEqual([{ external_activity_collection_enabled: false }])
+    const id = t.add('apps.launch')
+    await t.run(id)
+    expect(t.fake.activities).toEqual([
+      expect.objectContaining({ commandId: id, eventType: 'launched', runningApps: null })
+    ])
+  })
+
+  it('reports again once the user turns it back on, under the new revision', async () => {
+    const t = await activityApp({ viaSettings: true })
+    await t.settings!.command({ action: 'refresh' })
+    await turn(t, 'activity', false)
+    const off = t.add('apps.launch')
+    await t.run(off)
+    expect(t.fake.activities).toEqual([])
+    const on = await turn(t, 'activity', true)
+    expect(on.outcome).toMatchObject({ kind: 'saved', on: true })
+    const id = t.add('apps.launch', 'slack')
+    await t.run(id)
+    expect(t.fake.activities).toEqual([
+      expect.objectContaining({ commandId: id, appCode: 'slack' })
+    ])
+  })
+
+  it('leaves the settings the server holds alone when the user only reads them', async () => {
+    const t = await activityApp({ viaSettings: true })
+    const state = await t.settings!.command({ action: 'refresh' })
+    expect(state).toMatchObject({
+      ok: true,
+      value: { settings: { activity: true, external: true } }
+    })
+    expect(t.fake.settingsChanges).toEqual([])
   })
 })

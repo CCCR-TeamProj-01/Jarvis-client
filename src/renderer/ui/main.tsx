@@ -6,6 +6,8 @@ import { CheckingPanel, SignInForm, SignUpForm } from './features/auth/auth-pane
 import { useAuth } from './features/auth/use-auth'
 import { CalendarView } from './features/calendar/calendar-view'
 import { useCalendar } from './features/calendar/use-calendar'
+import { CollectionPanel } from './features/collection/collection-panel'
+import { useCollection } from './features/collection/use-collection'
 import { AppsPanel } from './features/devices/apps-panel'
 import { DevicesPanel } from './features/devices/devices-panel'
 import { useDevices } from './features/devices/use-devices'
@@ -39,6 +41,10 @@ function App(): React.JSX.Element {
     (activeTab(snapshot) === 'calendar' || activeTab(snapshot) === 'settings') &&
     auth.snapshot?.phase === 'signed_in'
   const google = useGoogleConnection(window.jarvis?.google, googleActive)
+  const collection = useCollection(
+    window.jarvis?.collection,
+    snapshot !== null && activeTab(snapshot) === 'settings' && auth.snapshot?.phase === 'signed_in'
+  )
   const devices = useDevices(
     window.jarvis?.devices,
     snapshot !== null && activeTab(snapshot) === 'settings' && auth.snapshot?.phase === 'signed_in'
@@ -151,6 +157,13 @@ function App(): React.JSX.Element {
                 connectionError={google.error}
                 timeZone={calendar.snapshot?.timeZone ?? null}
                 onCommand={(action) => void google.command(action)}
+              />
+            }
+            collection={
+              <CollectionPanel
+                snapshot={collection.snapshot}
+                connectionError={collection.error}
+                onCommand={(request) => void collection.command(request)}
               />
             }
             devices={

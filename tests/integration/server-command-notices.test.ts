@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CollectionConsentApi } from '../../src/main/commands/collection-consent'
 import { createCommandService } from '../../src/main/commands/create-command-service'
 import type { AppControlPort, FolderOpenPort, SystemAudioPort } from '../../src/main/platform/ports'
 import { CapabilityRegistry, platformCapabilities } from '../../src/main/tools/capability-registry'
@@ -16,7 +17,7 @@ afterEach(stopAllFakeServers)
 const CHROME = 'com.google.Chrome'
 
 /** The app's command path as it is built in the app, over a real connection, listening where the window and overlay do. */
-async function noticeApp() {
+async function noticeApp(options: { consent?: boolean } = {}) {
   const app = await signedInApp()
   const running = new Set<string>()
   const apps: AppControlPort = {
@@ -67,6 +68,7 @@ async function noticeApp() {
     executor,
     files: new MemoryFiles(),
     appControl: apps,
+    consent: options.consent === false ? null : new CollectionConsentApi(app.api),
     announce: (notice) => hub.publish(notice),
     platform: 'darwin'
   })!
@@ -201,5 +203,29 @@ describe('the name of an app in a result', () => {
     expect(t.shown[0]!.text).toBe('Slack을(를) 열었어요.')
     expect(t.shown[0]!.text).not.toContain(CHROME)
     expect(t.shown[0]!.text).not.toContain('com.tinyspeck')
+  })
+})
+
+describe('the activity the commands report, as the app wires it', () => {
+  it('reports the app that was started when the commands have a consent to go by', async () => {
+    const t = await noticeApp()
+    const id = t.add('apps.launch', 'chrome')
+    t.service.start('uuid-jarvis')
+    await waitUntil(() => t.fake.results.has(id))
+    await t.service.stop()
+    expect(t.fake.activities).toEqual([
+      expect.objectContaining({ commandId: id, eventType: 'launched', appCode: 'chrome' })
+    ])
+  })
+
+  it('reports no activity at all when there is no consent to go by', async () => {
+    const t = await noticeApp({ consent: false })
+    const id = t.add('apps.launch', 'chrome')
+    t.service.start('uuid-jarvis')
+    await waitUntil(() => t.fake.results.has(id))
+    await t.service.stop()
+    expect(t.fake.results.get(id)).toMatchObject({ status: 'success' })
+    expect(t.fake.results.get(id)).not.toHaveProperty('activity')
+    expect(t.fake.activities).toEqual([])
   })
 })

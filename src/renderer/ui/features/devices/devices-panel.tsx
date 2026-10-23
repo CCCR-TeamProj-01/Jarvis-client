@@ -234,6 +234,7 @@ export function ConfirmDialog({
   title,
   text,
   confirm,
+  tone = 'danger',
   onConfirm,
   onClose
 }: {
@@ -241,6 +242,8 @@ export function ConfirmDialog({
   title: string
   text: string
   confirm: string
+  /** `danger` for what takes something away, `primary` for what the user agrees to. */
+  tone?: 'danger' | 'primary'
   onConfirm(): void
   onClose(): void
 }) {
@@ -253,7 +256,11 @@ export function ConfirmDialog({
         <button className="button button-secondary" type="button" onClick={onClose}>
           취소
         </button>
-        <button className="button button-danger" type="button" onClick={onConfirm}>
+        <button
+          className={`button ${tone === 'primary' ? 'button-primary' : 'button-danger'}`}
+          type="button"
+          onClick={onConfirm}
+        >
           {confirm}
         </button>
       </div>

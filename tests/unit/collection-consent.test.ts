@@ -105,3 +105,68 @@ describe('the collection settings', () => {
     expect(sent[0].timeoutMs).toBeLessThanOrEqual(5000)
   })
 })
+
+const refusal = (status: number) =>
+  json({ error: { code: 'X', message: 'server wording' } }, status)
+const sentBody = (t: { fetch: ReturnType<typeof vi.fn<FetchLike>> }) => {
+  const [url, init] = t.fetch.mock.calls[0]!
+  return {
+    url: url.replace(BASE, ''),
+    method: init.method,
+    body: typeof init.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined
+  }
+}
+
+describe('changing the collection settings', () => {
+  it('sends only the flag named, as the server spells it, and reads what the server holds from the answer', async () => {
+    const t = api(() =>
+      json(settings({ activity_collection_enabled: false, collection_revision: 4 }))
+    )
+    expect(await t.api.change({ activity: false })).toEqual({
+      kind: 'done',
+      value: { activityEnabled: false, externalEnabled: false, revision: 4 }
+    })
+    expect(sentBody(t)).toEqual({
+      url: '/me/settings',
+      method: 'PATCH',
+      body: { activity_collection_enabled: false }
+    })
+  })
+
+  it('sends both flags when both are named, and a flag left out is not sent', async () => {
+    const both = api(() => json(settings()))
+    await both.api.change({ activity: false, external: false })
+    expect(sentBody(both).body).toEqual({
+      activity_collection_enabled: false,
+      external_activity_collection_enabled: false
+    })
+    const external = api(() => json(settings()))
+    await external.api.change({ external: true })
+    expect(sentBody(external).body).toEqual({ external_activity_collection_enabled: true })
+  })
+
+  it('counts a refusal as nothing changed, and a server error or a lost answer as not known', async () => {
+    const refused = await api(() => refusal(422)).api.change({ activity: false })
+    expect(refused).toMatchObject({ kind: 'rejected', error: { code: 'invalid_input' } })
+    expect(JSON.stringify(refused)).not.toContain('server wording')
+    expect(await api(() => refusal(403)).api.change({ activity: false })).toMatchObject({
+      kind: 'rejected'
+    })
+    for (const respond of [() => refusal(500), () => refusal(503), () => json({ timezone: 'x' })])
+      expect(await api(respond).api.change({ activity: false })).toMatchObject({ kind: 'unknown' })
+    const dropped = api(() => {
+      throw new TypeError('connection reset')
+    })
+    expect(await dropped.api.change({ activity: false })).toMatchObject({ kind: 'unknown' })
+  })
+
+  it('counts a request that never left as a refusal', async () => {
+    const t = api(() => json(settings()))
+    const aborted = new AbortController()
+    aborted.abort()
+    expect(await t.api.change({ activity: false }, aborted.signal)).toMatchObject({
+      kind: 'rejected'
+    })
+    expect(t.fetch).not.toHaveBeenCalled()
+  })
+})

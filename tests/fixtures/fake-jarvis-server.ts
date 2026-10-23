@@ -55,6 +55,10 @@ export class FakeJarvisServer {
     occurredAt: string
     runningApps: string[] | null
   }[] = []
+  /** What happens to the next `PATCH /me/settings` (consumed in order): a status, or carried out with the answer lost. */
+  settingsWriteFaults: (number | 'drop')[] = []
+  /** The changes the server took on `PATCH /me/settings`, in order. */
+  readonly settingsChanges: Record<string, unknown>[] = []
   calendarAnswer: unknown = { items: [], todos: [] }
   /** When set, the calendar is kept here and follows the real server's rules, and `calendarAnswer` is not used. */
   calendarStore: FakeCalendarStore | null = null
@@ -253,6 +257,39 @@ export class FakeJarvisServer {
     if (path === '/me/settings' && request.method === 'GET') {
       if (!valid) return error(401, 'INVALID_SESSION')
       return send(200, this.calendarSettings)
+    }
+    if (path === '/me/settings' && request.method === 'PATCH') {
+      if (!valid) return error(401, 'INVALID_SESSION')
+      const fault = this.settingsWriteFaults.shift()
+      if (typeof fault === 'number') return error(fault, 'SERVICE_UNAVAILABLE')
+      // As the real server: only the known fields, never null, booleans for the flags; a change of
+      // a collection flag starts a new collection_revision.
+      const known = [
+        'timezone',
+        'activity_collection_enabled',
+        'external_activity_collection_enabled',
+        'daily_briefing_enabled',
+        'daily_briefing_time',
+        'diagnostics_enabled'
+      ]
+      const flags = ['activity_collection_enabled', 'external_activity_collection_enabled']
+      const changes = body ?? {}
+      const bad = Object.entries(changes).some(
+        ([key, value]) =>
+          !known.includes(key) ||
+          (key !== 'daily_briefing_time' && value === null) ||
+          (flags.includes(key) && typeof value !== 'boolean')
+      )
+      if (bad) return error(422, 'VALIDATION_ERROR')
+      const before = this.calendarSettings
+      const after = { ...before, ...changes }
+      if (flags.some((flag) => after[flag] !== before[flag]))
+        after.collection_revision = Number(before.collection_revision) + 1
+      this.calendarSettings = after
+      this.settingsChanges.push(changes)
+      // Carried out, but the answer is lost on the way.
+      if (fault === 'drop') return void request.socket.destroy()
+      return send(200, after)
     }
     const google = this.google
     const connectionRoute =

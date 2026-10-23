@@ -41,6 +41,12 @@ export const DEVICE_CHANNELS = {
   event: 'jarvis:devices:event'
 } as const
 
+export const COLLECTION_CHANNELS = {
+  command: 'jarvis:collection:command',
+  snapshot: 'jarvis:collection:snapshot',
+  event: 'jarvis:collection:event'
+} as const
+
 export const POPUP_CHANNELS = {
   state: 'jarvis:popup:state',
   snapshot: 'jarvis:popup:snapshot',

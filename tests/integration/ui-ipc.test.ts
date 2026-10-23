@@ -88,6 +88,7 @@ describe('implemented UI IPC boundary', () => {
     expect(Object.keys(api).sort()).toEqual([
       'auth',
       'calendar',
+      'collection',
       'devices',
       'dispatch',
       'getSnapshot',

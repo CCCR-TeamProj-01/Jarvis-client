@@ -6,7 +6,7 @@ import type { AppControlPort } from '../platform/ports'
 import type { ToolNotice } from '../tools/tool-notices'
 import type { LocalFilesPort } from '../settings/ports'
 import { sleep } from '../sleep'
-import { CollectionConsentApi } from './collection-consent'
+import type { CollectionConsentPort } from './collection-consent'
 import { CommandApi } from './command-api'
 import { CommandJournal } from './command-journal'
 import { CommandService } from './command-service'
@@ -21,6 +21,8 @@ interface Selection {
   files: Pick<LocalFilesPort, 'read' | 'replace'>
   /** Tells which apps are running, for the activity reported with a result. */
   appControl: Pick<AppControlPort, 'list'>
+  /** What the user allowed about collecting activity; without it no activity is ever reported. */
+  consent: CollectionConsentPort | null
   /** Where the words for what a command did are announced. */
   announce(notice: ToolNotice): void
   platform: NodeJS.Platform
@@ -51,6 +53,7 @@ export function createCommandService({
   executor,
   files,
   appControl,
+  consent,
   announce,
   platform
 }: Selection): CommandService | null {
@@ -61,11 +64,15 @@ export function createCommandService({
     journal: new CommandJournal({ files, now: Date.now }),
     executor,
     platform,
-    activity: {
-      consent: new CollectionConsentApi(api),
-      runningApps: runningAppIds(appControl),
-      createId: () => `act_${randomUUID()}`
-    },
+    ...(consent
+      ? {
+          activity: {
+            consent,
+            runningApps: runningAppIds(appControl),
+            createId: () => `act_${randomUUID()}`
+          }
+        }
+      : {}),
     displayName: (osAppId) => {
       const code = appCodeFor(osAppId, platform)
       return code ? appDisplayNameFor(code, platform) : undefined

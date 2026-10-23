@@ -24,6 +24,7 @@ const base = {
     replace: vi.fn<LocalFilesPort['replace']>()
   },
   appControl: { list: vi.fn<AppControlPort['list']>() },
+  consent: null,
   announce: vi.fn<(notice: ToolNotice) => void>(),
   platform: 'darwin' as const
 }

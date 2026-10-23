@@ -4,6 +4,7 @@ import type { ClientSnapshot, CommandReceipt, UiCommand, UiEvent } from '../cont
 import { ClientSnapshotSchema, CommandReceiptSchema } from '../contracts/interaction'
 import type { AuthApi } from './auth-api'
 import type { CalendarApi } from './calendar-api'
+import type { CollectionApi } from './collection-api'
 import type { DevicesApi } from './devices-api'
 import type { GoogleConnectionApi } from './google-api'
 
@@ -27,4 +28,5 @@ export interface UiApi extends InteractionUiApi {
   readonly calendar: CalendarApi
   readonly google: GoogleConnectionApi
   readonly devices: DevicesApi
+  readonly collection: CollectionApi
 }

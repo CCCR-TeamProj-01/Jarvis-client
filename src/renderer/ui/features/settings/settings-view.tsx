@@ -13,6 +13,8 @@ interface SettingsViewProps {
   onWakeWordChange?(enabled: boolean): void
   /** The Google Calendar connection, drawn as one more panel. */
   google?: ReactNode
+  /** What the user allowed about collecting app activity. */
+  collection?: ReactNode
   /** The account's devices, and the apps of this device. */
   devices?: ReactNode
   apps?: ReactNode
@@ -27,6 +29,7 @@ export function SettingsView({
   toggleKeys,
   onWakeWordChange,
   google,
+  collection,
   devices,
   apps
 }: SettingsViewProps) {
@@ -85,6 +88,7 @@ export function SettingsView({
           )}
         </section>
         {google}
+        {collection}
         {devices}
         {apps}
         <section className="panel" aria-labelledby="settings-shortcuts">
