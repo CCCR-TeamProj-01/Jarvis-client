@@ -108,8 +108,45 @@ button:focus-visible {
   stroke-width: 1.75;
 }
 .recommendation-head h2 {
+  flex: 1;
   margin: 0;
   font-size: var(--text-body);
+}
+.recommendation-close {
+  display: inline-flex;
+  flex-shrink: 0;
+  justify-content: center;
+  align-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+.recommendation-close:hover:not(:disabled) {
+  background: var(--color-primary-soft);
+}
+.recommendation-head .recommendation-close svg {
+  width: 16px;
+  height: 16px;
+}
+.recommendation-question {
+  margin: 0;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  line-height: 18px;
+}
+.recommendation-pause {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+}
+.recommendation-pause:has(:disabled) {
+  opacity: 0.55;
 }
 .recommendation-reason {
   margin: 0;

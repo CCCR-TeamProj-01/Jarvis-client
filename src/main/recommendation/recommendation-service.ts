@@ -1,7 +1,7 @@
 import type { ClientError, Result } from '../../shared/contracts/common'
 import type {
-  RecommendationCard,
-  RecommendationResponse
+  RecommendationAnswer,
+  RecommendationCard
 } from '../../shared/contracts/recommendation'
 import type { ServerClock } from '../connection/server-clock'
 import type { PendingRecommendation, RecommendationApiPort } from './recommendation-api'
@@ -102,7 +102,7 @@ export class RecommendationService {
     return false
   }
 
-  async respond(recommendationId: string, response: RecommendationResponse): Promise<Result<void>> {
+  async respond(recommendationId: string, answer: RecommendationAnswer): Promise<Result<void>> {
     const run = this.run
     const card = this.card
     if (!run || !card || card.recommendationId !== recommendationId)
@@ -113,7 +113,7 @@ export class RecommendationService {
       return failure('expired', '추천 시간이 지났어요.')
     }
     this.setCard({ ...card, phase: 'responding' })
-    const outcome = await this.options.api.respond(recommendationId, response, run.abort.signal)
+    const outcome = await this.options.api.respond(recommendationId, answer, run.abort.signal)
     // Signed out or switched while waiting: the answer no longer belongs to anyone on screen.
     if (this.run !== run) return failure('cancelled', '로그인 상태가 바뀌어 중단했어요.')
     if (outcome.kind === 'recorded') {
@@ -124,11 +124,16 @@ export class RecommendationService {
     if (outcome.kind === 'gone') {
       this.remember(recommendationId)
       this.clear()
-      return outcome.reason === 'already_responded'
-        ? failure('conflict', '이미 처리된 추천이에요.')
-        : outcome.reason === 'expired'
-          ? failure('expired', '추천 시간이 지났어요.')
-          : failure('not_found', '이미 사라진 추천이에요.')
+      switch (outcome.reason) {
+        case 'already_responded':
+          return failure('conflict', '이미 처리된 추천이에요.')
+        case 'expired':
+          return failure('expired', '추천 시간이 지났어요.')
+        case 'target_unavailable':
+          return failure('conflict', '열 수 있는 앱이 없어서 추천을 닫았어요.')
+        case 'not_found':
+          return failure('not_found', '이미 사라진 추천이에요.')
+      }
     }
     // The server did not get it: the card stays, to be answered again until it expires.
     if (this.card?.recommendationId === recommendationId)

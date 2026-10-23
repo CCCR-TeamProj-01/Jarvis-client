@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { InteractionManager } from '../../src/main/interaction/interaction-manager'
 import type { AuthSnapshot } from '../../src/shared/contracts/auth'
+import { RECOMMENDATION_RESPONSES } from '../../src/shared/contracts/recommendation'
+import type { RecommendationAnswer } from '../../src/shared/contracts/recommendation'
 import { UiCommandSchema } from '../../src/shared/contracts/interaction'
 import type { UiCommand, UiEvent } from '../../src/shared/contracts/interaction'
 import { newestSnapshot } from '../../src/renderer/ui/use-client-snapshot'
@@ -216,13 +218,13 @@ describe('recommendations in the interaction state', () => {
   it('answers through the Main handler, only when signed in', async () => {
     const { manager } = setup()
     const handler = vi.fn<
-      (id: string, response: string) => Promise<{ ok: true; value: undefined }>
+      (id: string, answer: RecommendationAnswer) => Promise<{ ok: true; value: undefined }>
     >(async () => ({ ok: true, value: undefined }))
     manager.setRecommendationHandler(handler)
     const command: UiCommand = {
       type: 'recommendation.respond',
       recommendationId: '701',
-      response: 'approved'
+      answer: { response: 'execute', pauseToday: true }
     }
     expect(await manager.dispatch(command)).toMatchObject({
       ok: false,
@@ -231,7 +233,10 @@ describe('recommendations in the interaction state', () => {
     expect(handler).not.toHaveBeenCalled()
     manager.setAuthSnapshot(signedIn)
     expect(await manager.dispatch(command)).toMatchObject({ ok: true })
-    expect(handler).toHaveBeenCalledExactlyOnceWith('701', 'approved')
+    expect(handler).toHaveBeenCalledExactlyOnceWith('701', {
+      response: 'execute',
+      pauseToday: true
+    })
   })
 
   it('passes the failure of an answer on to the window', async () => {
@@ -244,7 +249,7 @@ describe('recommendations in the interaction state', () => {
       await manager.dispatch({
         type: 'recommendation.respond',
         recommendationId: '701',
-        response: 'rejected'
+        answer: { response: 'reject_once', pauseToday: false }
       })
     ).toMatchObject({ ok: false, error: { code: 'expired', message: '추천 시간이 지났어요.' } })
   })
@@ -255,7 +260,7 @@ describe('recommendations in the interaction state', () => {
       await manager.dispatch({
         type: 'recommendation.respond',
         recommendationId: '701',
-        response: 'approved'
+        answer: { response: 'execute', pauseToday: false }
       })
     ).toMatchObject({ ok: false, error: { code: 'unsupported' } })
   })
@@ -267,22 +272,36 @@ describe('recommendations in the interaction state', () => {
     expect(manager.getSnapshot().recommendation).toBeNull()
   })
 
-  it('takes all four answers', () => {
-    for (const response of ['approved', 'snoozed', 'rejected', 'dismissed'])
+  it.each(RECOMMENDATION_RESPONSES)('takes %s, with or without "not today"', (response) => {
+    for (const pauseToday of [false, true])
       expect(
         UiCommandSchema.safeParse({
           type: 'recommendation.respond',
           recommendationId: '701',
-          response
+          answer: { response, pauseToday }
         }).success
       ).toBe(true)
   })
 
+  const execute = { response: 'execute', pauseToday: false }
   it.each([
-    ['an empty ID', { recommendationId: '', response: 'approved' }],
-    ['an unknown answer', { recommendationId: '701', response: 'maybe' }],
+    ['an empty ID', { recommendationId: '', answer: execute }],
+    ['an unknown answer', { recommendationId: '701', answer: { ...execute, response: 'maybe' } }],
+    [
+      'the retired answer names',
+      { recommendationId: '701', answer: { ...execute, response: 'approved' } }
+    ],
     ['no answer', { recommendationId: '701' }],
-    ['an extra field', { recommendationId: '701', response: 'approved', apps: ['x'] }]
+    ['no "not today" choice', { recommendationId: '701', answer: { response: 'execute' } }],
+    [
+      'a "not today" that is not a boolean',
+      { recommendationId: '701', answer: { ...execute, pauseToday: 'yes' } }
+    ],
+    [
+      'an extra field in the answer',
+      { recommendationId: '701', answer: { ...execute, apps: ['x'] } }
+    ],
+    ['an extra field', { recommendationId: '701', answer: execute, apps: ['x'] }]
   ])('refuses a recommendation command with %s', (_name, fields) => {
     expect(UiCommandSchema.safeParse({ type: 'recommendation.respond', ...fields }).success).toBe(
       false

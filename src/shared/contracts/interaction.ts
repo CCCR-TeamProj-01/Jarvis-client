@@ -9,7 +9,7 @@ import {
   TimestampSchema
 } from './common'
 import { GestureSnapshotSchema } from './gesture'
-import { RecommendationCardSchema, RecommendationResponseSchema } from './recommendation'
+import { RecommendationAnswerSchema, RecommendationCardSchema } from './recommendation'
 import { SensorSnapshotSchema } from './sensors'
 import { SpeechSnapshotSchema } from './speech'
 import { WakeWordSnapshotSchema } from './wake-word'
@@ -54,7 +54,7 @@ export const UiCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal('recommendation.respond'),
     recommendationId: IdentifierSchema,
-    response: RecommendationResponseSchema
+    answer: RecommendationAnswerSchema
   }),
   z.strictObject({
     type: z.literal('confirmation.respond'),

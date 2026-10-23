@@ -114,9 +114,12 @@ describe('recommendations from the server', () => {
     // Nothing runs because a card is shown.
     expect(t.launch).not.toHaveBeenCalled()
 
-    expect(await t.service.respond('701', 'approved')).toEqual({ ok: true, value: undefined })
+    expect(await t.service.respond('701', { response: 'execute', pauseToday: false })).toEqual({
+      ok: true,
+      value: undefined
+    })
     expect(t.showing()).toBeNull()
-    expect(t.fake.recommendationAnswers.get(701)).toBe('approved')
+    expect(t.fake.recommendationAnswers.get(701)).toBe('execute')
 
     // The commands the server created reach this device and run, and their results are reported.
     t.commands.start('uuid-jarvis')
@@ -152,7 +155,10 @@ describe('recommendations from the server', () => {
     t.offer()
     t.service.start('uuid-jarvis')
     await waitUntil(() => t.showing() !== null)
-    expect(await t.service.respond('701', 'snoozed')).toEqual({ ok: true, value: undefined })
+    expect(await t.service.respond('701', { response: 'snoozed', pauseToday: false })).toEqual({
+      ok: true,
+      value: undefined
+    })
     expect(t.fake.recommendationAnswers.get(701)).toBe('snoozed')
     expect(t.fake.commands).toHaveLength(0)
     await t.service.stop()
@@ -163,8 +169,61 @@ describe('recommendations from the server', () => {
     t.offer()
     t.service.start('uuid-jarvis')
     await waitUntil(() => t.showing() !== null)
-    expect(await t.service.respond('701', 'rejected')).toEqual({ ok: true, value: undefined })
-    expect(t.fake.recommendationAnswers.get(701)).toBe('rejected')
+    expect(await t.service.respond('701', { response: 'reject_once', pauseToday: false })).toEqual({
+      ok: true,
+      value: undefined
+    })
+    expect(t.fake.recommendationAnswers.get(701)).toBe('reject_once')
+    expect(t.fake.commands).toHaveLength(0)
+    await t.service.stop()
+  })
+
+  it('records rejecting for 7 days, and rejecting just this once, as the server tells them apart', async () => {
+    for (const response of ['reject_for_7_days', 'reject_once'] as const) {
+      const t = await recommendationApp()
+      t.offer()
+      t.service.start('uuid-jarvis')
+      await waitUntil(() => t.showing() !== null)
+      expect(await t.service.respond('701', { response, pauseToday: false })).toEqual({
+        ok: true,
+        value: undefined
+      })
+      expect(t.fake.recommendationAnswers.get(701)).toBe(response)
+      expect(t.fake.commands).toHaveLength(0)
+      await t.service.stop()
+    }
+  })
+
+  it('sends "not today" with whichever answer is given', async () => {
+    for (const [response, pauseToday] of [
+      ['execute', true],
+      ['reject_once', true],
+      ['dismiss', false]
+    ] as const) {
+      const t = await recommendationApp()
+      t.offer()
+      t.service.start('uuid-jarvis')
+      await waitUntil(() => t.showing() !== null)
+      await t.service.respond('701', { response, pauseToday })
+      expect(t.fake.recommendationAnswers.get(701)).toBe(response)
+      expect(t.fake.recommendationPauseToday.get(701)).toBe(pauseToday)
+      await t.service.stop()
+    }
+  })
+
+  it('closes the card and says why when the server has nothing it can open', async () => {
+    const t = await recommendationApp()
+    t.fake.recommendationTargetUnavailable = true
+    t.offer()
+    t.service.start('uuid-jarvis')
+    await waitUntil(() => t.showing() !== null)
+    expect(await t.service.respond('701', { response: 'execute', pauseToday: false })).toEqual({
+      ok: false,
+      error: { code: 'conflict', message: '열 수 있는 앱이 없어서 추천을 닫았어요.' }
+    })
+    expect(t.showing()).toBeNull()
+    // Nothing was recorded, and nothing runs.
+    expect(t.fake.recommendationAnswers.has(701)).toBe(false)
     expect(t.fake.commands).toHaveLength(0)
     await t.service.stop()
   })
@@ -174,7 +233,7 @@ describe('recommendations from the server', () => {
     t.offer()
     t.service.start('uuid-jarvis')
     await waitUntil(() => t.showing() !== null)
-    await t.service.respond('701', 'dismissed')
+    await t.service.respond('701', { response: 'dismiss', pauseToday: false })
     // The fake server stops offering it too, so offer it again as a faulty server might.
     t.fake.recommendationAnswers.delete(701)
     const pending = () =>
@@ -224,8 +283,10 @@ describe('recommendations from the server', () => {
     t.offer()
     t.service.start('uuid-jarvis')
     await waitUntil(() => t.showing() !== null)
-    t.fake.recommendationAnswers.set(701, 'approved')
-    expect(await t.service.respond('701', 'rejected')).toMatchObject({
+    t.fake.recommendationAnswers.set(701, 'execute')
+    expect(
+      await t.service.respond('701', { response: 'reject_once', pauseToday: false })
+    ).toMatchObject({
       ok: false,
       error: { code: 'conflict' }
     })
@@ -240,9 +301,14 @@ describe('recommendations from the server', () => {
     t.service.start('uuid-jarvis')
     await waitUntil(() => t.showing() !== null)
     t.fake.recommendationFaults = [503]
-    expect(await t.service.respond('701', 'approved')).toMatchObject({ ok: false })
+    expect(
+      await t.service.respond('701', { response: 'execute', pauseToday: false })
+    ).toMatchObject({ ok: false })
     expect(t.showing()).toMatchObject({ recommendationId: '701', phase: 'offered' })
-    expect(await t.service.respond('701', 'approved')).toEqual({ ok: true, value: undefined })
+    expect(await t.service.respond('701', { response: 'execute', pauseToday: false })).toEqual({
+      ok: true,
+      value: undefined
+    })
     expect(t.fake.commands).toHaveLength(2)
     await t.service.stop()
   })
@@ -253,8 +319,8 @@ describe('recommendations from the server', () => {
     t.service.start('uuid-jarvis')
     await waitUntil(() => t.showing() !== null)
     const results = await Promise.all([
-      t.service.respond('701', 'approved'),
-      t.service.respond('701', 'approved')
+      t.service.respond('701', { response: 'execute', pauseToday: false }),
+      t.service.respond('701', { response: 'execute', pauseToday: false })
     ])
     expect(results.filter((result) => result.ok)).toHaveLength(1)
     expect(t.fake.commands).toHaveLength(2) // one approval, two apps

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { Result } from '../../src/shared/contracts/common'
-import type { RecommendationCard } from '../../src/shared/contracts/recommendation'
+import { RECOMMENDATION_RESPONSES } from '../../src/shared/contracts/recommendation'
+import type {
+  RecommendationAnswer,
+  RecommendationCard
+} from '../../src/shared/contracts/recommendation'
 import type {
   PendingRecommendation,
   RecommendationApiPort,
@@ -25,7 +29,7 @@ class FakeApi implements RecommendationApiPort {
   offers: (PendingRecommendation | null)[] = []
   pendingError: { code: 'unavailable' | 'cancelled' } | null = null
   outcomes: (RespondOutcome | 'hold')[] = []
-  readonly answers: { id: string; response: string }[] = []
+  readonly answers: { id: string; answer: RecommendationAnswer }[] = []
   pendingCalls = 0
   held: ((outcome: RespondOutcome) => void) | null = null
   async pending(): Promise<Result<PendingRecommendation | null>> {
@@ -34,8 +38,8 @@ class FakeApi implements RecommendationApiPort {
       return { ok: false, error: { code: this.pendingError.code, message: 'x' } }
     return { ok: true, value: this.offers.shift() ?? null }
   }
-  async respond(id: string, response: string): Promise<RespondOutcome> {
-    this.answers.push({ id, response })
+  async respond(id: string, answer: RecommendationAnswer): Promise<RespondOutcome> {
+    this.answers.push({ id, answer })
     const next = this.outcomes.shift() ?? { kind: 'recorded' as const }
     if (next === 'hold')
       return new Promise<RespondOutcome>((resolve) => {
@@ -186,7 +190,7 @@ describe('offering', () => {
     await running(t)
     const stale = t.live()[0]!
     // The first card is answered, a second one is offered, then the first one's timer fires late.
-    await t.service.respond('701', 'dismissed')
+    await t.service.respond('701', { response: 'dismiss', pauseToday: false })
     t.api.offers = [recommendation({ recommendationId: '702' })]
     t.service.stop()
     t.service.start('u1')
@@ -287,8 +291,13 @@ describe('answering', () => {
   it('sends the answer, takes the card down and remembers it', async () => {
     const t = setup()
     await running(t)
-    expect(await t.service.respond('701', 'approved')).toEqual({ ok: true, value: undefined })
-    expect(t.api.answers).toEqual([{ id: '701', response: 'approved' }])
+    expect(await t.service.respond('701', { response: 'execute', pauseToday: false })).toEqual({
+      ok: true,
+      value: undefined
+    })
+    expect(t.api.answers).toEqual([
+      { id: '701', answer: { response: 'execute', pauseToday: false } }
+    ])
     expect(last(t.published)).toBeNull()
     expect(t.live()).toHaveLength(0)
     // The server offering the same one again is not shown again.
@@ -298,25 +307,34 @@ describe('answering', () => {
     await t.service.stop()
   })
 
-  it.each(['approved', 'snoozed', 'rejected', 'dismissed'] as const)(
-    'sends %s as it is',
-    async (response) => {
-      const t = setup()
-      await running(t)
-      await t.service.respond('701', response)
-      expect(t.api.answers[0]?.response).toBe(response)
-      await t.service.stop()
-    }
-  )
+  it.each(RECOMMENDATION_RESPONSES)('sends %s as it is', async (response) => {
+    const t = setup()
+    await running(t)
+    await t.service.respond('701', { response, pauseToday: false })
+    expect(t.api.answers[0]?.answer).toEqual({ response, pauseToday: false })
+    await t.service.stop()
+  })
+
+  it('sends "not today" with the answer, whatever the answer is', async () => {
+    const t = setup()
+    await running(t)
+    await t.service.respond('701', { response: 'reject_once', pauseToday: true })
+    expect(t.api.answers).toEqual([
+      { id: '701', answer: { response: 'reject_once', pauseToday: true } }
+    ])
+    await t.service.stop()
+  })
 
   it('shows the card as being answered, and refuses a second answer meanwhile', async () => {
     const t = setup()
     await running(t)
     t.api.outcomes = ['hold']
-    const first = t.service.respond('701', 'approved')
+    const first = t.service.respond('701', { response: 'execute', pauseToday: false })
     await waitUntil(() => t.api.held !== null)
     expect(last(t.published)).toMatchObject({ phase: 'responding' })
-    expect(await t.service.respond('701', 'rejected')).toMatchObject({
+    expect(
+      await t.service.respond('701', { response: 'reject_once', pauseToday: false })
+    ).toMatchObject({
       ok: false,
       error: { code: 'conflict' }
     })
@@ -332,26 +350,34 @@ describe('answering', () => {
     t.api.outcomes = [
       { kind: 'failed', error: { code: 'unavailable', message: '서버에 연결하지 못했어요.' } }
     ]
-    expect(await t.service.respond('701', 'approved')).toMatchObject({
+    expect(
+      await t.service.respond('701', { response: 'execute', pauseToday: false })
+    ).toMatchObject({
       ok: false,
       error: { code: 'unavailable' }
     })
     expect(last(t.published)).toMatchObject({ recommendationId: '701', phase: 'offered' })
     // And it can be answered again.
-    expect(await t.service.respond('701', 'approved')).toEqual({ ok: true, value: undefined })
+    expect(await t.service.respond('701', { response: 'execute', pauseToday: false })).toEqual({
+      ok: true,
+      value: undefined
+    })
     expect(t.api.answers).toHaveLength(2)
     await t.service.stop()
   })
 
   it.each([
     ['already_responded', 'conflict'],
+    ['target_unavailable', 'conflict'],
     ['expired', 'expired'],
     ['not_found', 'not_found']
   ] as const)('takes the card down when the server says it is %s', async (reason, code) => {
     const t = setup()
     await running(t)
     t.api.outcomes = [{ kind: 'gone', reason }]
-    expect(await t.service.respond('701', 'approved')).toMatchObject({ ok: false, error: { code } })
+    expect(
+      await t.service.respond('701', { response: 'execute', pauseToday: false })
+    ).toMatchObject({ ok: false, error: { code } })
     expect(last(t.published)).toBeNull()
     t.api.offers = [recommendation()]
     await t.service.poll(signal())
@@ -359,10 +385,26 @@ describe('answering', () => {
     await t.service.stop()
   })
 
+  it.each([
+    ['target_unavailable', '열 수 있는 앱이 없어서 추천을 닫았어요.'],
+    ['already_responded', '이미 처리된 추천이에요.']
+  ] as const)('words a 409 that is %s differently from the other', async (reason, message) => {
+    const t = setup()
+    await running(t)
+    t.api.outcomes = [{ kind: 'gone', reason }]
+    expect(await t.service.respond('701', { response: 'execute', pauseToday: false })).toEqual({
+      ok: false,
+      error: { code: 'conflict', message }
+    })
+    await t.service.stop()
+  })
+
   it('refuses an answer for a recommendation that is not on offer, without asking the server', async () => {
     const t = setup()
     await running(t)
-    expect(await t.service.respond('999', 'approved')).toMatchObject({
+    expect(
+      await t.service.respond('999', { response: 'execute', pauseToday: false })
+    ).toMatchObject({
       ok: false,
       error: { code: 'not_found' }
     })
@@ -373,7 +415,9 @@ describe('answering', () => {
 
   it('refuses an answer when nothing is on offer or the service is not running', async () => {
     const t = setup()
-    expect(await t.service.respond('701', 'approved')).toMatchObject({ ok: false })
+    expect(
+      await t.service.respond('701', { response: 'execute', pauseToday: false })
+    ).toMatchObject({ ok: false })
     expect(t.api.answers).toHaveLength(0)
   })
 
@@ -381,7 +425,9 @@ describe('answering', () => {
     const t = setup()
     await running(t)
     t.ref.now = T0 + 60_000
-    expect(await t.service.respond('701', 'approved')).toMatchObject({
+    expect(
+      await t.service.respond('701', { response: 'execute', pauseToday: false })
+    ).toMatchObject({
       ok: false,
       error: { code: 'expired' }
     })
@@ -407,7 +453,7 @@ describe('signing out', () => {
     const t = setup()
     await running(t)
     t.api.outcomes = ['hold']
-    const pending = t.service.respond('701', 'approved')
+    const pending = t.service.respond('701', { response: 'execute', pauseToday: false })
     await waitUntil(() => t.api.held !== null)
     await t.service.stop()
     t.api.held!({ kind: 'recorded' })
@@ -418,7 +464,7 @@ describe('signing out', () => {
   it('does not carry the answered list over to the next user', async () => {
     const t = setup()
     await running(t)
-    await t.service.respond('701', 'dismissed')
+    await t.service.respond('701', { response: 'dismiss', pauseToday: false })
     await t.service.stop()
     t.api.offers = [recommendation()]
     t.service.start('u2')
@@ -458,7 +504,7 @@ describe('signing out', () => {
     const t = setup()
     await running(t)
     t.api.outcomes = ['hold']
-    const pending = t.service.respond('701', 'approved')
+    const pending = t.service.respond('701', { response: 'execute', pauseToday: false })
     await waitUntil(() => t.api.held !== null)
     t.service.start('u1')
     t.service.start('u1')

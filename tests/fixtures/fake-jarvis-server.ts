@@ -117,8 +117,12 @@ export class FakeJarvisServer {
       display_name: string
     }[]
   } | null = null
-  /** Answers recorded for recommendations, by ID. */
+  /** Answers recorded for recommendations, by ID: the `response` value that was sent. */
   readonly recommendationAnswers = new Map<number, string>()
+  /** Whether "not today" came with the recorded answer, by ID. */
+  readonly recommendationPauseToday = new Map<number, boolean>()
+  /** Executing finds nothing it can open (the server's 409 `RECOMMENDATION_TARGET_UNAVAILABLE`). */
+  recommendationTargetUnavailable = false
   /** Statuses for the next recommendation answers (consumed in order), or 'ok'. */
   recommendationFaults: (number | 'ok')[] = []
   /** Send `requested_at` without a zone, like the real server. */
@@ -682,8 +686,14 @@ export class FakeJarvisServer {
       if (typeof fault === 'number') return error(fault, 'FAULT')
       const offer = this.recommendation
       if (!offer || offer.recommendation_id !== id) return error(404, 'RESOURCE_NOT_FOUND')
-      const answer = String(body?.response)
-      if (!['approved', 'snoozed', 'rejected', 'dismissed'].includes(answer))
+      // The server takes exactly these (the old `approved`/`rejected`/`dismissed` it only converts
+      // for compatibility, and this client no longer sends them), and `pause_today` as a boolean.
+      const sent: Record<string, unknown> = body ?? {}
+      const answer = String(sent.response)
+      if (!['execute', 'snoozed', 'reject_for_7_days', 'reject_once', 'dismiss'].includes(answer))
+        return error(422, 'VALIDATION_ERROR')
+      const extra = Object.keys(sent).some((key) => key !== 'response' && key !== 'pause_today')
+      if (extra || (sent.pause_today !== undefined && typeof sent.pause_today !== 'boolean'))
         return error(422, 'VALIDATION_ERROR')
       const prior = this.recommendationAnswers.get(id)
       if (prior !== undefined && prior !== answer)
@@ -691,9 +701,12 @@ export class FakeJarvisServer {
       if (prior === undefined && Date.parse(offer.expires_at) <= Date.now())
         return error(410, 'RECOMMENDATION_EXPIRED')
       const created: { command_id: number; command_type: string }[] = []
+      if (prior === undefined && answer === 'execute' && this.recommendationTargetUnavailable)
+        return error(409, 'RECOMMENDATION_TARGET_UNAVAILABLE')
       if (prior === undefined) {
         this.recommendationAnswers.set(id, answer)
-        if (answer === 'approved')
+        this.recommendationPauseToday.set(id, sent.pause_today === true)
+        if (answer === 'execute')
           for (const target of offer.targets) {
             const command_id = 9000 + this.commands.length
             this.commands.push({
@@ -707,7 +720,14 @@ export class FakeJarvisServer {
             created.push({ command_id, command_type: 'apps.launch' })
           }
       }
-      return send(200, { recommendation_id: id, response_status: answer, commands: created })
+      const status =
+        {
+          execute: 'approved',
+          reject_for_7_days: 'rejected',
+          reject_once: 'rejected',
+          dismiss: 'dismissed'
+        }[answer] ?? 'snoozed'
+      return send(200, { recommendation_id: id, response_status: status, commands: created })
     }
     if (path === '/auth/logout') {
       if (!valid) return error(401, 'INVALID_SESSION')

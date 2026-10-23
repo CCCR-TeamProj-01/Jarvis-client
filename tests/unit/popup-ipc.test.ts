@@ -2,13 +2,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { registerPopupIpc } from '../../src/main/ipc/popup-ipc'
 import { createPopupBridge } from '../../src/preload/popup-bridge'
 import type { Result } from '../../src/shared/contracts/common'
+import { RECOMMENDATION_RESPONSES } from '../../src/shared/contracts/recommendation'
 import type {
-  RecommendationCard,
-  RecommendationResponse
+  RecommendationAnswer,
+  RecommendationCard
 } from '../../src/shared/contracts/recommendation'
 import { POPUP_CHANNELS } from '../../src/shared/ipc/channels'
 
 const ENTRY = 'file:///popup/index.html'
+const EXECUTE: RecommendationAnswer = { response: 'execute', pauseToday: false }
 const card: RecommendationCard = {
   recommendationId: '701',
   reason: '자주 함께 쓰는 앱이에요.',
@@ -23,11 +25,11 @@ function contents() {
 }
 const from = (sender: unknown, senderFrame: unknown) => ({ sender, senderFrame }) as never
 
-function setup(respond?: (id: string, response: RecommendationResponse) => Promise<Result<void>>) {
+function setup(respond?: (id: string, answer: RecommendationAnswer) => Promise<Result<void>>) {
   const { frame, wc } = contents()
   const handlers = new Map<string, (event: never, ...args: unknown[]) => unknown>()
   const listeners = new Map<string, (event: never, ...args: unknown[]) => void>()
-  const answers = vi.fn<(id: string, response: RecommendationResponse) => Promise<Result<void>>>(
+  const answers = vi.fn<(id: string, answer: RecommendationAnswer) => Promise<Result<void>>>(
     respond ?? (async () => ({ ok: true, value: undefined }))
   )
   const resize = vi.fn<(height: number) => void>()
@@ -59,17 +61,22 @@ describe('popup IPC', () => {
     expect(await t.invoke(POPUP_CHANNELS.snapshot, from(t.wc, { ...t.frame }))).toBeNull()
   })
 
-  it.each(['approved', 'snoozed', 'rejected', 'dismissed'] as const)(
-    'passes %s on from the popup page',
-    async (response) => {
-      const t = setup()
-      expect(await t.invoke(POPUP_CHANNELS.respond, from(t.wc, t.frame), '701', response)).toEqual({
-        ok: true,
-        value: undefined
-      })
-      expect(t.answers).toHaveBeenCalledExactlyOnceWith('701', response)
-    }
-  )
+  it.each(RECOMMENDATION_RESPONSES)('passes %s on from the popup page', async (response) => {
+    const t = setup()
+    const answer = { response, pauseToday: false }
+    expect(await t.invoke(POPUP_CHANNELS.respond, from(t.wc, t.frame), '701', answer)).toEqual({
+      ok: true,
+      value: undefined
+    })
+    expect(t.answers).toHaveBeenCalledExactlyOnceWith('701', answer)
+  })
+
+  it('passes "not today" on with the answer', async () => {
+    const t = setup()
+    const answer = { response: 'dismiss', pauseToday: true }
+    await t.invoke(POPUP_CHANNELS.respond, from(t.wc, t.frame), '701', answer)
+    expect(t.answers).toHaveBeenCalledExactlyOnceWith('701', answer)
+  })
 
   it('passes a failure on as it is', async () => {
     const failure = {
@@ -77,7 +84,7 @@ describe('popup IPC', () => {
       error: { code: 'expired', message: '추천 시간이 지났어요.' }
     } as const
     const t = setup(async () => failure)
-    expect(await t.invoke(POPUP_CHANNELS.respond, from(t.wc, t.frame), '701', 'approved')).toEqual(
+    expect(await t.invoke(POPUP_CHANNELS.respond, from(t.wc, t.frame), '701', EXECUTE)).toEqual(
       failure
     )
   })
@@ -85,7 +92,7 @@ describe('popup IPC', () => {
   it('refuses an answer from anywhere else, without acting on it', async () => {
     const t = setup()
     for (const sender of [from({}, t.frame), from(t.wc, { ...t.frame }), from(t.wc, null)]) {
-      expect(await t.invoke(POPUP_CHANNELS.respond, sender, '701', 'approved')).toMatchObject({
+      expect(await t.invoke(POPUP_CHANNELS.respond, sender, '701', EXECUTE)).toMatchObject({
         ok: false,
         error: { code: 'permission_denied' }
       })
@@ -96,13 +103,17 @@ describe('popup IPC', () => {
   it.each([
     ['no arguments', []],
     ['one argument', ['701']],
-    ['three arguments', ['701', 'approved', 'x']],
-    ['an empty ID', ['', 'approved']],
-    ['an ID with surrounding space', [' 701', 'approved']],
-    ['a number for an ID', [701, 'approved']],
-    ['an unknown answer', ['701', 'maybe']],
-    ['a wrong-case answer', ['701', 'Approved']],
-    ['an object for the answer', ['701', { response: 'approved' }]],
+    ['three arguments', ['701', EXECUTE, 'x']],
+    ['an empty ID', ['', EXECUTE]],
+    ['an ID with surrounding space', [' 701', EXECUTE]],
+    ['a number for an ID', [701, EXECUTE]],
+    ['a bare string for the answer', ['701', 'execute']],
+    ['an unknown answer', ['701', { ...EXECUTE, response: 'maybe' }]],
+    ['a retired answer name', ['701', { ...EXECUTE, response: 'approved' }]],
+    ['a wrong-case answer', ['701', { ...EXECUTE, response: 'Execute' }]],
+    ['no "not today" choice', ['701', { response: 'execute' }]],
+    ['a "not today" that is not a boolean', ['701', { ...EXECUTE, pauseToday: 1 }]],
+    ['an extra field in the answer', ['701', { ...EXECUTE, apps: ['x'] }]],
     ['null', [null, null]]
   ])('refuses %s', async (_name, args) => {
     const t = setup()
@@ -185,17 +196,17 @@ describe('popup bridge', () => {
 
   it('sends an answer to Main and returns what Main says', async () => {
     const t = transport(async () => ({ ok: true, value: undefined }))
-    expect(await createPopupBridge(t.ipc).respond('701', 'approved')).toEqual({
+    expect(await createPopupBridge(t.ipc).respond('701', EXECUTE)).toEqual({
       ok: true,
       value: undefined
     })
-    expect(t.ipc.invoke).toHaveBeenCalledExactlyOnceWith(POPUP_CHANNELS.respond, '701', 'approved')
+    expect(t.ipc.invoke).toHaveBeenCalledExactlyOnceWith(POPUP_CHANNELS.respond, '701', EXECUTE)
   })
 
   it("returns Main's failure with its wording", async () => {
     const failure = { ok: false, error: { code: 'expired', message: '추천 시간이 지났어요.' } }
     const t = transport(async () => failure)
-    expect(await createPopupBridge(t.ipc).respond('701', 'approved')).toEqual(failure)
+    expect(await createPopupBridge(t.ipc).respond('701', EXECUTE)).toEqual(failure)
   })
 
   it("answers with a fixed failure when Main's reply is malformed or the call fails", async () => {
@@ -206,7 +217,7 @@ describe('popup bridge', () => {
         throw new Error('channel closed')
       }
     ]) {
-      const result = await createPopupBridge(transport(invoke).ipc).respond('701', 'approved')
+      const result = await createPopupBridge(transport(invoke).ipc).respond('701', EXECUTE)
       expect(result).toMatchObject({ ok: false, error: { code: 'unavailable' } })
       expect(JSON.stringify(result)).not.toContain('channel closed')
     }
@@ -215,11 +226,15 @@ describe('popup bridge', () => {
   it('does not send what Main would refuse', async () => {
     const t = transport()
     const bridge = createPopupBridge(t.ipc)
-    expect(await bridge.respond('701', 'maybe' as never)).toMatchObject({
+    expect(await bridge.respond('701', { ...EXECUTE, response: 'maybe' as never })).toMatchObject({
       ok: false,
       error: { code: 'invalid_input' }
     })
-    expect(await bridge.respond(701 as never, 'approved')).toMatchObject({ ok: false })
+    expect(await bridge.respond('701', 'execute' as never)).toMatchObject({ ok: false })
+    expect(await bridge.respond('701', { response: 'execute' } as never)).toMatchObject({
+      ok: false
+    })
+    expect(await bridge.respond(701 as never, EXECUTE)).toMatchObject({ ok: false })
     expect(t.ipc.invoke).not.toHaveBeenCalled()
   })
 

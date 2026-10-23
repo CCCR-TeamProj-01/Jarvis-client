@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ServerClient } from '../../src/main/connection/server-client'
 import type { FetchLike } from '../../src/main/connection/server-client'
 import { RecommendationApi } from '../../src/main/recommendation/recommendation-api'
+import { RECOMMENDATION_RESPONSES } from '../../src/shared/contracts/recommendation'
 
 const BASE = 'http://127.0.0.1:8001/api/v1'
 const json = (body: unknown, status = 200) =>
@@ -141,17 +142,37 @@ describe('asking for a recommendation', () => {
 })
 
 describe('answering a recommendation', () => {
-  it.each(['approved', 'snoozed', 'rejected', 'dismissed'] as const)(
-    'sends %s and reports it recorded',
-    async (response) => {
-      const t = api(() => json({ recommendation_id: 701, response_status: response, commands: [] }))
-      expect(await t.api.respond('701', response)).toEqual({ kind: 'recorded' })
-      const [url, init] = t.fetch.mock.calls[0]!
-      expect(url).toBe(`${BASE}/recommendations/701/responses`)
-      expect(init.method).toBe('POST')
-      expect(JSON.parse(String(init.body))).toEqual({ response })
-    }
-  )
+  it.each(RECOMMENDATION_RESPONSES)('sends %s and reports it recorded', async (response) => {
+    const t = api(() => json({ recommendation_id: 701, response_status: response, commands: [] }))
+    expect(await t.api.respond('701', { response, pauseToday: false })).toEqual({
+      kind: 'recorded'
+    })
+    const [url, init] = t.fetch.mock.calls[0]!
+    expect(url).toBe(`${BASE}/recommendations/701/responses`)
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual({ response, pause_today: false })
+  })
+
+  it('sends "not today" as pause_today, and only the fields the server accepts', async () => {
+    const t = api(() => json({ recommendation_id: 701, response_status: 'rejected', commands: [] }))
+    await t.api.respond('701', { response: 'reject_for_7_days', pauseToday: true })
+    expect(JSON.parse(String(t.fetch.mock.calls[0]![1].body))).toEqual({
+      response: 'reject_for_7_days',
+      pause_today: true
+    })
+  })
+
+  it('tells "nothing it can open" apart from "already answered", though both are a 409', async () => {
+    const unavailable = api(() => envelope(409, 'RECOMMENDATION_TARGET_UNAVAILABLE'))
+    expect(
+      await unavailable.api.respond('701', { response: 'execute', pauseToday: false })
+    ).toEqual({ kind: 'gone', reason: 'target_unavailable' })
+    const answered = api(() => envelope(409, 'RECOMMENDATION_ALREADY_RESPONDED'))
+    expect(await answered.api.respond('701', { response: 'execute', pauseToday: false })).toEqual({
+      kind: 'gone',
+      reason: 'already_responded'
+    })
+  })
 
   it.each([
     [409, 'RECOMMENDATION_ALREADY_RESPONDED', 'already_responded'],
@@ -159,7 +180,10 @@ describe('answering a recommendation', () => {
     [404, 'RESOURCE_NOT_FOUND', 'not_found']
   ] as const)('reports %i as gone (%s)', async (status, code, reason) => {
     const t = api(() => envelope(status, code))
-    expect(await t.api.respond('701', 'approved')).toEqual({ kind: 'gone', reason })
+    expect(await t.api.respond('701', { response: 'execute', pauseToday: false })).toEqual({
+      kind: 'gone',
+      reason
+    })
   })
 
   it.each([
@@ -174,7 +198,7 @@ describe('answering a recommendation', () => {
     ]
   ])('keeps the card for later after %s', async (_name, respond) => {
     const t = api(respond)
-    expect(await t.api.respond('701', 'approved')).toMatchObject({
+    expect(await t.api.respond('701', { response: 'execute', pauseToday: false })).toMatchObject({
       kind: 'failed',
       error: { code: expect.any(String) }
     })
@@ -182,11 +206,14 @@ describe('answering a recommendation', () => {
 
   it('does not send for an ID that is not a number', async () => {
     const t = api(() => json({}))
-    expect(await t.api.respond('701/../x', 'approved')).toEqual({
+    expect(await t.api.respond('701/../x', { response: 'execute', pauseToday: false })).toEqual({
       kind: 'gone',
       reason: 'not_found'
     })
-    expect(await t.api.respond('', 'approved')).toEqual({ kind: 'gone', reason: 'not_found' })
+    expect(await t.api.respond('', { response: 'execute', pauseToday: false })).toEqual({
+      kind: 'gone',
+      reason: 'not_found'
+    })
     expect(t.fetch).not.toHaveBeenCalled()
   })
 
@@ -194,7 +221,7 @@ describe('answering a recommendation', () => {
     const t = api(() => {
       throw new TypeError('reset')
     })
-    const result = await t.api.respond('701', 'approved')
+    const result = await t.api.respond('701', { response: 'execute', pauseToday: false })
     expect(result.kind).toBe('failed')
   })
 })

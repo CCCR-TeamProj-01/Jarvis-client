@@ -80,11 +80,11 @@ export function createRecommendationPopup(wiring: PopupWiring): { dispose(): voi
       getContents: () => contents,
       entryUrl: wiring.entryUrl,
       getState: () => popup.getState(),
-      respond: async (recommendationId, response) => {
+      respond: async (recommendationId, answer) => {
         const answered = await wiring.interaction.dispatch({
           type: 'recommendation.respond',
           recommendationId,
-          response
+          answer
         })
         return answered.ok ? { ok: true, value: undefined } : answered
       },
