@@ -33,7 +33,7 @@
 | 음성 출력 | `POST /speech/syntheses`(답변 텍스트 → 오디오) | 음성 |
 | 일정 조회 | `GET /me/settings`, `GET /calendar/events?from&to&include_todos=true` | 일정 탭(F-039) |
 | 허용 앱 | `GET·PATCH /device/apps` | 설정 탭(F-046) |
-| 설정 | `PATCH /me/settings` | 후속(설정 화면·수집 동의) |
+| 설정 | `PATCH /me/settings`(수집 동의 두 값만, F-047) | 수집 동의는 설정 탭(F-047), 시간대·브리핑·진단은 후속 |
 | 활동·삭제 | `POST /activities/batches`, `POST·GET /history-deletions` | 후속 |
 | 추천 | `GET /recommendations/pending`, `POST /recommendations/{id}/responses` | 추천 클라이언트(서버 구현 전, 명세 기반) |
 
@@ -192,7 +192,7 @@ F-034([#72](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/72))에서 
 - 거절: `requested_at`(서버 시각, 응답의 `Date`로 시계 차이를 보정)이 60초를 넘은 명령은 시작하지 않고 `failed`(`timeout`, `expired`)로 보고한다. 번역할 수 없는 명령은 `rejected`로 보고한다. 형식이 맞지 않아도 `command_id`가 있으면 `rejected`(`validation`)로 답하고, 그것도 없으면 건너뛴다. 한 항목의 문제가 나머지를 막지 않는다.
 - 보고: `POST /commands/{command_id}/results`로 보낸다(최초 201, 같은 결과 200). 보내지 못하면 `finished`로 남겨 다음 라운드(재시작 후 포함)에 같은 본문을 다시 보낸다. 서버가 받을 수 없다고 확정한 응답(403·404·409·422)이면 더 보내지 않고 닫는다. 로그에는 고정 문장만 남기며 명령의 내용을 쓰지 않는다.
 - 수명: 로그인하면 시작하고 로그아웃·세션 종료 시 멈추며 실행 중인 명령은 취소한다. 같은 사용자에게 다시 시작을 요청해도 실행 중인 명령을 건드리지 않는다. 다른 계정이 로그인하면 이전 사용자의 저널 기록을 지운다. 멈춘 동안 만든 결과는 저널에 남아 같은 사용자가 다시 로그인하면 보낸다.
-- 활동: 앱을 실행하거나 앞으로 가져온 명령이 `confirmed`로 성공하면 결과에 `activity`(`event_key`·`event_type`·`occurred_at`·`collection_revision`·`running_apps`)를 함께 보낸다. 서버는 `activity`를 최초 보고에서만 기록하므로(같은 결과를 다시 보낼 때는 상태·시각·메시지만 비교하고 `activity`는 무시한다) 결과를 만들 때 한 번 정해 저널에 고정한다. 규칙은 [명령 결과의 활동 보고](../features/activity-recommendation.md#명령-결과의-활동-보고)를 따른다. 응답의 `activity_recorded`가 `false`여도 결과는 저장된 것이며 실패로 다루지 않고 고정 문장만 로그에 남긴다.
+- 활동: 앱을 실행하거나 앞으로 가져온 명령이 `confirmed`로 성공하면 결과에 `activity`(`event_key`·`event_type`·`occurred_at`·`collection_revision`·`running_apps`)를 함께 보낸다. 서버는 `activity`를 최초 보고에서만 기록하므로(같은 결과를 다시 보낼 때는 상태·시각·메시지만 비교하고 `activity`는 무시한다) 결과를 만들 때 한 번 정해 저널에 고정한다. 규칙은 [명령 결과의 활동 보고](../features/activity-recommendation.md#명령-결과의-활동-보고)를 따르고, 동의는 [수집 동의 설정 화면](../features/activity-recommendation.md#수집-동의-설정-화면-f-047)의 서비스를 거쳐 읽어 로컬에서 철회한 값이 즉시 반영된다. `PATCH /me/settings`는 바꿀 플래그만 한 번 보내고(앱이 다시 보내지 않으며 같은 값이라 반복돼도 결과가 같다), 4xx는 바뀌지 않은 것으로, 응답 없음·5xx는 결과 불명으로 구분한다. 응답의 `activity_recorded`가 `false`여도 결과는 저장된 것이며 실패로 다루지 않고 고정 문장만 로그에 남긴다.
 - 화면 표시: 명령이 끝나면(거절·만료·실행 중단 포함) 결과를 사용자 문장과 상태(성공·요청함·확인 못 함·실패)로 만들어 알린다. 실행한 명령은 로컬 보고(`describeToolReport`)로, 실행하지 못한 명령은 결과에 담긴 고정 문장과 명령 이름으로 만든다. 서버에 보내는 결과 본문과 별개이며 저널이 이미 본 명령·재전송·로그아웃으로 취소된 실행은 알리지 않는다. 알림 때문에 결과 보고가 지연되거나 실패하지 않는다. 규칙과 문구는 [상태 오버레이·메인 창](../features/interaction-ui.md#메인-창-구조-구현-현황)을 따른다.
 - `apps.list`·`system.status` 값 보고는 아직 없다.
 
