@@ -1,3 +1,4 @@
+import type { ResultOutcome } from '../../shared/contracts/interaction'
 import type { ClientError, Result, Unsubscribe } from '../../shared/contracts/common'
 import type { Capability, ToolExecutionReport } from '../../shared/contracts/tools'
 import type { LocalExecutionOptions } from '../ports'
@@ -67,7 +68,15 @@ export interface ConversationSnapshot {
 export type ConversationNotice =
   | { type: 'user'; requestId: string; text: string; modality: TurnModality }
   | { type: 'assistant'; requestId: string; text: string }
-  | { type: 'tool'; requestId: string; executionId: string; text: string; ok: boolean }
+  | {
+      type: 'tool'
+      requestId: string
+      executionId: string
+      text: string
+      ok: boolean
+      /** How far it is known to have gone: it happened, was only requested, is not known, or failed. */
+      outcome: ResultOutcome
+    }
   | { type: 'problem'; error: ClientError }
 
 export interface TurnResult {

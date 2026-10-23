@@ -37,6 +37,7 @@ import { createRemoteSpeech } from '../speech/remote-speech/create-remote-speech
 import { createRecommendationService } from '../recommendation/create-recommendation-service'
 import { createRecommendationPopup } from '../recommendation/create-popup'
 import { createOpenAppsCheck } from '../recommendation/open-apps'
+import { ToolNotices } from '../tools/tool-notices'
 import { createToolStack } from '../tools/create-tools'
 import type { ToolStack } from '../tools/create-tools'
 import { startDevSelfTests } from './dev-selftests'
@@ -62,6 +63,8 @@ export class ApplicationManager {
   readonly localState: LocalStatePort
   readonly sensors: SensorManager
   readonly tools: ToolStack
+  /** Where the results of what the server's commands did here are announced. */
+  private readonly toolNotices = new ToolNotices()
   readonly voice: VoiceStack
   readonly handTracking: HandTrackingService
   readonly gesture: GestureController
@@ -196,6 +199,7 @@ export class ApplicationManager {
           executor: this.tools.executor,
           files: new NodeLocalFiles(app.getPath('userData')),
           appControl: this.tools.appControl,
+          announce: (notice) => this.toolNotices.publish(notice),
           platform: process.platform
         })
       : null
@@ -272,7 +276,8 @@ export class ApplicationManager {
       tools: this.tools,
       voice: this.voice,
       conversation: this.conversation,
-      gesture: this.gesture
+      gesture: this.gesture,
+      toolNotices: this.toolNotices
     })
     // The status overlay watches the same state; it can be switched off while developing.
     if (app.isPackaged || process.env.JARVIS_NO_OVERLAY !== '1')
@@ -282,6 +287,7 @@ export class ApplicationManager {
         interaction: this.interaction,
         conversation: this.conversation,
         speech: this.voice.session,
+        toolNotices: this.toolNotices,
         gesture: this.gesture,
         stopConversation: () => void this.interaction.dispatch({ type: 'conversation.stop' })
       }).dispose

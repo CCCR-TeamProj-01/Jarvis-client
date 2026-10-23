@@ -1,4 +1,5 @@
 import type { Result } from '../../shared/contracts/common'
+import type { ResultOutcome } from '../../shared/contracts/interaction'
 import type { ToolExecutionReport, ToolInvocation } from '../../shared/contracts/tools'
 import type { LocalExecutionOptions } from '../ports'
 import type { ServerClock } from '../connection/server-clock'
@@ -11,13 +12,25 @@ import {
 } from './activity'
 import type { CollectionConsent } from './activity'
 import type { CollectionConsentPort } from './collection-consent'
+import { describeToolReport } from '../tools/describe-report'
+import type { ReportSummary } from '../tools/describe-report'
 import type { CommandApiPort, PendingItem } from './command-api'
 import type { CommandJournal, JournalEntry } from './command-journal'
 import { CommandResultSchema } from './command-result'
 import type { CommandResult } from './command-result'
+import { summarizeUnrun } from './result-summary'
 import { invocationFor, translateCommand } from './command-translator'
 import { expiredResult, interruptedResult, rejectedResult, resultFromReport } from './result-mapper'
 import type { ServerCommand } from './server-command'
+
+/** What became of a command, in the words shown to the user. */
+export interface CommandFinished {
+  commandId: string
+  attemptNo: number
+  text: string
+  ok: boolean
+  outcome: ResultOutcome
+}
 
 export interface CommandServiceOptions {
   api: CommandApiPort
@@ -36,6 +49,11 @@ export interface CommandServiceOptions {
   /** Resolves after `ms`, or early when the signal aborts. */
   sleep(ms: number, signal: AbortSignal): Promise<void>
   displayName?(osAppId: string): string | undefined
+  /**
+   * A command just finished (or was refused) on this computer. Called once per command, when it is
+   * done: not for one the journal had already seen, and not once the service was stopped.
+   */
+  onFinished?(finished: CommandFinished): void
   /**
    * What is told the server about the apps used, for the history and recommendations. Left out:
    * no activity is ever reported.
@@ -186,14 +204,24 @@ export class CommandService {
       return 'skipped'
     }
 
-    const result = await this.resultFor(userId, item, startedAtMs, signal)
+    const { result, summary } = await this.resultFor(userId, item, startedAtMs, signal)
     const finished = await journal.finish(key, result)
     if (!finished.ok) this.log('명령 결과를 기록하지 못했어요.')
     if (signal.aborted) return 'done'
+    this.announce(key, summary)
     const entry = await journal.get(key)
     if (entry.ok && entry.value?.state === 'finished')
       await this.deliver(userId, entry.value, signal)
     return 'done'
+  }
+
+  /** Tells whoever shows results that this command is done. A listener's failure is no one else's. */
+  private announce(key: { commandId: string; attemptNo: number }, summary: ReportSummary): void {
+    try {
+      this.options.onFinished?.({ ...key, ...summary })
+    } catch {
+      this.log('명령 결과를 화면에 알리지 못했어요.')
+    }
   }
 
   private async resultFor(
@@ -201,23 +229,33 @@ export class CommandService {
     item: PendingItem,
     startedAtMs: number,
     signal: AbortSignal
-  ): Promise<CommandResult> {
+  ): Promise<{ result: CommandResult; summary: ReportSummary }> {
     const timingNow = () => ({ startedAtMs, finishedAtMs: this.options.now() })
+    /** A command that did not run: its result and the words for it. */
+    const unrun = (commandType: string | null, result: CommandResult) => ({
+      result,
+      summary: summarizeUnrun(commandType, result)
+    })
     if (item.kind === 'malformed')
-      return rejectedResult(
-        { attempt_no: item.attemptNo },
-        {
-          failureStage: 'validation',
-          errorCode: 'invalid_input',
-          message: '명령의 형식이 올바르지 않아 실행하지 않았어요.'
-        },
-        timingNow()
+      return unrun(
+        null,
+        rejectedResult(
+          { attempt_no: item.attemptNo },
+          {
+            failureStage: 'validation',
+            errorCode: 'invalid_input',
+            message: '명령의 형식이 올바르지 않아 실행하지 않았어요.'
+          },
+          timingNow()
+        )
       )
     const command = item.command
-    if (this.isExpired(command)) return expiredResult(command, timingNow())
+    if (this.isExpired(command))
+      return unrun(command.command_type, expiredResult(command, timingNow()))
 
     const translated = translateCommand(command, this.options.platform)
-    if (!translated.ok) return rejectedResult(command, translated.rejection, timingNow())
+    if (!translated.ok)
+      return unrun(command.command_type, rejectedResult(command, translated.rejection, timingNow()))
 
     // What the user allowed is read before anything runs, and nothing is looked at without it.
     const tool = translated.value.command.tool
@@ -234,7 +272,7 @@ export class CommandService {
       )
     } catch {
       // The executor reports rather than throws. If it did, the command may have acted.
-      return interruptedResult(command, timingNow())
+      return unrun(command.command_type, interruptedResult(command, timingNow()))
     }
     // The times are fixed here: what is read afterwards must not move them.
     const result = resultFromReport(command, report, {
@@ -243,9 +281,12 @@ export class CommandService {
       app: translated.value.app,
       displayName: this.options.displayName
     })
-    return consent
-      ? await this.withActivity(report, result, consent, runningBefore, signal)
-      : result
+    return {
+      result: consent
+        ? await this.withActivity(report, result, consent, runningBefore, signal)
+        : result,
+      summary: describeToolReport(report, this.options.displayName)
+    }
   }
 
   /** The result with the activity it called for, if any. Failing to take the list never changes the result. */

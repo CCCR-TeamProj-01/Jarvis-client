@@ -104,12 +104,19 @@ describe('result lines', () => {
       requestId: 'r',
       executionId: 'e',
       text: '열었어요',
-      ok: true
+      ok: true,
+      outcome: 'success'
     })
     expect(events).toEqual([
       { type: 'result.available', requestId: 'r', role: 'user', text: '안녕' },
       { type: 'result.available', requestId: 'r', role: 'assistant', text: '반가워요' },
-      { type: 'result.available', requestId: 'r', role: 'tool', text: '열었어요' }
+      {
+        type: 'result.available',
+        requestId: 'r',
+        role: 'tool',
+        text: '열었어요',
+        outcome: 'success'
+      }
     ])
   })
 })

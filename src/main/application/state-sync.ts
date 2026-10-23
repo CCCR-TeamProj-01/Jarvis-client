@@ -5,6 +5,7 @@ import type { InteractionManager } from '../interaction/interaction-manager'
 import type { SensorManager } from '../sensors/sensor-manager'
 import type { VoiceStack } from '../speech/create-voice'
 import type { ToolStack } from '../tools/create-tools'
+import type { ToolNotices } from '../tools/tool-notices'
 import { releaseAll } from './release-all'
 
 interface StateSyncOptions {
@@ -15,6 +16,8 @@ interface StateSyncOptions {
   voice: Pick<VoiceStack, 'session'>
   conversation: ConversationManager
   gesture: GestureController
+  /** Results of what the server's commands did on this computer. */
+  toolNotices: Pick<ToolNotices, 'subscribe'>
 }
 
 /**
@@ -30,7 +33,8 @@ export function connectAppState({
   tools,
   voice,
   conversation,
-  gesture
+  gesture,
+  toolNotices
 }: StateSyncOptions): () => void {
   const speechSession = voice.session
 
@@ -96,6 +100,7 @@ export function connectAppState({
     }),
     speechSession.subscribe((snapshot) => interaction.setSpeechState(snapshot)),
     conversation.subscribeNotices((notice) => interaction.publishNotice(notice)),
+    toolNotices.subscribe((notice) => interaction.publishNotice(notice)),
     speechSession.subscribeNotices((notice) => interaction.publishNotice(notice))
   ]
   return releaseAll([

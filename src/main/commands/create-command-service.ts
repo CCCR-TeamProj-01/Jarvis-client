@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { Result } from '../../shared/contracts/common'
 import type { ServerClient } from '../connection/server-client'
+import { appCodeFor, appDisplayNameFor } from '../platform/app-codes'
 import type { AppControlPort } from '../platform/ports'
+import type { ToolNotice } from '../tools/tool-notices'
 import type { LocalFilesPort } from '../settings/ports'
 import { sleep } from '../sleep'
 import { CollectionConsentApi } from './collection-consent'
@@ -19,6 +21,8 @@ interface Selection {
   files: Pick<LocalFilesPort, 'read' | 'replace'>
   /** Tells which apps are running, for the activity reported with a result. */
   appControl: Pick<AppControlPort, 'list'>
+  /** Where the words for what a command did are announced. */
+  announce(notice: ToolNotice): void
   platform: NodeJS.Platform
 }
 
@@ -47,6 +51,7 @@ export function createCommandService({
   executor,
   files,
   appControl,
+  announce,
   platform
 }: Selection): CommandService | null {
   if (!api) return null
@@ -61,6 +66,20 @@ export function createCommandService({
       runningApps: runningAppIds(appControl),
       createId: () => `act_${randomUUID()}`
     },
+    displayName: (osAppId) => {
+      const code = appCodeFor(osAppId, platform)
+      return code ? appDisplayNameFor(code, platform) : undefined
+    },
+    onFinished: (finished) =>
+      announce({
+        type: 'tool',
+        // One line per command, whichever attempt it was.
+        requestId: `cmd-${finished.commandId}`,
+        executionId: `cmd-${finished.commandId}:${finished.attemptNo}`,
+        text: finished.text,
+        ok: finished.ok,
+        outcome: finished.outcome
+      }),
     now: Date.now,
     clock: api.clock,
     sleep,

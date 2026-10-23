@@ -4,6 +4,7 @@ import { runWhileSignedIn } from '../../src/main/auth/run-while-signed-in'
 import type { AuthManager } from '../../src/main/auth/auth-manager'
 import type { CommandServiceOptions } from '../../src/main/commands/command-service'
 import type { AppControlPort } from '../../src/main/platform/ports'
+import type { ToolNotice } from '../../src/main/tools/tool-notices'
 import type { LocalFilesPort } from '../../src/main/settings/ports'
 import { ServerClient } from '../../src/main/connection/server-client'
 import type { AuthEvent, AuthSnapshot } from '../../src/shared/contracts/auth'
@@ -23,6 +24,7 @@ const base = {
     replace: vi.fn<LocalFilesPort['replace']>()
   },
   appControl: { list: vi.fn<AppControlPort['list']>() },
+  announce: vi.fn<(notice: ToolNotice) => void>(),
   platform: 'darwin' as const
 }
 
