@@ -27,11 +27,13 @@
 | 영역 | 클라이언트가 쓰는 엔드포인트 | 구현 순서 |
 | --- | --- | --- |
 | 인증·기기 | `POST /auth/register`, `/auth/login`(기기 정보 포함), `/auth/refresh`, `/auth/logout`, `GET /auth/me` | 인증 어댑터 |
+| 기기·세션 관리 | `GET /devices`, `PATCH /devices/{id}`, `DELETE /devices/{id}/sessions`, `POST /auth/logout-all` | 설정 탭(F-046) |
 | 대화·요청 | `POST /conversations`, `POST /conversations/{id}/messages`(글 JSON·음성 multipart), `GET /requests/{request_id}` | 대화·요청 |
 | 명령 | `GET /device/commands/pending`, `POST /commands/{command_id}/results` | 명령 폴러 |
 | 음성 출력 | `POST /speech/syntheses`(답변 텍스트 → 오디오) | 음성 |
 | 일정 조회 | `GET /me/settings`, `GET /calendar/events?from&to&include_todos=true` | 일정 탭(F-039) |
-| 설정·앱 | `PATCH /me/settings`, `GET·PATCH /device/apps` | 후속(설정 화면·수집 동의) |
+| 허용 앱 | `GET·PATCH /device/apps` | 설정 탭(F-046) |
+| 설정 | `PATCH /me/settings` | 후속(설정 화면·수집 동의) |
 | 활동·삭제 | `POST /activities/batches`, `POST·GET /history-deletions` | 후속 |
 | 추천 | `GET /recommendations/pending`, `POST /recommendations/{id}/responses` | 추천 클라이언트(서버 구현 전, 명세 기반) |
 
@@ -89,6 +91,17 @@ F-027([#58](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/58))에서 
 
 변경이 성공하면 기간별 조회 결과를 모두 버리고 현재 기간을 다시 조회한다. 변경 전에는 사용자 시간대를 다시 읽어 그려진 달력의 시간대와 다르면 저장하지 않고 다시 조회한다.
 
+### 기기와 앱 관리 연동
+
+`GET /devices`, `PATCH /devices/{id}`, `DELETE /devices/{id}/sessions`, `POST /auth/logout-all`, `GET /device/apps`, `PATCH /device/apps/{id}`를 쓴다. 화면과 동작은 [AUTH-08](../features/auth.md#기기와-세션-관리-f-046)·[APP-09](../features/app-control.md#허용-앱-설정-f-046)가 원본이다. 요청·응답 본문은 서버 명세가 원본이다.
+
+| 항목 | 규칙 |
+| --- | --- |
+| 읽기 | 기기 목록은 한 번에, 앱 목록은 `limit=100`과 `cursor`로 쪽을 따라 읽는다. 마지막 접속 등 서버 시각은 시간대 없는 UTC로 온다(위 시각 규칙). 알 수 없는 `platform`은 "알 수 없는 운영체제"로 보이고 추측하지 않는다 |
+| 쓰기 | 한 번만 보내고 앱이 다시 보내지 않는다. 4xx 거절은 아무것도 바뀌지 않은 것으로, 응답 없음·5xx·읽을 수 없는 응답은 결과 불명으로 구분한다. 404는 이미 없는 것으로 보고 목록을 다시 읽는다. 전송 계층이 응답 없이 끊긴 쓰기를 다시 보낼 수 있어 같은 요청이 반복돼도 결과가 같은 변경만 쓴다 |
+| 경로 | 경로에 넣는 ID는 서버가 준 숫자 ID이며 보내기 전에 숫자 1~16자리인지 한 번 더 검사한다 |
+| 세션 | 모든 기기 로그아웃은 서버가 204로 답한 뒤에만 로컬 로그아웃을 시작한다. 이 기기의 세션을 목록 쪽 요청(`DELETE /devices/{id}/sessions`)으로 끊지 않는다 |
+
 ### Google 캘린더 연결 연동
 
 `GET /calendar/connections`, `POST /calendar/connections/google/authorizations`, `POST /calendar/connections/{id}/syncs`, `DELETE /calendar/connections/{id}`를 쓴다. 화면 범위는 [캘린더](../features/calendar.md#google-캘린더-연결-구현-범위)가 원본이다. 서버 동작은 2026-10-22 서버 코드와 실서버로 확인했다.
@@ -105,7 +118,7 @@ F-027([#58](https://github.com/CCCR-TeamProj-01/Jarvis-client/issues/58))에서 
 
 ## 계정 인증 계약
 
-제품 동작·입력 규칙과 설치 식별자의 수명은 [AUTH-01~07](../features/auth.md)을 따른다. 아래는 최종 ERD 3절·6-1절에 따라 Main의 인증 어댑터가 서버와 주고받을 연산의 의미다.
+제품 동작·입력 규칙과 설치 식별자의 수명은 [AUTH-01~08](../features/auth.md)을 따른다. 아래는 최종 ERD 3절·6-1절에 따라 Main의 인증 어댑터가 서버와 주고받을 연산의 의미다.
 
 | 연산 | 필수 계약 |
 | --- | --- |
